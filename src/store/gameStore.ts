@@ -103,6 +103,7 @@ interface GameStoreState {
   createMultiplayerRoom: (name: string, company: string, color: string) => Promise<void>;
   joinMultiplayerRoom: (code: string, name: string, company: string, color: string) => Promise<void>;
   startMultiplayerMatch: () => void;
+  requestFullSync: () => void;
   leaveMultiplayer: () => void;
   takeoverDisconnectedPlayer: (playerId: string) => void;
   pauseOnDisconnect: () => void;
@@ -233,6 +234,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set({
       phase: 'Lobby',
       isMultiplayer: true,
+      isHost: false,
+      lobbyState: null,
+      gameState: null,
       activeModal: 'none',
       lastMpSession: loadLastMpSession(),
     }),
@@ -383,29 +387,53 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   initNetworkListeners: () => {
     multiplayerManager.setCallbacks({
       onLobbyChange: (lobby) => set({ lobbyState: { ...lobby } }),
-      onGameStart: (state, localId) => {
-        const cloned = structuredClone(state);
-        cloned.currentPlayerId = localId;
-        set({
+      onGameStartSignal: (lobby, localId) => {
+        const resolvedId = localId || get().localPlayerId;
+        set((prev) => ({
           phase: 'Playing',
-          gameState: cloned,
-          localPlayerId: localId,
+          lobbyState: { ...lobby, gameStarted: true },
+          localPlayerId: resolvedId,
           isMultiplayer: true,
           isHost: false,
           selectedPlotId: null,
           activeModal: 'none',
           showVictoryModal: false,
-        });
+          gameState: prev.isHost ? prev.gameState : prev.gameState,
+        }));
       },
-      onStateSync: (remoteState) => {
-        const localId = get().localPlayerId;
+      onStateSync: (remoteState, assignedId) => {
+        const localId = assignedId || get().localPlayerId;
         const synced = structuredClone(remoteState);
         synced.currentPlayerId = localId;
-        const showVic = Boolean(synced.winnerId || (synced.challengeCompleted && !get().showVictoryModal));
-        set((prev) => ({
-          gameState: synced,
-          showVictoryModal: prev.showVictoryModal || showVic,
-        }));
+        const showVic = Boolean(
+          synced.winnerId || (synced.challengeCompleted && !get().showVictoryModal)
+        );
+        set((prev) => {
+          const forceEnterPlaying = !prev.isHost && synced.phase === 'Playing';
+          return {
+            phase: forceEnterPlaying ? 'Playing' : prev.phase,
+            gameState: synced,
+            localPlayerId: localId,
+            activeModal: prev.phase === 'Lobby' ? 'none' : prev.activeModal,
+            selectedPlotId: prev.phase === 'Lobby' ? null : prev.selectedPlotId,
+            showVictoryModal: prev.showVictoryModal || showVic,
+          };
+        });
+      },
+      onRequestFullSync: () => get().gameState,
+      onClientReconnected: (playerId) => {
+        const gs = get().gameState;
+        if (!gs || !get().isHost) return;
+        const next = structuredClone(gs);
+        const target = next.players.find((p) => p.id === playerId);
+        if (target && !target.isAI) {
+          target.connectionStatus = 'connected';
+        }
+        if (next.disconnectAlert?.playerId === playerId) {
+          next.disconnectAlert = null;
+        }
+        set({ gameState: next });
+        get().showToast(true, `Gracz ${target?.name ?? ''} ponownie połączony.`);
       },
       onClientAction: (action) => {
         const gs = get().gameState;
@@ -437,7 +465,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             timestamp: Date.now(),
           };
           set({ gameState: next });
-          multiplayerManager.broadcastStateSync(next);
+          multiplayerManager.broadcastStateSync(next, true);
         }
       },
       onHostDisconnected: () => {
@@ -449,6 +477,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   createMultiplayerRoom: async (name, company, color) => {
     get().initNetworkListeners();
+    set({ gameState: null });
     const lobby = await multiplayerManager.createRoom(name, company, color);
     const session: LastMpSession = {
       roomCode: lobby.roomCode,
@@ -465,11 +494,13 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       localPlayerId: 'player_1',
       lobbyState: lobby,
       lastMpSession: session,
+      gameState: null,
     });
   },
 
   joinMultiplayerRoom: async (code, name, company, color) => {
     get().initNetworkListeners();
+    set({ gameState: null });
     const { lobby, playerId } = await multiplayerManager.joinRoom(code, name, company, color);
     const session: LastMpSession = {
       roomCode: lobby.roomCode,
@@ -481,19 +512,22 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     };
     saveLastMpSession(session);
     set({
+      phase: lobby.gameStarted ? 'Playing' : 'Lobby',
       isMultiplayer: true,
       isHost: false,
       localPlayerId: playerId,
       lobbyState: lobby,
       lastMpSession: session,
     });
+    if (lobby.gameStarted) {
+      multiplayerManager.requestFullSync();
+    }
   },
 
   startMultiplayerMatch: () => {
     const lobby = get().lobbyState;
     if (!lobby || !get().isHost) return;
     const gs = initializeMultiplayerGame(lobby, 'player_1');
-    multiplayerManager.broadcastGameStart(gs);
     set({
       phase: 'Playing',
       gameState: gs,
@@ -502,6 +536,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activeModal: 'none',
       showVictoryModal: false,
     });
+    multiplayerManager.broadcastGameStart(gs);
+  },
+
+  requestFullSync: () => {
+    multiplayerManager.requestFullSync();
   },
 
   leaveMultiplayer: () => {

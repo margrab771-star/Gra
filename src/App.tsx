@@ -59,6 +59,7 @@ export function App() {
 
   useEffect(() => {
     document.title = GAME_CONFIG.title;
+    useGameStore.getState().initNetworkListeners();
   }, []);
 
   // Niezawodny autozapis co 15 s + beforeunload / visibilitychange (Single Player)
@@ -160,7 +161,7 @@ export function App() {
     return <GameSetup onStart={actions.startSinglePlayer} onBack={actions.goToMenu} />;
   }
 
-  if (phase === 'Lobby') {
+  if (phase === 'Lobby' && !lobbyState?.gameStarted) {
     const resolvedRoom = quickJoinRoomCode ?? initialRoomCode;
     return (
       <MultiplayerLobby
@@ -178,7 +179,41 @@ export function App() {
     );
   }
 
-  if (!gameState) return null;
+  if (!gameState) {
+    if (isMultiplayer) {
+      return (
+        <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-6">
+          <div className="max-w-md w-full rounded-2xl bg-[#111827] border border-[#243044] p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-10 h-10 mx-auto rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+            <div>
+              <h2 className="text-base font-bold text-white">Synchronizacja rozgrywki z Hostem...</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Pobieranie mapy i początkowego stanu gospodarki ({lobbyState?.mapSize ?? 24}×
+                {lobbyState?.mapSize ?? 24}). To zajmuje zazwyczaj ułamek sekundy.
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={actions.requestFullSync}
+                className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-semibold text-white cursor-pointer"
+              >
+                🔄 Poproś o pełny stan gry
+              </button>
+              <button
+                type="button"
+                onClick={actions.leaveMultiplayer}
+                className="px-4 py-2 rounded-lg bg-[#1c2434] hover:bg-rose-950/60 text-xs text-slate-300 cursor-pointer"
+              >
+                Wyjdź do Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const currentPlayer = getLocalPlayer(gameState, localPlayerId);
   const selectedPlot = selectedPlotId

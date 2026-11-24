@@ -30,8 +30,24 @@ export type NetworkMessage =
       companyName?: string;
       color?: string;
     }
-  | { kind: 'game_start'; state: GameState }
-  | { kind: 'state_sync'; state: GameState }
+  | {
+      kind: 'GAME_START';
+      lobby: LobbyState;
+      mapSize: number;
+      seedTick: number;
+      assignedPlayerId: string;
+      startedAt: number;
+    }
+  | { kind: 'STATE_SYNC'; state: GameState }
+  | {
+      kind: 'STATE_SYNC_CHUNK';
+      transferId: string;
+      index: number;
+      total: number;
+      data: string;
+    }
+  | { kind: 'GAME_STARTED_ACK'; playerId: string }
+  | { kind: 'REQUEST_FULL_SYNC'; playerId: string }
   | { kind: 'player_action'; action: PlayerAction }
   | { kind: 'action_feedback'; targetPlayerId: string; ok: boolean; message: string }
   | { kind: 'ping'; ts: number };
@@ -39,6 +55,10 @@ export type NetworkMessage =
 const PEER_PREFIX = 'market-dominion-v1-';
 const CONNECTION_TIMEOUT_MS = 10_000;
 const MIN_SYNC_INTERVAL_MS = 450;
+const START_RETRY_INTERVAL_MS = 1_500;
+const MAX_START_RETRIES = 5;
+export const MAX_WEBRTC_CHUNK_BYTES = 48 * 1024;
+const MAX_BUFFERED_AMOUNT_BYTES = 512 * 1024;
 
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -94,9 +114,206 @@ export function buildInviteLink(roomCode: string): string {
   return `${base}?room=${encodeURIComponent(normalized)}`;
 }
 
+const utf8Encoder = new TextEncoder();
+
+export function getUtf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).length;
+}
+
+/**
+ * Konwertuje dowolną strukturę do bezpiecznej postaci JSON (usuwa funkcje, symbole,
+ * wartości undefined i cykle; konwertuje Set -> Array oraz Map -> Object).
+ */
+export function toJsonSafe<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return (Number.isFinite(value) ? value : 0) as T;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value) as T;
+  }
+  if (typeof value !== 'object') {
+    return undefined as T;
+  }
+
+  const obj = value as object;
+  if (seen.has(obj)) {
+    return undefined as T;
+  }
+  seen.add(obj);
+
+  try {
+    if (obj instanceof Date) {
+      return obj.toISOString() as T;
+    }
+    if (obj instanceof Set) {
+      const arr: unknown[] = [];
+      for (const item of obj.values()) {
+        const clean = toJsonSafe(item, seen);
+        if (clean !== undefined) arr.push(clean);
+      }
+      return arr as T;
+    }
+    if (obj instanceof Map) {
+      const rec: Record<string, unknown> = {};
+      for (const [k, v] of obj.entries()) {
+        const clean = toJsonSafe(v, seen);
+        if (clean !== undefined) rec[String(k)] = clean;
+      }
+      return rec as T;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map((item) => {
+        const clean = toJsonSafe(item, seen);
+        return clean === undefined ? null : clean;
+      }) as T;
+    }
+
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (v === undefined || typeof v === 'function' || typeof v === 'symbol') {
+        continue;
+      }
+      const clean = toJsonSafe(v, seen);
+      if (clean !== undefined) {
+        out[k] = clean;
+      }
+    }
+    return out as T;
+  } finally {
+    seen.delete(obj);
+  }
+}
+
+/**
+ * Dzieli zserializowany JSON na bezpieczne fragmenty o rozmiarze bajtowym <= maxBytes,
+ * nie przecinając par surogatów UTF-16.
+ */
+export function splitJsonIntoByteChunks(
+  json: string,
+  maxBytes = MAX_WEBRTC_CHUNK_BYTES
+): string[] {
+  if (getUtf8ByteLength(json) <= maxBytes) {
+    return [json];
+  }
+
+  const chunks: string[] = [];
+  let offset = 0;
+  // Bezpieczny krok początkowy zakładając max ~3 bajty/znak w polskim JSON
+  const approxChars = Math.max(256, Math.floor(maxBytes / 3));
+
+  while (offset < json.length) {
+    let end = Math.min(json.length, offset + approxChars);
+
+    // Rozszerzaj okno dopóki mieścimy się bezpiecznie w limicie bajtów
+    while (end < json.length) {
+      let nextEnd = Math.min(json.length, end + Math.max(128, Math.floor((end - offset) / 4)));
+      if (nextEnd < json.length) {
+        const code = json.charCodeAt(nextEnd - 1);
+        if (code >= 0xd800 && code <= 0xdbff) nextEnd--;
+      }
+      if (nextEnd <= end) break;
+      if (getUtf8ByteLength(json.slice(offset, nextEnd)) <= maxBytes) {
+        end = nextEnd;
+      } else {
+        break;
+      }
+    }
+
+    // Gdy nadal przekracza limit (np. wiele 4-bajtowych emoji), zawężaj do limitu
+    while (end > offset + 1 && getUtf8ByteLength(json.slice(offset, end)) > maxBytes) {
+      end = Math.max(offset + 1, end - Math.max(64, Math.floor((end - offset) / 6)));
+    }
+
+    // Nigdy nie przecinaj pary surogatów UTF-16 na końcu kawałka
+    if (end < json.length && end > offset + 1) {
+      const lastCode = json.charCodeAt(end - 1);
+      if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+        end--;
+      }
+    }
+
+    chunks.push(json.slice(offset, end));
+    offset = end;
+  }
+
+  return chunks;
+}
+
+/**
+ * Składa pocięte fragmenty STATE_SYNC_CHUNK z powrotem w kompletny GameState.
+ */
+export class StateChunkAssembler {
+  private pending = new Map<
+    string,
+    { total: number; parts: (string | undefined)[]; received: number; createdAt: number }
+  >();
+
+  pushChunk(
+    transferId: string,
+    index: number,
+    total: number,
+    data: string
+  ): { complete: false } | { complete: true; state: GameState | null; error?: string } {
+    this.pruneExpired();
+
+    if (total <= 0 || index < 0 || index >= total) {
+      return { complete: true, state: null, error: 'Nieprawidłowy indeks chunku.' };
+    }
+
+    let entry = this.pending.get(transferId);
+    if (!entry || entry.total !== total) {
+      entry = {
+        total,
+        parts: new Array<string | undefined>(total),
+        received: 0,
+        createdAt: Date.now(),
+      };
+      this.pending.set(transferId, entry);
+    }
+
+    if (entry.parts[index] === undefined) {
+      entry.received++;
+    }
+    entry.parts[index] = data;
+
+    if (entry.received < entry.total) {
+      return { complete: false };
+    }
+
+    this.pending.delete(transferId);
+    const fullJson = entry.parts.join('');
+    try {
+      const parsed = JSON.parse(fullJson) as GameState;
+      return { complete: true, state: parsed };
+    } catch (e) {
+      return {
+        complete: true,
+        state: null,
+        error: e instanceof Error ? e.message : 'Błąd parsowania JSON po złożeniu chunków.',
+      };
+    }
+  }
+
+  clear(): void {
+    this.pending.clear();
+  }
+
+  private pruneExpired(): void {
+    const now = Date.now();
+    for (const [id, item] of this.pending.entries()) {
+      if (now - item.createdAt > 15_000) {
+        this.pending.delete(id);
+      }
+    }
+  }
+}
+
 /**
  * Tworzy lekki, w pełni serializowalny JSON snapshot stanu gry bez zbędnej historii wykresów
- * ani struktur nienatywnych dla WebRTC DataConnection.
+ * ani struktur nienatywnych dla WebRTC DataConnection (Set/Map/funkcje/cykle).
  */
 export function sanitizeStateForNetwork(state: GameState): GameState {
   const compactResourcePrices = state.resourcePrices.map((rp) => ({
@@ -115,7 +332,7 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     priceHistory: s.priceHistory.slice(-24),
   }));
 
-  return {
+  const trimmed: GameState = {
     ...state,
     players: compactPlayers,
     resourcePrices: compactResourcePrices,
@@ -130,6 +347,64 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     transportLines: state.transportLines.slice(0, 40),
     lastSyncTimestamp: Date.now(),
   };
+
+  return toJsonSafe(trimmed);
+}
+
+/**
+ * Buduje listę komunikatów (pojedynczy STATE_SYNC albo chunki <= 48 KB) do wysłania przez DataChannel.
+ */
+export function buildStateSyncMessages(
+  state: GameState,
+  transferIdPrefix = 'sync'
+): NetworkMessage[] {
+  const safe = sanitizeStateForNetwork(state);
+  const directMsg: NetworkMessage = { kind: 'STATE_SYNC', state: safe };
+  const directJson = JSON.stringify(directMsg);
+  if (getUtf8ByteLength(directJson) <= MAX_WEBRTC_CHUNK_BYTES) {
+    return [directMsg];
+  }
+
+  const stateJson = JSON.stringify(safe);
+  const transferId = `${transferIdPrefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  // Rezerwujemy ~200 B na kopertę komunikatu + ok. ~25% zapasu na escapowanie cudzysłowów w JSON
+  const payloadEnvelopeBytes = 256;
+  const rawChunks = splitJsonIntoByteChunks(
+    stateJson,
+    Math.floor((MAX_WEBRTC_CHUNK_BYTES - payloadEnvelopeBytes) * 0.72)
+  );
+
+  // Dodatkowo przytnij dowolny fragment, gdyby miał nadzwyczaj dużo eskapowanych znaków
+  const finalChunks: string[] = [];
+  for (const part of rawChunks) {
+    const wrappedLen = getUtf8ByteLength(
+      JSON.stringify({
+        kind: 'STATE_SYNC_CHUNK',
+        transferId,
+        index: 0,
+        total: 999,
+        data: part,
+      })
+    );
+    if (wrappedLen <= MAX_WEBRTC_CHUNK_BYTES) {
+      finalChunks.push(part);
+    } else {
+      finalChunks.push(
+        ...splitJsonIntoByteChunks(
+          part,
+          Math.floor((MAX_WEBRTC_CHUNK_BYTES - payloadEnvelopeBytes) * 0.5)
+        )
+      );
+    }
+  }
+
+  return finalChunks.map((data, index) => ({
+    kind: 'STATE_SYNC_CHUNK',
+    transferId,
+    index,
+    total: finalChunks.length,
+    data,
+  }));
 }
 
 export function translatePeerError(err: unknown): string {
@@ -233,9 +508,11 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
 
 export interface MultiplayerCallbacks {
   onLobbyChange: (lobby: LobbyState) => void;
-  onGameStart: (state: GameState, localPlayerId: string) => void;
-  onStateSync: (state: GameState) => void;
+  onGameStartSignal: (lobby: LobbyState, localPlayerId: string) => void;
+  onStateSync: (state: GameState, localPlayerId: string) => void;
   onClientAction: (action: PlayerAction) => void;
+  onRequestFullSync: () => GameState | null;
+  onClientReconnected: (playerId: string) => void;
   onActionFeedback: (ok: boolean, message: string) => void;
   onPeerDisconnected: (playerId: string) => void;
   onHostDisconnected: () => void;
@@ -243,7 +520,29 @@ export interface MultiplayerCallbacks {
   onError: (msg: string) => void;
 }
 
-class MultiplayerManager {
+export interface PeerLinkLike {
+  peer: string;
+  open: boolean;
+  dataChannel?: { bufferedAmount?: number };
+  send: (data: unknown) => void;
+  close: () => void;
+  on: (event: string, cb: (arg?: unknown) => void) => void;
+}
+
+function parseIncomingNetworkMessage(raw: unknown): NetworkMessage | null {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as NetworkMessage) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as NetworkMessage;
+}
+
+export class MultiplayerManager {
   private peer: Peer | null = null;
   private hostConn: DataConnection | null = null;
   private clientConns: Map<string, DataConnection> = new Map();
@@ -253,6 +552,14 @@ class MultiplayerManager {
   private isHostFlag = false;
   private localPlayerId = 'player_1';
   private heartbeatTimer: number | null = null;
+  private startRetryTimer: number | null = null;
+  private startRetryAttempts = 0;
+  private ackedPlayerIds: Set<string> = new Set();
+  private lastBroadcastedState: GameState | null = null;
+  private lastStartTimestamp = 0;
+  private ackedStartTimestamp = 0;
+  private hasReceivedInitialSync = false;
+  private chunkAssembler = new StateChunkAssembler();
   private lastSyncSentAt = 0;
 
   setCallbacks(cb: Partial<MultiplayerCallbacks>): void {
@@ -273,6 +580,38 @@ class MultiplayerManager {
 
   get myPlayerId(): string {
     return this.localPlayerId;
+  }
+
+  /**
+   * Umożliwia wstrzyknięcie wirtualnego stanu Hosta i połączeń w testach integracyjnych.
+   */
+  attachHostTestSession(lobby: LobbyState, conns: Map<string, PeerLinkLike>, peerMap: Map<string, string>): void {
+    this.disconnect();
+    this.isHostFlag = true;
+    this.localPlayerId = 'player_1';
+    this.lobby = lobby;
+    this.clientConns = conns as unknown as Map<string, DataConnection>;
+    this.peerToPlayerId = new Map(peerMap);
+    for (const [pid, conn] of conns.entries()) {
+      conn.on('data', (raw) => {
+        const msg = parseIncomingNetworkMessage(raw);
+        if (msg) this.handleHostIncoming(conn as unknown as DataConnection, msg);
+      });
+      if (!this.peerToPlayerId.has(pid)) {
+        this.peerToPlayerId.set(pid, pid);
+      }
+    }
+  }
+
+  attachClientTestConnection(conn: PeerLinkLike, assignedPlayerId: string): void {
+    this.disconnect();
+    this.isHostFlag = false;
+    this.localPlayerId = assignedPlayerId;
+    this.hostConn = conn as unknown as DataConnection;
+    conn.on('data', (raw) => {
+      const msg = parseIncomingNetworkMessage(raw);
+      if (msg) this.handleClientIncoming(msg);
+    });
   }
 
   async createRoom(
@@ -354,13 +693,16 @@ class MultiplayerManager {
   }
 
   private setupHostClientConnection(conn: DataConnection): void {
+    if (conn.open) {
+      this.clientConns.set(conn.peer, conn);
+    }
     conn.on('open', () => {
       this.clientConns.set(conn.peer, conn);
     });
 
     conn.on('data', (raw) => {
-      const msg = raw as NetworkMessage;
-      if (!msg || typeof msg !== 'object') return;
+      const msg = parseIncomingNetworkMessage(raw);
+      if (!msg) return;
       this.handleHostIncoming(conn, msg);
     });
 
@@ -390,9 +732,34 @@ class MultiplayerManager {
 
   private handleHostIncoming(conn: DataConnection, msg: NetworkMessage): void {
     if (!this.lobby) return;
+    this.clientConns.set(conn.peer, conn);
 
     if (msg.kind === 'join_request') {
       if (this.lobby.gameStarted) {
+        // Pozwól na ponowne dołączenie gracza po odświeżeniu strony
+        const reconnecting = this.lobby.players.find(
+          (p) =>
+            !p.isAI &&
+            !p.isHost &&
+            ((p.name && p.name === msg.name) || (p.companyName && p.companyName === msg.companyName))
+        );
+        if (reconnecting) {
+          reconnecting.peerId = conn.peer;
+          reconnecting.connected = true;
+          this.peerToPlayerId.set(conn.peer, reconnecting.id);
+          this.ackedPlayerIds.delete(reconnecting.id);
+          conn.send({
+            kind: 'join_accepted',
+            assignedPlayerId: reconnecting.id,
+            lobby: this.lobby,
+          } satisfies NetworkMessage);
+          this.callbacks.onClientReconnected?.(reconnecting.id);
+          const currentState = this.callbacks.onRequestFullSync?.() ?? this.lastBroadcastedState;
+          if (currentState) {
+            this.sendStartAndSyncToConn(conn, reconnecting.id, currentState);
+          }
+          return;
+        }
         conn.send({
           kind: 'join_rejected',
           reason: 'Rozgrywka w tym pokoju już się rozpoczęła.',
@@ -456,6 +823,23 @@ class MultiplayerManager {
       }
     } else if (msg.kind === 'player_action') {
       this.callbacks.onClientAction?.(msg.action);
+    } else if (msg.kind === 'GAME_STARTED_ACK') {
+      const pid = msg.playerId || this.peerToPlayerId.get(conn.peer);
+      if (pid) {
+        this.ackedPlayerIds.add(pid);
+        if (this.areAllClientsAcked()) {
+          this.stopStartRetry();
+        }
+      }
+    } else if (msg.kind === 'REQUEST_FULL_SYNC') {
+      const pid = msg.playerId || this.peerToPlayerId.get(conn.peer) || '';
+      if (pid) {
+        this.peerToPlayerId.set(conn.peer, pid);
+      }
+      const currentState = this.callbacks.onRequestFullSync?.() ?? this.lastBroadcastedState;
+      if (currentState) {
+        this.sendStartAndSyncToConn(conn, pid, currentState);
+      }
     }
   }
 
@@ -514,8 +898,8 @@ class MultiplayerManager {
         });
 
         conn.on('data', (raw) => {
-          const msg = raw as NetworkMessage;
-          if (!msg || typeof msg !== 'object') return;
+          const msg = parseIncomingNetworkMessage(raw);
+          if (!msg) return;
 
           if (msg.kind === 'join_accepted') {
             if (!settled) {
@@ -528,6 +912,10 @@ class MultiplayerManager {
             this.setStage('connected', `Połączono z pokojem ${normalizedCode}.`);
             this.callbacks.onLobbyChange?.(msg.lobby);
             resolve({ lobby: msg.lobby, playerId: msg.assignedPlayerId });
+            if (msg.lobby.gameStarted) {
+              this.callbacks.onGameStartSignal?.(msg.lobby, this.localPlayerId);
+              this.requestFullSync();
+            }
           } else if (msg.kind === 'join_rejected') {
             if (!settled) {
               settled = true;
@@ -536,17 +924,8 @@ class MultiplayerManager {
             this.setStage('error', msg.reason);
             this.disconnect();
             reject(new Error(msg.reason));
-          } else if (msg.kind === 'lobby_update') {
-            this.lobby = msg.lobby;
-            this.callbacks.onLobbyChange?.(msg.lobby);
-          } else if (msg.kind === 'game_start') {
-            this.callbacks.onGameStart?.(msg.state, this.localPlayerId);
-          } else if (msg.kind === 'state_sync') {
-            this.callbacks.onStateSync?.(msg.state);
-          } else if (msg.kind === 'action_feedback') {
-            if (msg.targetPlayerId === this.localPlayerId) {
-              this.callbacks.onActionFeedback?.(msg.ok, msg.message);
-            }
+          } else {
+            this.handleClientIncoming(msg);
           }
         });
 
@@ -577,6 +956,74 @@ class MultiplayerManager {
         }
       });
     });
+  }
+
+  private handleClientIncoming(msg: NetworkMessage): void {
+    if (msg.kind === 'lobby_update') {
+      this.lobby = msg.lobby;
+      this.callbacks.onLobbyChange?.(msg.lobby);
+      if (msg.lobby.gameStarted && !this.hasReceivedInitialSync) {
+        this.callbacks.onGameStartSignal?.(msg.lobby, this.localPlayerId);
+        this.requestFullSync();
+      }
+    } else if (msg.kind === 'GAME_START') {
+      if (msg.assignedPlayerId) {
+        this.localPlayerId = msg.assignedPlayerId;
+      }
+      this.lastStartTimestamp = msg.startedAt;
+      this.lobby = { ...msg.lobby, gameStarted: true };
+      this.callbacks.onLobbyChange?.(this.lobby);
+      this.callbacks.onGameStartSignal?.(this.lobby, this.localPlayerId);
+      if (this.hasReceivedInitialSync && this.ackedStartTimestamp !== msg.startedAt) {
+        this.sendGameStartedAck(msg.startedAt);
+      }
+    } else if (msg.kind === 'STATE_SYNC') {
+      this.handleClientStateReceived(msg.state);
+    } else if (msg.kind === 'STATE_SYNC_CHUNK') {
+      const assembled = this.chunkAssembler.pushChunk(
+        msg.transferId,
+        msg.index,
+        msg.total,
+        msg.data
+      );
+      if (assembled.complete) {
+        if (assembled.state) {
+          this.handleClientStateReceived(assembled.state);
+        } else {
+          this.requestFullSync();
+        }
+      }
+    } else if (msg.kind === 'action_feedback') {
+      if (msg.targetPlayerId === this.localPlayerId) {
+        this.callbacks.onActionFeedback?.(msg.ok, msg.message);
+      }
+    }
+  }
+
+  private handleClientStateReceived(state: GameState): void {
+    this.hasReceivedInitialSync = true;
+    this.callbacks.onStateSync?.(state, this.localPlayerId);
+    const ackTargetTs = this.lastStartTimestamp || Date.now();
+    if (this.ackedStartTimestamp !== ackTargetTs) {
+      this.sendGameStartedAck(ackTargetTs);
+    }
+  }
+
+  private sendGameStartedAck(startTimestamp: number): void {
+    if (this.isHostFlag || !this.hostConn?.open) return;
+    this.ackedStartTimestamp = startTimestamp;
+    this.hostConn.send({
+      kind: 'GAME_STARTED_ACK',
+      playerId: this.localPlayerId,
+    } satisfies NetworkMessage);
+  }
+
+  requestFullSync(): void {
+    if (this.isHostFlag || !this.hostConn?.open) return;
+    this.hostConn.send({
+      kind: 'REQUEST_FULL_SYNC',
+      playerId: this.localPlayerId,
+    } satisfies NetworkMessage);
   }
 
   updateLobbySettings(
@@ -653,30 +1100,98 @@ class MultiplayerManager {
     }
   }
 
+  private sendStartAndSyncToConn(
+    conn: DataConnection,
+    assignedPlayerId: string,
+    state: GameState,
+    precomputedMessages?: NetworkMessage[]
+  ): void {
+    if (!conn.open || !this.lobby) return;
+    const startedAt = this.lastStartTimestamp || Date.now();
+    conn.send({
+      kind: 'GAME_START',
+      lobby: this.lobby,
+      mapSize: state.settings.mapSize,
+      seedTick: state.time.tick,
+      assignedPlayerId,
+      startedAt,
+    } satisfies NetworkMessage);
+
+    const msgs = precomputedMessages ?? buildStateSyncMessages(state, 'full');
+    this.sendMessagesToConn(conn, msgs);
+  }
+
+  private sendMessagesToConn(conn: DataConnection, messages: NetworkMessage[]): void {
+    if (!conn.open) return;
+    for (const msg of messages) {
+      conn.send(msg);
+    }
+  }
+
+  private areAllClientsAcked(): boolean {
+    for (const [peerId, conn] of this.clientConns.entries()) {
+      if (!conn.open) continue;
+      const pid = this.peerToPlayerId.get(peerId) ?? peerId;
+      if (pid && !this.ackedPlayerIds.has(pid)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   broadcastGameStart(state: GameState): void {
     if (!this.isHostFlag || !this.lobby) return;
     this.lobby.gameStarted = true;
-    const compact = sanitizeStateForNetwork(state);
+    this.lastBroadcastedState = state;
+    this.ackedPlayerIds.clear();
+    this.startRetryAttempts = 0;
+    this.lastStartTimestamp = Date.now();
     this.lastSyncSentAt = Date.now();
-    for (const conn of this.clientConns.values()) {
-      if (conn.open) {
-        conn.send({ kind: 'game_start', state: compact } satisfies NetworkMessage);
-      }
+
+    const syncMessages = buildStateSyncMessages(state, 'start');
+    for (const [peerId, conn] of this.clientConns.entries()) {
+      if (!conn.open) continue;
+      const pid = this.peerToPlayerId.get(peerId) ?? '';
+      this.sendStartAndSyncToConn(conn, pid, state, syncMessages);
+    }
+
+    this.stopStartRetry();
+    if (this.clientConns.size > 0) {
+      this.startRetryTimer = globalThis.setInterval(() => {
+        this.startRetryAttempts += 1;
+        if (this.startRetryAttempts > MAX_START_RETRIES || this.areAllClientsAcked()) {
+          this.stopStartRetry();
+          return;
+        }
+        const latestState = this.callbacks.onRequestFullSync?.() ?? this.lastBroadcastedState ?? state;
+        const retryMessages = buildStateSyncMessages(latestState, `retry${this.startRetryAttempts}`);
+        for (const [peerId, conn] of this.clientConns.entries()) {
+          if (!conn.open) continue;
+          const pid = this.peerToPlayerId.get(peerId) ?? peerId;
+          if (pid && this.ackedPlayerIds.has(pid)) continue;
+          this.sendStartAndSyncToConn(conn, pid, latestState, retryMessages);
+        }
+      }, START_RETRY_INTERVAL_MS) as unknown as number;
     }
   }
 
   broadcastStateSync(state: GameState, force = false): void {
     if (!this.isHostFlag) return;
+    this.lastBroadcastedState = state;
     const now = Date.now();
     if (!force && now - this.lastSyncSentAt < MIN_SYNC_INTERVAL_MS) {
       return;
     }
     this.lastSyncSentAt = now;
-    const compact = sanitizeStateForNetwork(state);
+    const syncMessages = buildStateSyncMessages(state, 'tick');
     for (const conn of this.clientConns.values()) {
-      if (conn.open) {
-        conn.send({ kind: 'state_sync', state: compact } satisfies NetworkMessage);
+      if (!conn.open) continue;
+      const buffered = (conn as unknown as { dataChannel?: { bufferedAmount?: number } }).dataChannel
+        ?.bufferedAmount ?? 0;
+      if (!force && buffered > MAX_BUFFERED_AMOUNT_BYTES) {
+        continue;
       }
+      this.sendMessagesToConn(conn, syncMessages);
     }
   }
 
@@ -708,7 +1223,7 @@ class MultiplayerManager {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    this.heartbeatTimer = window.setInterval(() => {
+    this.heartbeatTimer = globalThis.setInterval(() => {
       if (this.isHostFlag) {
         for (const conn of this.clientConns.values()) {
           if (conn.open) {
@@ -718,7 +1233,7 @@ class MultiplayerManager {
       } else if (this.hostConn?.open) {
         this.hostConn.send({ kind: 'ping', ts: Date.now() } satisfies NetworkMessage);
       }
-    }, 4000);
+    }, 4000) as unknown as number;
   }
 
   private stopHeartbeat(): void {
@@ -728,13 +1243,27 @@ class MultiplayerManager {
     }
   }
 
+  private stopStartRetry(): void {
+    if (this.startRetryTimer !== null) {
+      clearInterval(this.startRetryTimer);
+      this.startRetryTimer = null;
+    }
+  }
+
   disconnect(): void {
     this.stopHeartbeat();
+    this.stopStartRetry();
     this.hostConn?.close();
     this.hostConn = null;
     for (const c of this.clientConns.values()) c.close();
     this.clientConns.clear();
     this.peerToPlayerId.clear();
+    this.ackedPlayerIds.clear();
+    this.lastBroadcastedState = null;
+    this.lastStartTimestamp = 0;
+    this.ackedStartTimestamp = 0;
+    this.hasReceivedInitialSync = false;
+    this.chunkAssembler.clear();
     this.peer?.destroy();
     this.peer = null;
     this.lobby = null;

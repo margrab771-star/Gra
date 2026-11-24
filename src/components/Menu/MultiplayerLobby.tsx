@@ -64,6 +64,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         setStageLabel(label);
       },
     });
+    return () => {
+      // Czyścimy wyłącznie lokalny handler UI etapu połączenia — bez naruszania globalnych listenerów sieci
+      multiplayerManager.setCallbacks({ onConnectionStage: undefined });
+    };
   }, []);
 
   const handleCreate = async () => {
@@ -274,23 +278,35 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           {!isHost ? (
             <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-2">
               <div className="text-xs text-slate-400">
-                Oczekiwanie na uruchomienie symulacji przez Hosta...
+                {lobbyState.gameStarted
+                  ? '🚀 Host uruchomił symulację — pobieranie mapy i przełączanie widoku...'
+                  : 'Oczekiwanie na uruchomienie symulacji przez Hosta...'}
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !guestReady;
-                  setGuestReady(next);
-                  multiplayerManager.sendGuestReady(next, playerName, companyName, color);
-                }}
-                className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm ${
-                  guestReady
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                }`}
-              >
-                {guestReady ? '✅ Gotowy do Gry (Cofnij)' : '✋ Jestem Gotowy'}
-              </button>
+              {lobbyState.gameStarted ? (
+                <button
+                  type="button"
+                  onClick={() => multiplayerManager.requestFullSync()}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs bg-sky-600 hover:bg-sky-500 text-white"
+                >
+                  🔄 Pobierz stan gry od Hosta
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !guestReady;
+                    setGuestReady(next);
+                    multiplayerManager.sendGuestReady(next, playerName, companyName, color);
+                  }}
+                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm ${
+                    guestReady
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  }`}
+                >
+                  {guestReady ? '✅ Gotowy do Gry (Cofnij)' : '✋ Jestem Gotowy'}
+                </button>
+              )}
             </div>
           ) : (
             <button
