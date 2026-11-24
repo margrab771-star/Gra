@@ -54,11 +54,16 @@ export type NetworkMessage =
 
 const PEER_PREFIX = 'market-dominion-v1-';
 const CONNECTION_TIMEOUT_MS = 10_000;
-const MIN_SYNC_INTERVAL_MS = 450;
+// 1000 ms między tickami STATE_SYNC – nie zatykamy wolnych łączy TURN/komórkowych
+const MIN_SYNC_INTERVAL_MS = 1_000;
 const START_RETRY_INTERVAL_MS = 1_500;
 const MAX_START_RETRIES = 5;
-export const MAX_WEBRTC_CHUNK_BYTES = 48 * 1024;
-const MAX_BUFFERED_AMOUNT_BYTES = 512 * 1024;
+// 16 KB to bezpieczny próg SCTP WebRTC DataChannel (szczególnie przez TURN i relay)
+export const MAX_WEBRTC_CHUNK_BYTES = 16 * 1024;
+// Jeśli bufor DataChannel przekracza 256 KB, wstrzymujemy zwykłe tick-synce
+const MAX_BUFFERED_AMOUNT_BYTES = 256 * 1024;
+// 6-sekundowa tolerancja przed uznaniem rozłączenia za trwałe
+const DISCONNECT_GRACE_MS = 6_000;
 
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -561,6 +566,10 @@ export class MultiplayerManager {
   private hasReceivedInitialSync = false;
   private chunkAssembler = new StateChunkAssembler();
   private lastSyncSentAt = 0;
+  // Mapa timerów opóźnionego rozłączenia (grace period 6s) – klucz: peerId klienta lub 'host'
+  private disconnectGraceTimers: Map<string, number> = new Map();
+  // Znacznik czasu ostatniej aktywności (heartbeat/data) per peerId
+  private lastActivityAt: Map<string, number> = new Map();
 
   setCallbacks(cb: Partial<MultiplayerCallbacks>): void {
     this.callbacks = { ...this.callbacks, ...cb };
@@ -695,12 +704,19 @@ export class MultiplayerManager {
   private setupHostClientConnection(conn: DataConnection): void {
     if (conn.open) {
       this.clientConns.set(conn.peer, conn);
+      this.lastActivityAt.set(conn.peer, Date.now());
     }
     conn.on('open', () => {
       this.clientConns.set(conn.peer, conn);
+      this.lastActivityAt.set(conn.peer, Date.now());
+      // Anuluj ewentualny timer grace-period gdy klient wrócił do sieci
+      this.cancelGraceTimer(conn.peer);
     });
 
     conn.on('data', (raw) => {
+      // Zarejestruj aktywność → anuluj timer rozłączenia grace-period
+      this.lastActivityAt.set(conn.peer, Date.now());
+      this.cancelGraceTimer(conn.peer);
       const msg = parseIncomingNetworkMessage(raw);
       if (!msg) return;
       this.handleHostIncoming(conn, msg);
@@ -708,31 +724,69 @@ export class MultiplayerManager {
 
     conn.on('close', () => {
       const pid = this.peerToPlayerId.get(conn.peer);
-      this.clientConns.delete(conn.peer);
-      this.peerToPlayerId.delete(conn.peer);
-      if (pid && this.lobby) {
+      if (!pid || !this.lobby) {
+        this.clientConns.delete(conn.peer);
+        this.peerToPlayerId.delete(conn.peer);
+        return;
+      }
+      // Lobby jeszcze nie ruszyło → natychmiastowe usunięcie z listy graczy
+      if (!this.lobby.gameStarted) {
+        this.clientConns.delete(conn.peer);
+        this.peerToPlayerId.delete(conn.peer);
         const lp = this.lobby.players.find((p) => p.id === pid);
         if (lp) lp.connected = false;
-        if (!this.lobby.gameStarted) {
-          this.lobby.players = this.lobby.players.filter((p) => p.id !== pid);
-          this.broadcastLobby();
-        } else {
-          this.callbacks.onPeerDisconnected?.(pid);
-        }
+        this.lobby.players = this.lobby.players.filter((p) => p.id !== pid);
+        this.broadcastLobby();
+        return;
       }
+      // Gra trwa → 6-sekundowy grace period: czekamy czy połączenie wróci
+      if (this.disconnectGraceTimers.has(conn.peer)) return; // już czekamy
+      const peerIdSnapshot = conn.peer;
+      const pidSnapshot = pid;
+      const lobbyRef = this.lobby;
+      const lp = lobbyRef.players.find((p) => p.id === pidSnapshot);
+      if (lp) lp.connected = false;
+      const timerId = globalThis.setTimeout(() => {
+        this.disconnectGraceTimers.delete(peerIdSnapshot);
+        // Sprawdź czy klient nie wrócił w międzyczasie
+        const reconnected = this.clientConns.get(peerIdSnapshot)?.open;
+        if (reconnected) return;
+        this.clientConns.delete(peerIdSnapshot);
+        this.peerToPlayerId.delete(peerIdSnapshot);
+        this.callbacks.onPeerDisconnected?.(pidSnapshot);
+      }, DISCONNECT_GRACE_MS) as unknown as number;
+      this.disconnectGraceTimers.set(conn.peer, timerId);
     });
 
     conn.on('error', () => {
-      const pid = this.peerToPlayerId.get(conn.peer);
-      if (pid && this.lobby?.gameStarted) {
-        this.callbacks.onPeerDisconnected?.(pid);
-      }
+      // Błąd nie jest powodem do natychmiastowego ogłoszenia rozłączenia –
+      // zdarzenie 'close' też nastąpi jeśli połączenie faktycznie padło.
     });
+  }
+
+  /** Anuluje timer grace-period dla danego peerId (gdy klient wrócił). */
+  private cancelGraceTimer(peerId: string): void {
+    const existing = this.disconnectGraceTimers.get(peerId);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      this.disconnectGraceTimers.delete(peerId);
+    }
+  }
+
+  /** Anuluje wszystkie aktywne timery grace-period. */
+  private clearAllGraceTimers(): void {
+    for (const timerId of this.disconnectGraceTimers.values()) {
+      clearTimeout(timerId);
+    }
+    this.disconnectGraceTimers.clear();
   }
 
   private handleHostIncoming(conn: DataConnection, msg: NetworkMessage): void {
     if (!this.lobby) return;
     this.clientConns.set(conn.peer, conn);
+    // Każdy odebrany pakiet od klienta anuluje jego grace timer rozłączenia
+    this.lastActivityAt.set(conn.peer, Date.now());
+    this.cancelGraceTimer(conn.peer);
 
     if (msg.kind === 'join_request') {
       if (this.lobby.gameStarted) {
@@ -925,12 +979,24 @@ export class MultiplayerManager {
             this.disconnect();
             reject(new Error(msg.reason));
           } else {
+            // Zarejestruj aktywność Hosta → anuluj ewentualny grace timer
+            this.cancelGraceTimer('host');
             this.handleClientIncoming(msg);
           }
         });
 
         conn.on('close', () => {
-          this.callbacks.onHostDisconnected?.();
+          // 6-sekundowy grace period: przejście Lobby → Gra może chwilowo wywołać
+          // zdarzenie 'close' gdy przeglądarka przerysowuje DOM. Czekamy zanim
+          // ogłosimy rozłączenie Hosta.
+          if (this.disconnectGraceTimers.has('host')) return;
+          const timerId = globalThis.setTimeout(() => {
+            this.disconnectGraceTimers.delete('host');
+            // Jeśli połączenie wróciło (conn.open jest znowu true), ignorujemy
+            if (this.hostConn?.open) return;
+            this.callbacks.onHostDisconnected?.();
+          }, DISCONNECT_GRACE_MS) as unknown as number;
+          this.disconnectGraceTimers.set('host', timerId);
         });
 
         conn.on('error', (err) => {
@@ -1122,10 +1188,26 @@ export class MultiplayerManager {
   }
 
   private sendMessagesToConn(conn: DataConnection, messages: NetworkMessage[]): void {
-    if (!conn.open) return;
-    for (const msg of messages) {
-      conn.send(msg);
-    }
+    if (!conn.open || messages.length === 0) return;
+
+    // Sprawdź bufor przed wysłaniem. Jeśli przepełniony, poczekaj async.
+    const getBuffered = (): number =>
+      (conn as unknown as { dataChannel?: { bufferedAmount?: number } }).dataChannel
+        ?.bufferedAmount ?? 0;
+
+    const sendNext = (idx: number): void => {
+      if (idx >= messages.length || !conn.open) return;
+      if (getBuffered() > MAX_BUFFERED_AMOUNT_BYTES) {
+        // Bufor przeciążony – odczekaj 100 ms i spróbuj ponownie
+        globalThis.setTimeout(() => sendNext(idx), 100);
+        return;
+      }
+      conn.send(messages[idx]);
+      // Drobna przerwa (4 ms) między kolejnymi chunkami żeby SCTP zdążył buforować
+      globalThis.setTimeout(() => sendNext(idx + 1), 4);
+    };
+
+    sendNext(0);
   }
 
   private areAllClientsAcked(): boolean {
@@ -1228,10 +1310,14 @@ export class MultiplayerManager {
         for (const conn of this.clientConns.values()) {
           if (conn.open) {
             conn.send({ kind: 'ping', ts: Date.now() } satisfies NetworkMessage);
+            // Każdy wysłany ping to dowód że połączenie żyje → anuluj grace timer
+            this.cancelGraceTimer(conn.peer);
           }
         }
       } else if (this.hostConn?.open) {
         this.hostConn.send({ kind: 'ping', ts: Date.now() } satisfies NetworkMessage);
+        // Ping wysłany pomyślnie → anuluj grace timer Hosta
+        this.cancelGraceTimer('host');
       }
     }, 4000) as unknown as number;
   }
@@ -1253,6 +1339,8 @@ export class MultiplayerManager {
   disconnect(): void {
     this.stopHeartbeat();
     this.stopStartRetry();
+    this.clearAllGraceTimers();
+    this.lastActivityAt.clear();
     this.hostConn?.close();
     this.hostConn = null;
     for (const c of this.clientConns.values()) c.close();
