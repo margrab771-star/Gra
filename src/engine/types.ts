@@ -2,7 +2,7 @@
 
 export type GamePhase = 'MainMenu' | 'Setup' | 'Lobby' | 'Playing' | 'GameOver';
 
-export type GameSpeed = 0 | 1 | 2 | 5 | 10;
+export type GameSpeed = 0 | 0.5 | 1 | 2 | 5 | 10;
 
 export type GameMode = 'challenge1h' | 'endless' | 'mp_fast' | 'mp_long';
 
@@ -35,7 +35,12 @@ export type ResourceType =
   | 'prefabs'
   | 'electricity'
   | 'jewelry'
-  | 'weapons';
+  | 'weapons'
+  | 'diamonds'
+  | 'lithium'
+  | 'sewage'
+  | 'waste'
+  | 'batteries';
 
 export type BuildingCategory =
   | 'mining'
@@ -48,7 +53,8 @@ export type BuildingCategory =
   | 'education'
   | 'safety'
   | 'influence'
-  | 'military';
+  | 'military'
+  | 'waste';
 
 export type RoadClass = 'none' | 'local' | 'highway';
 
@@ -116,7 +122,22 @@ export type BuildingType =
   | 'lobbyOffice'
   | 'churchFoundation'
   | 'intelligenceCenter'
-  | 'militaryBase';
+  | 'militaryBase'
+  // Nowe budynki v4.5
+  | 'windFarm'
+  | 'solarFarm'
+  | 'gasPowerPlant'
+  | 'geothermalPlant'
+  | 'fusionReactor'
+  | 'sewagePlant'
+  | 'wasteIncinerator'
+  | 'recyclingPlant'
+  | 'uraniumEnrichment'
+  | 'coldStorage'
+  | 'diamondMine'
+  | 'lithiumMine'
+  | 'batteryFactory'
+  | 'jewelryLuxury';
 
 export type TechBranch = 'industrial' | 'modern' | 'logistics' | 'safety' | 'military';
 
@@ -213,6 +234,10 @@ export interface NonFinancialRequirements {
   requiredResources?: Partial<Record<ResourceType, number>>;
   requiresPowerSurplus?: boolean;
   requiresWaterAccess?: boolean;
+  requiredCorpLevel?: CorporationLevel;
+  minVoterApproval?: number;
+  requiredInfluenceScore?: number;
+  requiredTechCount?: number;
 }
 
 export interface RequirementCheckItem {
@@ -239,13 +264,14 @@ export interface ResourceDefinition {
   genitiveName: string;
   emoji: string;
   unit: string;
-  category: 'raw' | 'processed' | 'energy' | 'hightech';
+  category: 'raw' | 'processed' | 'energy' | 'hightech' | 'utility';
   basePrice: number;
   minPrice: number;
   maxPrice: number;
   volatility: number;
   elasticity: number;
   description: string;
+  tradeable?: boolean;
 }
 
 export interface ResourcePrice {
@@ -300,6 +326,8 @@ export interface Plot {
   responseEta?: number;
   purchasable: boolean;
   distanceToRoad: number;
+  irradiatedTicks?: number;
+  disasterDamagedTicks?: number;
 }
 
 export type MapPlot = Plot;
@@ -328,6 +356,7 @@ export interface HazardState {
   ticksRemaining: number;
   contained: boolean;
   responderBuildingId?: string;
+  destructionProgress?: number; // 0..100: po 100% budynek staje się ruiną!
 }
 
 export interface BuildingUpgradeEffect {
@@ -336,6 +365,11 @@ export interface BuildingUpgradeEffect {
   workerReduction?: number;
   electricityDelta?: number;
   waterDelta?: number;
+  sewageDelta?: number;
+  wasteDelta?: number;
+  sewageTreatmentBonus?: number;
+  wasteProcessingBonus?: number;
+  recyclesResources?: boolean;
   pollutionDelta?: number;
   breakdownRiskDelta?: number;
   wearRateDelta?: number;
@@ -354,6 +388,8 @@ export interface BuildingUpgradeEffect {
   helicopterDispatch?: boolean;
   espionageDefenseBonus?: number;
   crimeReductionBonus?: number;
+  tacticalMissileUnlocked?: boolean;
+  isApex?: boolean;
 }
 
 export interface BuildingTechNode {
@@ -367,9 +403,10 @@ export interface BuildingTechNode {
   status: NodeStatus;
   prerequisites: string[];
   exclusiveWith?: string[];
-  category: 'efficiency' | 'capacity' | 'green' | 'monopoly' | 'special';
+  category: 'efficiency' | 'capacity' | 'green' | 'monopoly' | 'special' | 'apex';
   effects: BuildingUpgradeEffect;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4;
+  isApex?: boolean;
   graphPos: Position;
   requirements?: NonFinancialRequirements;
 }
@@ -395,6 +432,8 @@ export interface BuildingDefinition {
   outputs: Partial<Record<ResourceType, number>>;
   electricityUsage: number;
   waterUsage: number;
+  sewageUsage?: number;
+  wasteUsage?: number;
   pollutionLevel: number;
   storageCapacity: number;
   unlockTech?: string;
@@ -429,6 +468,10 @@ export interface BuildingStatusFlags {
   hazmatIncident: boolean;
   noRoadLink: boolean;
   robberyActive?: boolean;
+  missingInputs?: boolean;
+  sewageCrisis?: boolean;
+  wasteCrisis?: boolean;
+  disasterStruck?: boolean;
 }
 
 export interface Building {
@@ -444,6 +487,7 @@ export interface Building {
   upgradeFlashTicks?: number;
   condition: number;
   damagePercent: number;
+  destroyedRuins?: boolean;
   autoRepairEnabled: boolean;
   autoRepairThreshold: number;
   workers: number;
@@ -480,13 +524,21 @@ export interface UtilityBalanceReport {
   electricityProduced: number;
   electricityConsumed: number;
   electricityNet: number;
+  electricityCoverageRatio: number;
   electricityByPlant: { label: string; produced: number }[];
   electricityConsumers: { label: string; consumed: number }[];
   waterProduced: number;
   waterConsumed: number;
   waterNet: number;
+  waterCoverageRatio: number;
   waterSources: { label: string; produced: number }[];
   waterConsumers: { label: string; consumed: number }[];
+  sewageProduced: number;
+  sewageTreated: number;
+  sewageNet: number;
+  wasteProduced: number;
+  wasteProcessed: number;
+  wasteNet: number;
   resourceBalances: {
     resource: ResourceType;
     produced: number;
@@ -523,8 +575,12 @@ export interface B2BContract {
   pricePerUnit: number;
   durationTicks: number;
   remainingTicks: number;
-  status: 'proposed' | 'active' | 'cancelled' | 'completed';
+  status: 'proposed' | 'open_listing' | 'active' | 'cancelled' | 'completed';
   totalValueDelivered: number;
+  kind?: 'recurring' | 'spot' | 'barter';
+  barterResource?: ResourceType;
+  barterQtyPerTick?: number;
+  listingSide?: 'sell' | 'buy';
 }
 
 // ─── Global Tech & Entrepreneur Trees ─────────────────────────────────────────
@@ -569,6 +625,11 @@ export interface SkillNode {
   prerequisites: string[];
   effects: string[];
   position: Position;
+  tier?: number;
+  isApex?: boolean;
+  requiredCorpLevel?: CorporationLevel;
+  requiredInfluenceScore?: number;
+  requiredGlobalTechCount?: number;
   modifiers: {
     profitBonus?: number;
     taxReduction?: number;
@@ -677,6 +738,9 @@ export interface EventEffect {
     | 'zusDelta'
     | 'hydroPenalty'
     | 'waterPenalty'
+    | 'energyPenalty'
+    | 'weatherCloudy'
+    | 'disasterDamage'
     | 'strikeRisk'
     | 'voterMoodDelta'
     | 'researchBoost';
@@ -689,7 +753,7 @@ export interface GameEvent {
   templateId: string;
   name: string;
   description: string;
-  category: 'weather' | 'economy' | 'policy' | 'labor' | 'opportunity';
+  category: 'weather' | 'economy' | 'policy' | 'labor' | 'opportunity' | 'disaster';
   effects: EventEffect[];
   durationTicks: number;
   remainingTicks: number;
@@ -710,6 +774,105 @@ export interface NewsArticle {
   tick: number;
   read: boolean;
   relatedResource?: ResourceType;
+  focusPlotId?: string;
+}
+
+// ─── Coalitions, Patents, Tenders, Market Cycles, Chat & Blasts ───────────────
+
+export interface Coalition {
+  id: string;
+  name: string;
+  tag: string;
+  color: string;
+  leaderId: string;
+  memberIds: string[];
+  invitedPlayerIds: string[];
+  shareGeology: boolean;
+  createdTick: number;
+}
+
+export interface NonAggressionPact {
+  id: string;
+  playerAId: string;
+  playerBId: string;
+  status: 'proposed' | 'active';
+  expiresTick: number;
+}
+
+export interface TradeEmbargo {
+  issuerId: string;
+  targetId: string;
+  expiresTick: number;
+}
+
+export interface PatentRecord {
+  techId: string;
+  techName: string;
+  ownerId: string;
+  ownerName: string;
+  royaltyPerTick: number;
+  grantedTick: number;
+  expiresTick: number;
+  totalRoyaltiesEarned: number;
+}
+
+export interface GovernmentTender {
+  id: string;
+  title: string;
+  description: string;
+  kind: 'resource_delivery' | 'clean_energy';
+  requirements: Partial<Record<ResourceType, number>>;
+  requiredCleanMW?: number;
+  deliveredByPlayer: Record<string, Partial<Record<ResourceType, number>>>;
+  cashReward: number;
+  influenceReward: number;
+  voterMoodReward: number;
+  deadlineTick: number;
+  status: 'open' | 'awarded' | 'expired';
+  winnerId?: string;
+  winnerName?: string;
+}
+
+export type MarketSectorKey = 'gold_luxury' | 'energy' | 'tech' | 'industry' | 'green';
+export type MarketCyclePhase = 'hossa' | 'korekta' | 'banka' | 'krach';
+
+export interface MarketCycleState {
+  sector: MarketSectorKey;
+  name: string;
+  phase: MarketCyclePhase;
+  multiplier: number;
+  ticksRemaining: number;
+  indexValue: number;
+  previousIndexValue: number;
+  changePercent: number;
+  history: number[];
+}
+
+export interface VisualBlastEffect {
+  id: string;
+  kind: 'missile' | 'nuke' | 'earthquake' | 'tornado' | 'flood';
+  centerX: number;
+  centerY: number;
+  radius: number;
+  createdTick: number;
+  ticksRemaining: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  companyName: string;
+  color: string;
+  text: string;
+  tick: number;
+  timestamp: number;
+  pingPlot?: {
+    plotId: string;
+    gridX: number;
+    gridY: number;
+    label: string;
+  };
 }
 
 // ─── Leaderboard & Save Slots ─────────────────────────────────────────────────
@@ -770,6 +933,8 @@ export interface Player {
   cashFlowPerMin: number;
   electricityBalance: number;
   waterBalance: number;
+  sewageBalance?: number;
+  wasteBalance?: number;
   researchPoints: number;
   skillPoints: number;
   reputation: number;
@@ -792,6 +957,16 @@ export interface Player {
   dominantStrategy: string;
   totalRevenueEarned: number;
   isEliminated: boolean;
+  insolvencyGraceTicks?: number;
+  insolvencyReason?: string;
+  coalitionId?: string | null;
+  leftCoalitionCooldown?: number;
+  secretNuclearRevealed?: boolean;
+  nuclearProjectActive?: boolean;
+  nuclearProjectProgress?: number;
+  nuclearWarheadsReady?: number;
+  nuclearDetectedByPlayers?: string[];
+  pinnedResources?: ResourceType[];
 }
 
 // ─── Game Time & Settings ─────────────────────────────────────────────────────
@@ -812,6 +987,8 @@ export interface GameSettings {
   mapSize: number;
   challengeDurationSeconds: number;
   economyMultiplier: number;
+  disastersEnabled?: boolean;
+  victoryMode?: 'solo' | 'coalition';
 }
 
 export interface DisconnectAlert {
@@ -839,6 +1016,7 @@ export interface GameState {
   challengeTimeRemaining: number;
   challengeCompleted: boolean;
   winnerId: string | null;
+  winningCoalitionId?: string | null;
   victoryReason: string | null;
   players: Player[];
   currentPlayerId: string;
@@ -855,6 +1033,15 @@ export interface GameState {
   transportLines: TransportRouteLine[];
   dispatches: ServiceDispatch[];
   stocks: CorporateStock[];
+  coalitions?: Coalition[];
+  naps?: NonAggressionPact[];
+  embargoes?: TradeEmbargo[];
+  patents?: PatentRecord[];
+  tenders?: GovernmentTender[];
+  marketCycles?: MarketCycleState[];
+  blastEffects?: VisualBlastEffect[];
+  chatMessages?: ChatMessage[];
+  networkRevision?: number;
   taxRate: number;
   zusMultiplier: number;
   baseInterestRate: number;
@@ -872,6 +1059,7 @@ export interface GameNotification {
   message: string;
   severity: 'info' | 'success' | 'warning' | 'danger';
   tick: number;
+  focusPlotId?: string;
 }
 
 // ─── Multiplayer Network Messages ─────────────────────────────────────────────
@@ -897,6 +1085,8 @@ export interface LobbyState {
   maxPlayers: number;
   players: LobbyPlayer[];
   gameStarted: boolean;
+  disastersEnabled: boolean;
+  victoryMode: 'solo' | 'coalition';
 }
 
 export type PlayerAction =
@@ -960,6 +1150,10 @@ export type PlayerAction =
       pricePerUnit: number;
       durationTicks: number;
       isSelling: boolean;
+      kind?: 'recurring' | 'spot' | 'barter';
+      barterResource?: ResourceType;
+      barterQtyPerTick?: number;
+      openListing?: boolean;
     }
   | { type: 'acceptContract'; playerId: string; contractId: string }
   | { type: 'cancelContract'; playerId: string; contractId: string }
@@ -970,6 +1164,24 @@ export type PlayerAction =
       targetPlayerId?: string;
       targetPlotId?: string;
       targetBuildingId?: string;
+    }
+  | { type: 'launchTacticalMissile'; playerId: string; targetPlotId: string }
+  | { type: 'startNuclearProject'; playerId: string }
+  | { type: 'launchNuclearStrike'; playerId: string; targetPlotId: string }
+  | { type: 'createCoalition'; playerId: string; name: string; tag: string; color: string }
+  | { type: 'inviteCoalition'; playerId: string; targetPlayerId: string }
+  | { type: 'respondCoalitionInvite'; playerId: string; coalitionId: string; accept: boolean }
+  | { type: 'leaveCoalition'; playerId: string }
+  | { type: 'toggleCoalitionGeology'; playerId: string }
+  | { type: 'proposeNAP'; playerId: string; targetPlayerId: string }
+  | { type: 'acceptNAP'; playerId: string; napId: string }
+  | { type: 'imposeEmbargo'; playerId: string; targetPlayerId: string }
+  | { type: 'submitTenderDelivery'; playerId: string; tenderId: string }
+  | {
+      type: 'sendChatMessage';
+      playerId: string;
+      text: string;
+      pingPlot?: { plotId: string; gridX: number; gridY: number; label: string };
     }
   | { type: 'setSpeed'; playerId: string; speed: GameSpeed }
   | { type: 'requestSpeedChange'; playerId: string; speed: GameSpeed }

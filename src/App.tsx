@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GameCanvas } from './components/GameCanvas';
+import { MultiplayerChatWidget } from './components/HUD/MultiplayerChatWidget';
 import { PriceChartModal } from './components/HUD/PriceChartModal';
 import { TopTicker } from './components/HUD/TopTicker';
 import { DisconnectModal } from './components/Menu/DisconnectModal';
@@ -8,6 +9,7 @@ import { MainMenu } from './components/Menu/MainMenu';
 import { MultiplayerLobby } from './components/Menu/MultiplayerLobby';
 import { PauseSaveModal } from './components/Menu/PauseSaveModal';
 import { QuickStart } from './components/Menu/QuickStart';
+import { TutorialModal } from './components/Menu/TutorialModal';
 import { VictoryModal } from './components/Menu/VictoryModal';
 import { BottomSheet } from './components/Mobile/BottomSheet';
 import { BuildSelector } from './components/Panels/BuildSelector';
@@ -48,6 +50,11 @@ export function App() {
   const showTransportRoutes = useGameStore((s) => s.showTransportRoutes);
   const showUtilityPopover = useGameStore((s) => s.showUtilityPopover);
   const heatmapMode = useGameStore((s) => s.heatmapMode);
+  const targetMode = useGameStore((s) => s.targetMode);
+  const cloneBuildingType = useGameStore((s) => s.cloneBuildingType);
+  const focusRequest = useGameStore((s) => s.focusRequest);
+  const showTutorialModal = useGameStore((s) => s.showTutorialModal);
+  const pinnedResources = useGameStore((s) => s.pinnedResources);
 
   const [financeInitialTab, setFinanceInitialTab] = useState<
     'pnl' | 'balance' | 'stocks' | 'grey'
@@ -108,7 +115,10 @@ export function App() {
       } else if (e.key === '4') {
         st.setSpeed(10);
       } else if (e.key === 'Escape') {
-        if (st.showUtilityPopover) st.setShowUtilityPopover(false);
+        if (st.targetMode) st.setTargetMode(null);
+        else if (st.cloneBuildingType) st.setCloneBuildingType(null);
+        else if (st.showTutorialModal) st.setShowTutorialModal(false);
+        else if (st.showUtilityPopover) st.setShowUtilityPopover(false);
         else if (st.inspectedResource) st.setInspectedResource(null);
         else if (st.activeModal !== 'none') st.setActiveModal('none');
         else if (st.showBuildSelector) st.setShowBuildSelector(false);
@@ -148,10 +158,19 @@ export function App() {
             actions.goToMultiplayer();
           }}
           onOpenLeaderboard={() => actions.setActiveModal('leaderboard')}
-          onStartTutorial={actions.startQuickTutorialGame}
+          onStartTutorial={() => actions.setShowTutorialModal(true)}
         />
         {activeModal === 'leaderboard' && (
           <LeaderboardPanel gameState={null} onClose={() => actions.setActiveModal('none')} />
+        )}
+        {showTutorialModal && (
+          <TutorialModal
+            onClose={() => actions.setShowTutorialModal(false)}
+            onStartTrainingMap={() => {
+              actions.setShowTutorialModal(false);
+              actions.startQuickTutorialGame();
+            }}
+          />
         )}
       </>
     );
@@ -164,18 +183,24 @@ export function App() {
   if (phase === 'Lobby' && !lobbyState?.gameStarted) {
     const resolvedRoom = quickJoinRoomCode ?? initialRoomCode;
     return (
-      <MultiplayerLobby
-        key={resolvedRoom ?? 'lobby'}
-        initialRoomCode={resolvedRoom}
-        lastMpSession={lastMpSession}
-        lobbyState={lobbyState}
-        isHost={isHost}
-        localPlayerId={localPlayerId}
-        onCreateRoom={actions.createMultiplayerRoom}
-        onJoinRoom={actions.joinMultiplayerRoom}
-        onStartMatch={actions.startMultiplayerMatch}
-        onLeave={actions.leaveMultiplayer}
-      />
+      <>
+        <MultiplayerLobby
+          key={resolvedRoom ?? 'lobby'}
+          initialRoomCode={resolvedRoom}
+          lastMpSession={lastMpSession}
+          lobbyState={lobbyState}
+          isHost={isHost}
+          localPlayerId={localPlayerId}
+          onCreateRoom={actions.createMultiplayerRoom}
+          onJoinRoom={actions.joinMultiplayerRoom}
+          onStartMatch={actions.startMultiplayerMatch}
+          onOpenTutorial={() => actions.setShowTutorialModal(true)}
+          onLeave={actions.leaveMultiplayer}
+        />
+        {showTutorialModal && (
+          <TutorialModal inLobby onClose={() => actions.setShowTutorialModal(false)} />
+        )}
+      </>
     );
   }
 
@@ -230,6 +255,25 @@ export function App() {
       (o.status === 'pending' || o.status === 'countered')
   ).length;
 
+  const handleCanvasSelectPlot = (plotId: string | null) => {
+    if (cloneBuildingType && plotId) {
+      const target = gameState.plots.find((p) => p.id === plotId);
+      if (target && target.ownerId === currentPlayer.id && !target.building) {
+        actions.buildOnPlot(plotId, cloneBuildingType);
+        actions.setCloneBuildingType(null);
+        actions.selectPlot(plotId);
+        return;
+      }
+      actions.setCloneBuildingType(null);
+    }
+    actions.selectPlot(plotId);
+  };
+
+  const handleCanvasTargetPlot = (plotId: string) => {
+    if (targetMode === 'missile') actions.launchTacticalMissile(plotId);
+    else if (targetMode === 'nuke') actions.launchNuclearStrike(plotId);
+  };
+
   const sidePanelContent = selectedPlot ? (
     selectedPlot.building ? (
       <BuildingPanel
@@ -248,6 +292,11 @@ export function App() {
         onToggleStockpile={actions.toggleStockpile}
         onBuyServiceVehicle={actions.buyServiceVehicle}
         onDemolish={actions.demolishBuilding}
+        onCloneBuilding={(bType) => {
+          actions.setCloneBuildingType(bType);
+          actions.showToast(true, 'Kliknij wolną własną działkę, aby postawić ten sam obiekt.');
+        }}
+        onOpenB2BMarket={() => actions.setActiveModal('contracts')}
         onProposePlotOffer={actions.proposePlotOffer}
         onProposeContract={actions.proposeContract}
         onClose={() => actions.selectPlot(null)}
@@ -309,6 +358,8 @@ export function App() {
         isHost={isHost}
         showUtilityPopover={showUtilityPopover}
         showTransportRoutes={showTransportRoutes}
+        pinnedResources={pinnedResources}
+        onTogglePinResource={actions.togglePinResource}
         onToggleUtilityPopover={() => actions.setShowUtilityPopover(!showUtilityPopover)}
         onToggleTransportRoutes={actions.toggleTransportRoutes}
         onOpenFullBalance={() => {
@@ -316,6 +367,7 @@ export function App() {
           actions.setActiveModal('finance');
         }}
         onOpenOffersModal={() => actions.setActiveModal('contracts')}
+        onOpenTutorial={() => actions.setShowTutorialModal(true)}
         onSetSpeed={actions.setSpeed}
         onRequestSpeed={actions.requestSpeedChange}
         onAcceptSpeedRequest={actions.setSpeed}
@@ -339,8 +391,16 @@ export function App() {
             selectedPlotId={selectedPlotId}
             showTransportRoutes={showTransportRoutes}
             heatmapMode={heatmapMode}
+            targetMode={targetMode}
+            cloneBuildingType={cloneBuildingType}
+            focusRequest={focusRequest}
+            onCancelSpecialMode={() => {
+              actions.setTargetMode(null);
+              actions.setCloneBuildingType(null);
+            }}
+            onTargetPlot={handleCanvasTargetPlot}
             onChangeHeatmapMode={actions.setHeatmapMode}
-            onSelectPlot={actions.selectPlot}
+            onSelectPlot={handleCanvasSelectPlot}
           />
 
           {/* Powiadomienia (Toast) */}
@@ -425,6 +485,7 @@ export function App() {
         <NewspaperPanel
           gameState={gameState}
           onMarkRead={actions.markNewsRead}
+          onFocusPlot={actions.focusPlot}
           onClose={() => actions.setActiveModal('none')}
         />
       )}
@@ -452,6 +513,17 @@ export function App() {
           gameState={gameState}
           currentPlayer={currentPlayer}
           onExecuteAction={actions.executeInfluence}
+          onStartMissileTarget={() => actions.setTargetMode('missile')}
+          onStartNuclearProject={actions.startNuclearProject}
+          onStartNuclearStrikeTarget={() => actions.setTargetMode('nuke')}
+          onCreateCoalition={actions.createCoalition}
+          onInviteCoalition={actions.inviteCoalition}
+          onRespondCoalitionInvite={actions.respondCoalitionInvite}
+          onLeaveCoalition={actions.leaveCoalition}
+          onToggleCoalitionGeology={actions.toggleCoalitionGeology}
+          onProposeNAP={actions.proposeNAP}
+          onAcceptNAP={actions.acceptNAP}
+          onImposeEmbargo={actions.imposeEmbargo}
           onClose={() => actions.setActiveModal('none')}
         />
       )}
@@ -482,8 +554,33 @@ export function App() {
           onPropose={actions.proposeContract}
           onAccept={actions.acceptContract}
           onCancel={actions.cancelContract}
+          onSubmitTender={actions.submitTenderDelivery}
           onRespondPlotOffer={actions.respondPlotOffer}
           onClose={() => actions.setActiveModal('none')}
+        />
+      )}
+
+      {isMultiplayer && (
+        <MultiplayerChatWidget
+          messages={gameState.chatMessages ?? []}
+          selectedPlot={selectedPlot}
+          onSendMessage={actions.sendChatMessage}
+          onFocusPlot={actions.focusPlot}
+        />
+      )}
+
+      {showTutorialModal && (
+        <TutorialModal
+          inLobby={isMultiplayer}
+          onClose={() => actions.setShowTutorialModal(false)}
+          onStartTrainingMap={
+            !isMultiplayer
+              ? () => {
+                  actions.setShowTutorialModal(false);
+                  actions.startQuickTutorialGame();
+                }
+              : undefined
+          }
         />
       )}
 

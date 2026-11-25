@@ -9,7 +9,7 @@ import {
 } from './EconomyEngine';
 import { getSafetyCoverageForPlot } from './HazardSystem';
 import { calculateBuildingHRPayroll } from './HRSystem';
-import { hasPlayerSurveyedPlot, recalculateSpatialNetwork } from './PlotSystem';
+import { hasPlayerDiscoveredPlot, recalculateSpatialNetwork } from './PlotSystem';
 import { consumeRequiredResources, evaluateNonFinancialRequirements } from './RequirementsSystem';
 import { evaluatePlotLogisticsMode } from './TransportSystem';
 import type {
@@ -54,6 +54,12 @@ export function checkBuildingRequirements(
     };
   }
   if (plot.ownerId !== player.id) return { ok: false, reason: 'Działka nie należy do Ciebie.' };
+  if ((plot.irradiatedTicks ?? 0) > 0) {
+    return {
+      ok: false,
+      reason: `Działka skażona promieniowaniem nuklearnym (jeszcze ${plot.irradiatedTicks} tur).`,
+    };
+  }
   if (plot.building !== null) return { ok: false, reason: 'Na działce stoi już obiekt.' };
   if (
     buildingType === 'corporateHQ' &&
@@ -67,7 +73,7 @@ export function checkBuildingRequirements(
   }
   if (def.requiredDeposit) {
     const hasDeposit =
-      hasPlayerSurveyedPlot(plot, player.id) &&
+      hasPlayerDiscoveredPlot(plot, player.id, player, state) &&
       plot.deposits.some((d) => d.type === def.requiredDeposit);
     if (!hasDeposit) {
       const genName = RESOURCE_DEFINITIONS[def.requiredDeposit].genitiveName;
@@ -214,6 +220,10 @@ export function constructBuildingOnPlot(
       hazmatIncident: false,
       noRoadLink: logiMode === 'isolated',
       robberyActive: false,
+      missingInputs: false,
+      sewageCrisis: false,
+      wasteCrisis: false,
+      disasterStruck: false,
     },
     activeHazard: null,
     hasRoadConnection: logiMode === 'road',
@@ -227,6 +237,7 @@ export function constructBuildingOnPlot(
   };
 
   plot.building = building;
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   return { ok: true, building };
 }
@@ -240,9 +251,21 @@ export function demolishBuildingOnPlot(
     return { ok: false, error: 'Brak własnego budynku do wyburzenia.' };
   }
   const def = BUILDING_DEFINITIONS[plot.building.type];
-  const refund = Math.round(def.baseCost * 0.35 * (plot.building.condition / 100));
-  player.cash += refund;
+  if (plot.building.destroyedRuins) {
+    const clearanceCost = Math.max(5_000, Math.round(def.baseCost * 0.12));
+    if (player.cash < clearanceCost) {
+      return {
+        ok: false,
+        error: `Uprzątnięcie ruin po katastrofie kosztuje ${clearanceCost.toLocaleString('pl-PL')} zł.`,
+      };
+    }
+    player.cash -= clearanceCost;
+  } else {
+    const refund = Math.round(def.baseCost * 0.35 * (plot.building.condition / 100));
+    player.cash += refund;
+  }
   plot.building = null;
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   return { ok: true };
 }
@@ -257,6 +280,12 @@ export function repairBuilding(
   building: Building,
   player: Player
 ): { ok: boolean; error?: string; cost?: number } {
+  if (building.destroyedRuins) {
+    return {
+      ok: false,
+      error: 'Obiekt uległ całkowitemu zniszczeniu (Ruiny). Uprzątnij działkę za pomocą rozbiórki gruzu.',
+    };
+  }
   if (building.damagePercent <= 0.5 && !building.activeHazard) {
     return { ok: false, error: 'Obiekt ma 0% zniszczenia i jest w idealnym stanie.' };
   }
@@ -322,6 +351,11 @@ export function getAggregatedBuildingModifiers(building: Building) {
   let workerReduction = 0;
   let electricityDelta = 0;
   let waterDelta = 0;
+  let sewageDelta = 0;
+  let wasteDelta = 0;
+  let sewageTreatmentBonus = 0;
+  let wasteProcessingBonus = 0;
+  let recyclesResources = false;
   let pollutionDelta = 0;
   let breakdownRiskDelta = 0;
   let wearRateDelta = 0;
@@ -332,6 +366,10 @@ export function getAggregatedBuildingModifiers(building: Building) {
   let cleanFilter = false;
   let researchBonus = 0;
   let storageMultiplier = 1;
+  let espionageDefenseBonus = 0;
+  let crimeReductionBonus = 0;
+  let tacticalMissileUnlocked = false;
+  let isApex = false;
 
   for (const node of building.techTree) {
     if (node.status !== 'done') continue;
@@ -341,6 +379,11 @@ export function getAggregatedBuildingModifiers(building: Building) {
     if (e.workerReduction) workerReduction += e.workerReduction;
     if (e.electricityDelta) electricityDelta += e.electricityDelta;
     if (e.waterDelta) waterDelta += e.waterDelta;
+    if (e.sewageDelta) sewageDelta += e.sewageDelta;
+    if (e.wasteDelta) wasteDelta += e.wasteDelta;
+    if (e.sewageTreatmentBonus) sewageTreatmentBonus += e.sewageTreatmentBonus;
+    if (e.wasteProcessingBonus) wasteProcessingBonus += e.wasteProcessingBonus;
+    if (e.recyclesResources) recyclesResources = true;
     if (e.pollutionDelta) pollutionDelta += e.pollutionDelta;
     if (e.breakdownRiskDelta) breakdownRiskDelta += e.breakdownRiskDelta;
     if (e.wearRateDelta) wearRateDelta += e.wearRateDelta;
@@ -351,6 +394,10 @@ export function getAggregatedBuildingModifiers(building: Building) {
     if (e.cleanFilter) cleanFilter = true;
     if (e.researchBonus) researchBonus += e.researchBonus;
     if (e.storageMultiplier) storageMultiplier = Math.max(storageMultiplier, e.storageMultiplier);
+    if (e.espionageDefenseBonus) espionageDefenseBonus += e.espionageDefenseBonus;
+    if (e.crimeReductionBonus) crimeReductionBonus += e.crimeReductionBonus;
+    if (e.tacticalMissileUnlocked) tacticalMissileUnlocked = true;
+    if (e.isApex || node.tier === 4) isApex = true;
   }
 
   return {
@@ -359,6 +406,11 @@ export function getAggregatedBuildingModifiers(building: Building) {
     workerReduction,
     electricityDelta,
     waterDelta,
+    sewageDelta,
+    wasteDelta,
+    sewageTreatmentBonus,
+    wasteProcessingBonus,
+    recyclesResources,
     pollutionDelta,
     breakdownRiskDelta,
     wearRateDelta,
@@ -369,7 +421,32 @@ export function getAggregatedBuildingModifiers(building: Building) {
     cleanFilter,
     researchBonus,
     storageMultiplier,
+    espionageDefenseBonus,
+    crimeReductionBonus,
+    tacticalMissileUnlocked,
+    isApex,
   };
+}
+
+function computeNonLinearUtilityFactor(coverageRatio: number): number {
+  if (coverageRatio >= 0.99) return 1.0;
+  if (coverageRatio >= 0.5) {
+    // 50% pokrycia daje ~26% wydajności, poniżej szybko spada
+    return 0.26 + ((coverageRatio - 0.5) / 0.49) * 0.74;
+  }
+  if (coverageRatio >= 0.2) {
+    // 20-50% pokrycia daje ledwo 6%-26%
+    return 0.06 + ((coverageRatio - 0.2) / 0.3) * 0.2;
+  }
+  // Poniżej 20% następuje całkowity paraliż zakładu (0% produkcji, koszty stałe zostają!)
+  return 0;
+}
+
+export interface UtilityTickSnapshot {
+  elecRatio: number;
+  waterRatio: number;
+  sewageNet: number;
+  wasteNet: number;
 }
 
 export function processBuildingTick(
@@ -378,8 +455,32 @@ export function processBuildingTick(
   player: Player,
   state: GameState,
   supplyAccum: Partial<Record<ResourceType, number>>,
-  demandAccum: Partial<Record<ResourceType, number>>
+  demandAccum: Partial<Record<ResourceType, number>>,
+  utilitySnapshot?: UtilityTickSnapshot
 ): void {
+  if (building.destroyedRuins) {
+    building.isActive = false;
+    building.efficiency = 0;
+    building.revenue = 0;
+    building.netProfit = 0;
+    building.productionPerTick = {};
+    building.consumptionPerTick = {};
+    building.activeResearchId = null;
+    building.costs = {
+      inputs: 0,
+      wages: 0,
+      zus: 0,
+      energy: 0,
+      water: 0,
+      transport: 0,
+      maintenance: 0,
+      environmentalFine: 0,
+      taxes: 0,
+      total: 0,
+    };
+    return;
+  }
+
   const def = BUILDING_DEFINITIONS[building.type];
   let bMods = getAggregatedBuildingModifiers(building);
   const entMods = getPlayerEntrepreneurModifiers(state, player);
@@ -387,7 +488,7 @@ export function processBuildingTick(
   const econMult = state.settings.economyMultiplier;
   const safetyCov = getSafetyCoverageForPlot(state, player.id, plot);
 
-  // Sprawdź logistykę wielomodalną i aktualizuj warstwę wizualną (visualTier 0..3)
+  // Sprawdź logistykę wielomodalną i aktualizuj warstwę wizualną (visualTier 0..4 Apex)
   const logiMode = evaluatePlotLogisticsMode(state, player.id, plot);
   building.logisticsMode = logiMode;
   building.hasRoadConnection = logiMode === 'road';
@@ -397,8 +498,9 @@ export function processBuildingTick(
     building.upgradeFlashTicks = (building.upgradeFlashTicks ?? 0) - 1;
   }
   const doneModules = building.techTree.filter((t) => t.status === 'done').length;
-  building.visualTier =
-    building.type === 'corporateHQ'
+  building.visualTier = bMods.isApex
+    ? 4
+    : building.type === 'corporateHQ'
       ? Math.min(3, Math.floor((player.corporationLevel - 1) * 0.75 + doneModules * 0.35))
       : Math.min(3, doneModules);
 
@@ -484,24 +586,78 @@ export function processBuildingTick(
     building.status.breakdown = false;
   }
 
-  // 3. Zasilanie i woda (w tym bilans sieci gracza)
+  // 3. Zasilanie, woda, ścieki i śmieci (nieliniowa krzywa kar v4.0)
   const elecNeeded = def.electricityUsage * (1 + bMods.electricityDelta);
   const waterNeeded = def.waterUsage * (1 + bMods.waterDelta);
+  const sewageNeeded = (def.sewageUsage ?? 0) * Math.max(0.2, 1 + bMods.sewageDelta);
+  const wasteNeeded = (def.wasteUsage ?? 0) * Math.max(0.2, 1 + bMods.wasteDelta);
 
   const playerHasOwnPower =
     plot.hasElectricity ||
-    state.plots.some((p) => p.ownerId === player.id && p.building?.category === 'energy' && p.building.isActive);
+    state.plots.some(
+      (p) =>
+        p.ownerId === player.id &&
+        p.building &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        (p.building.category === 'energy' || p.building.type === 'wasteIncinerator')
+    );
   const playerHasOwnWater =
     plot.hasWater ||
-    state.plots.some((p) => p.ownerId === player.id && p.building?.type === 'waterPlant' && p.building.isActive);
+    state.plots.some(
+      (p) => p.ownerId === player.id && p.building?.type === 'waterPlant' && p.building.isActive && !p.building.destroyedRuins
+    );
 
-  const networkPowerDeficit = elecNeeded > 0 && player.electricityBalance < -10 && !bMods.blackoutProtection;
-  building.status.noPower = (elecNeeded > 0 && !playerHasOwnPower && !bMods.blackoutProtection) || networkPowerDeficit;
-  building.status.noWater = waterNeeded > 0 && !playerHasOwnWater && !bMods.droughtProtection;
+  let elecRatio = 1;
+  if (elecNeeded > 0 && !bMods.blackoutProtection) {
+    elecRatio = !playerHasOwnPower
+      ? 0
+      : utilitySnapshot?.elecRatio ??
+        (player.electricityBalance >= 0
+          ? 1
+          : Math.max(0, 1 + player.electricityBalance / Math.max(50, Math.abs(player.electricityBalance) + elecNeeded)));
+  }
 
-  // 4. Susza i strajki
+  let waterRatio = 1;
+  if (waterNeeded > 0 && !bMods.droughtProtection) {
+    waterRatio = !playerHasOwnWater
+      ? 0
+      : utilitySnapshot?.waterRatio ??
+        (player.waterBalance >= 0
+          ? 1
+          : Math.max(0, 1 + player.waterBalance / Math.max(40, Math.abs(player.waterBalance) + waterNeeded)));
+  }
+
+  const powerFactor = computeNonLinearUtilityFactor(elecRatio);
+  const waterFactor = computeNonLinearUtilityFactor(waterRatio);
+
+  building.status.noPower = elecNeeded > 0 && elecRatio < 0.99 && !bMods.blackoutProtection;
+  building.status.noWater = waterNeeded > 0 && waterRatio < 0.99 && !bMods.droughtProtection;
+
+  const sewageNet = utilitySnapshot?.sewageNet ?? player.sewageBalance ?? 0;
+  const wasteNet = utilitySnapshot?.wasteNet ?? player.wasteBalance ?? 0;
+  building.status.sewageCrisis = sewageNeeded > 0 && sewageNet < -8;
+  building.status.wasteCrisis = wasteNeeded > 0 && wasteNet < -8;
+
+  if (building.status.sewageCrisis) {
+    player.influence.voterApproval = Math.max(0, player.influence.voterApproval - 0.08);
+    state.voterMood = Math.max(-100, state.voterMood - 0.05);
+  }
+  if (building.status.wasteCrisis) {
+    player.influence.voterApproval = Math.max(0, player.influence.voterApproval - 0.06);
+    state.voterMood = Math.max(-100, state.voterMood - 0.04);
+  }
+
+  // Dodatkowe zużycie przy krytycznym paraliżu zasilania (<20%)
+  if ((elecNeeded > 0 && powerFactor === 0) || (waterNeeded > 0 && waterFactor === 0)) {
+    building.damagePercent = Math.min(95, Number((building.damagePercent + 0.65).toFixed(2)));
+    building.condition = Math.max(5, Number((100 - building.damagePercent).toFixed(2)));
+  }
+
+  // 4. Susza, katastrofy naturalne i strajki
   let droughtFactor = 1.0;
   let strikeFactor = 1.0;
+  let weatherEnergyFactor = 1.0;
   for (const ev of state.activeEvents) {
     for (const eff of ev.effects) {
       if (eff.kind === 'hydroPenalty' && building.type === 'hydroPowerPlant') {
@@ -513,6 +669,14 @@ export function processBuildingTick(
         droughtFactor *= 1 - eff.value * (1 - shield);
         if (!bMods.droughtProtection) building.status.droughtHit = true;
       }
+      if (eff.kind === 'weatherCloudy' && building.type === 'solarFarm') {
+        weatherEnergyFactor *= Math.max(0.35, 1 - eff.value);
+      }
+      if (eff.kind === 'energyPenalty' && (building.category === 'energy' || building.type === 'solarFarm' || building.type === 'windFarm')) {
+        if (building.type !== 'geothermalPlant' && !bMods.blackoutProtection) {
+          weatherEnergyFactor *= Math.max(0.25, 1 - eff.value);
+        }
+      }
       if (eff.kind === 'strikeRisk' && building.category !== 'education' && building.category !== 'influence') {
         const socialShield = Math.min(0.75, (player.influence.churchSupport + player.influence.mediaControl) / 140);
         strikeFactor *= 1 - eff.value * (1 - socialShield);
@@ -523,7 +687,7 @@ export function processBuildingTick(
     building.status.droughtHit = false;
   }
 
-  // 5. Efektywność (Szpital + Atrakcje + Pożar/HAZMAT + Logistyka)
+  // 5. Efektywność (Szpital + Atrakcje + Pożar/HAZMAT + Logistyka + Nieliniowe media)
   const effectiveRequiredWorkers = Math.max(1, Math.round(building.maxWorkers * (1 - bMods.workerReduction)));
   building.status.understaffed = building.workers < effectiveRequiredWorkers * 0.5;
   const staffingRatio = Math.min(1.2, building.workers / Math.max(1, effectiveRequiredWorkers));
@@ -535,8 +699,9 @@ export function processBuildingTick(
       ? 0.15
       : 0.45 * damageFactor
     : damageFactor;
-  const utilityFactor =
-    (building.status.noPower ? 0.58 : 1.0) * (building.status.noWater ? 0.65 : 1.0);
+  const sanitationFactor =
+    (building.status.sewageCrisis ? 0.78 : 1.0) * (building.status.wasteCrisis ? 0.82 : 1.0);
+  const utilityFactor = powerFactor * waterFactor * sanitationFactor;
 
   let hazardFactor = 1.0;
   if (building.activeHazard) {
@@ -558,56 +723,83 @@ export function processBuildingTick(
   if (
     building.category === 'real_estate' ||
     building.category === 'attractions' ||
-    building.type === 'jewelryWorkshop'
+    building.type === 'jewelryWorkshop' ||
+    building.type === 'jewelryLuxury'
   ) {
     const attractionBoost = 1 + plot.attractionBonus * 0.014;
     realEstateFactor = Math.max(0.35, (plot.attractiveness / 65) * attractionBoost * (1 + state.voterMood / 250));
   }
 
   const boycottFactor = building.boycottedTicks > 0 ? 0.65 : 1.0;
+  const disasterPlotFactor = (plot.disasterDamagedTicks ?? 0) > 0 ? 0.78 : 1.0;
 
   const rawEfficiency =
-    staffingRatio *
-    skillFactor *
-    hospitalHRBonus *
-    conditionFactor *
-    utilityFactor *
-    hazardFactor *
-    isolationFactor *
-    droughtFactor *
-    strikeFactor *
-    boycottFactor *
-    realEstateFactor *
-    (1 + bMods.productionBonus + categoryBonus + entMods.profitBonus);
+    utilityFactor <= 0.001
+      ? 0
+      : staffingRatio *
+        skillFactor *
+        hospitalHRBonus *
+        conditionFactor *
+        utilityFactor *
+        hazardFactor *
+        isolationFactor *
+        droughtFactor *
+        strikeFactor *
+        boycottFactor *
+        weatherEnergyFactor *
+        disasterPlotFactor *
+        realEstateFactor *
+        (1 + bMods.productionBonus + categoryBonus + entMods.profitBonus);
 
   building.efficiency = Math.round(rawEfficiency * 100);
 
-  // 6. Wsad
+  // 6. Wsad i gospodarka zamknięta MP
+  const isMpClosedEconomy = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
   let inputCost = 0;
   let totalGoodsVolume = 0;
-  let inputFulfillment = 1.0;
+  let inputFulfillment = rawEfficiency <= 0.001 ? 0 : 1.0;
+  building.status.missingInputs = false;
   const consumptionPerTick: Partial<Record<ResourceType, number>> = {};
 
   for (const [resKey, baseQty] of Object.entries(def.inputs)) {
     const res = resKey as ResourceType;
+    if (rawEfficiency <= 0.001) {
+      consumptionPerTick[res] = 0;
+      continue;
+    }
     const qty = (baseQty ?? 0) * Math.max(0.2, rawEfficiency) * econMult;
     consumptionPerTick[res] = Number(qty.toFixed(2));
     demandAccum[res] = (demandAccum[res] ?? 0) + qty;
     totalGoodsVolume += qty;
 
+    let remainingNeed = qty;
+    const localStock = building.storage[res] ?? 0;
+    const fromLocal = Math.min(localStock, remainingNeed);
+    if (fromLocal > 0) {
+      building.storage[res] = localStock - fromLocal;
+      remainingNeed -= fromLocal;
+    }
     const ownedStock = player.warehouseStockpile[res] ?? 0;
-    const fromStock = Math.min(ownedStock, qty);
+    const fromStock = Math.min(ownedStock, remainingNeed);
     if (fromStock > 0) {
       player.warehouseStockpile[res] = ownedStock - fromStock;
+      remainingNeed -= fromStock;
     }
-    const toBuy = qty - fromStock;
-    if (toBuy > 0) {
-      const mktPrice = getResourcePrice(state, res) * (1 - entMods.buyPriceDiscount);
-      const cost = toBuy * mktPrice * (1 - Math.min(0.4, bMods.costReduction));
-      if (player.cash >= cost || player.cash > -200_000) {
-        inputCost += cost;
+    if (remainingNeed > 0.001) {
+      if (isMpClosedEconomy) {
+        // Gospodarka zamknięta MP: ZERO zakupów spot od NPC! Zakład staje lub zwalnia proporcjonalnie do wkładu własnego.
+        building.status.missingInputs = true;
+        const coveredRatio = Math.max(0, (qty - remainingNeed) / Math.max(0.01, qty));
+        inputFulfillment = Math.min(inputFulfillment, coveredRatio);
       } else {
-        inputFulfillment = Math.min(inputFulfillment, 0.35);
+        const mktPrice = getResourcePrice(state, res) * (1 - entMods.buyPriceDiscount);
+        const cost = remainingNeed * mktPrice * (1 - Math.min(0.4, bMods.costReduction));
+        if (player.cash >= cost || player.cash > -200_000) {
+          inputCost += cost;
+        } else {
+          building.status.missingInputs = true;
+          inputFulfillment = Math.min(inputFulfillment, 0.35);
+        }
       }
     }
   }
@@ -618,15 +810,25 @@ export function processBuildingTick(
     ? plot.deposits.find((d) => d.type === def.requiredDeposit)?.richness ?? 1
     : 1;
 
-  let grossRevenue = def.baseRevenue * rawEfficiency * econMult * boycottFactor;
+  let grossRevenue =
+    rawEfficiency <= 0.001 ? 0 : def.baseRevenue * rawEfficiency * econMult * boycottFactor * (Object.keys(def.inputs).length > 0 ? Math.max(0.15, inputFulfillment) : 1);
   const productionPerTick: Partial<Record<ResourceType, number>> = {};
 
   for (const [resKey, baseOut] of Object.entries(def.outputs)) {
     const res = resKey as ResourceType;
-    const produced = (baseOut ?? 0) * rawEfficiency * depositRichness * inputFulfillment * econMult;
+    const produced =
+      rawEfficiency <= 0.001 ? 0 : (baseOut ?? 0) * rawEfficiency * depositRichness * inputFulfillment * econMult;
     productionPerTick[res] = Number(produced.toFixed(2));
+    if (produced <= 0) continue;
+
     supplyAccum[res] = (supplyAccum[res] ?? 0) + produced;
     totalGoodsVolume += produced;
+
+    // Sortownia z Recyklingiem odzyskuje metale bezpośrednio do magazynu (lub do obrotu)
+    if (bMods.recyclesResources || building.type === 'recyclingPlant') {
+      player.warehouseStockpile[res] = (player.warehouseStockpile[res] ?? 0) + produced;
+      continue;
+    }
 
     if (building.stockpileOutput) {
       const currentStorageTotal = Object.values(building.storage).reduce((a, b) => a + (b ?? 0), 0);
@@ -637,8 +839,9 @@ export function processBuildingTick(
         const hasWarehouse = state.plots.some(
           (p) => p.ownerId === player.id && p.building?.type === 'warehouse'
         );
-        if (hasWarehouse) {
+        if (hasWarehouse || isMpClosedEconomy) {
           player.warehouseStockpile[res] = (player.warehouseStockpile[res] ?? 0) + produced;
+          building.status.storageFull = false;
         } else {
           building.status.storageFull = true;
           const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
@@ -699,8 +902,11 @@ export function processBuildingTick(
     player.researchPoints += 1.5;
     player.influence.financial += 0.35;
   }
-  if (building.type === 'jewelryWorkshop') {
-    player.reputation = Math.min(100, player.reputation + 0.12);
+  if (building.type === 'jewelryWorkshop' || building.type === 'jewelryLuxury') {
+    player.reputation = Math.min(100, player.reputation + (building.type === 'jewelryLuxury' ? 0.25 : 0.12));
+  }
+  if (building.type === 'coldStorage') {
+    state.voterMood = Math.min(100, state.voterMood + 0.1);
   }
   if (building.type === 'lobbyOffice' || building.type === 'investmentBank') {
     player.influence.financial += 0.65 * Math.min(1.5, rawEfficiency);
@@ -708,6 +914,7 @@ export function processBuildingTick(
   if (building.type === 'mediaAgency') {
     player.influence.mediaControl = Math.min(100, player.influence.mediaControl + 0.55);
     player.influence.social += 0.5;
+    player.influence.voterApproval = Math.min(100, player.influence.voterApproval + 0.15);
   }
   if (building.type === 'churchFoundation') {
     player.influence.churchSupport = Math.min(100, player.influence.churchSupport + 0.6);
@@ -727,8 +934,8 @@ export function processBuildingTick(
   const hr = calculateBuildingHRPayroll(building, state, player);
   const elecPrice = getResourcePrice(state, 'electricity');
   const waterPrice = getResourcePrice(state, 'water');
-  const energyCost = elecNeeded > 0 ? elecNeeded * (elecPrice / 10) : 0;
-  const waterCost = waterNeeded > 0 ? waterNeeded * (waterPrice / 5) : 0;
+  const energyCost = elecNeeded > 0 && powerFactor > 0 ? elecNeeded * (elecPrice / 10) : 0;
+  const waterCost = waterNeeded > 0 && waterFactor > 0 ? waterNeeded * (waterPrice / 5) : 0;
 
   const fuelPrice = getResourcePrice(state, 'fuel');
   const hasAdjacentHighway = state.plots.some(
@@ -767,10 +974,12 @@ export function processBuildingTick(
   const effectivePollution = Math.max(0, def.pollutionLevel + bMods.pollutionDelta);
   const envShield = player.actionCooldowns['env_shield'] ? 0.1 : 1;
   const greenPolicyMult = state.activeEvents.some((e) => e.id === 'green_subsidies') ? 1.5 : 1;
+  const sanitationFine =
+    (building.status.sewageCrisis ? 420 : 0) + (building.status.wasteCrisis ? 360 : 0);
   const environmentalFine =
-    effectivePollution > 3 && !bMods.cleanFilter
+    (effectivePollution > 3 && !bMods.cleanFilter
       ? effectivePollution * 115 * envShield * greenPolicyMult * (1 - techMods.taxReduction)
-      : 0;
+      : 0) + sanitationFine;
 
   const operatingCosts = inputCost + hr.wages + hr.zus + energyCost + waterCost + transportCost + maintenance + environmentalFine;
   const taxableProfit = Math.max(0, grossRevenue - operatingCosts);
@@ -810,9 +1019,11 @@ export function processBuildingTick(
         ? 'Przetwórstwo'
         : building.category === 'energy'
           ? 'Energetyka'
-          : building.category === 'real_estate' || building.category === 'attractions' || building.category === 'finance'
-            ? 'Nieruchomości, Atrakcje i Finanse'
-            : 'Usługi i Bezpieczeństwo';
+          : building.category === 'waste'
+            ? 'Gospodarka Odpadami i Ścieki'
+            : building.category === 'real_estate' || building.category === 'attractions' || building.category === 'finance'
+              ? 'Nieruchomości, Atrakcje i Finanse'
+              : 'Usługi i Bezpieczeństwo';
   player.lastTickRevenueByCategory[revCat] =
     (player.lastTickRevenueByCategory[revCat] ?? 0) + grossRevenue;
 

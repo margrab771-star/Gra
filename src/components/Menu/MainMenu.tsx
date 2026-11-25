@@ -166,7 +166,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             className="w-full py-3.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm md:text-base transition-all shadow-lg shadow-sky-950/50 flex items-center justify-between"
           >
             <span>🌐 Multiplayer Online (WebRTC / P2P)</span>
-            <span className="text-xs font-normal opacity-90">1–4 Graczy + AI</span>
+            <span className="text-xs font-normal opacity-90">1–8 Graczy + Koalicje</span>
           </button>
 
           <div className="grid grid-cols-2 gap-2.5 pt-1">
@@ -180,25 +180,25 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             <button
               type="button"
               onClick={onStartTutorial}
-              className="py-2.5 px-3 rounded-xl bg-[#0b0f17] hover:bg-[#151c28] border border-[#243044] text-slate-200 text-xs md:text-sm font-semibold"
+              className="py-2.5 px-3 rounded-xl bg-[#0b0f17] hover:bg-[#151c28] border border-sky-500/40 text-sky-200 text-xs md:text-sm font-semibold"
             >
-              🎓 Szybki Samouczek
+              🎓 Przewodnik i Samouczek
             </button>
           </div>
         </div>
 
         <div className="pt-3 border-t border-[#1e293b] grid grid-cols-3 gap-2 text-center text-[11px] text-slate-400">
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">48 Struktur</div>
-            <div>5 etapów · HQ · Kasyna</div>
+            <div className="font-bold text-slate-200">62 Struktury</div>
+            <div>Tier 4 APEX · OZE · Atom</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">5 Gałęzi Nauki</div>
-            <div>Logistyka · BHP · Atom</div>
+            <div className="font-bold text-slate-200">Mapy do 40×40</div>
+            <div>Ścieki · Odpady · B2B</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">6 Strategii</div>
-            <div>Od surowców po atom</div>
+            <div className="font-bold text-slate-200">Do 8 Graczy</div>
+            <div>Koalicje · Dyplomacja</div>
           </div>
         </div>
       </div>

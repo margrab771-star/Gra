@@ -13,6 +13,7 @@ import {
   testP2PReadiness,
 } from '../../network/multiplayerManager';
 import type { ConnectionStage, P2PReadinessReport } from '../../network/multiplayerManager';
+import { DarkToggle } from '../HUD/DarkControls';
 
 interface MultiplayerLobbyProps {
   initialRoomCode: string | null;
@@ -23,6 +24,7 @@ interface MultiplayerLobbyProps {
   onCreateRoom: (name: string, company: string, color: string) => Promise<void>;
   onJoinRoom: (code: string, name: string, company: string, color: string) => Promise<void>;
   onStartMatch: () => void;
+  onOpenTutorial?: () => void;
   onLeave: () => void;
 }
 
@@ -35,6 +37,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   onCreateRoom,
   onJoinRoom,
   onStartMatch,
+  onOpenTutorial,
   onLeave,
 }) => {
   const [modeView, setModeView] = useState<'choose' | 'join'>(
@@ -130,7 +133,17 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               </h2>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {onOpenTutorial && (
+                <button
+                  type="button"
+                  onClick={onOpenTutorial}
+                  className="px-3 py-2 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-amber-500/40 text-amber-200 text-xs font-semibold"
+                  title="Otwórz kompendium zasad bez wychodzenia z pokoju"
+                >
+                  🎓 Samouczek
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleCopyInvite}
@@ -154,61 +167,91 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
           )}
 
-          {/* Ustawienia Hosta */}
-          <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div>
-              <label className="text-slate-400 block mb-1">Tempo Rozgrywki</label>
-              <select
-                disabled={!isHost}
-                value={lobbyState.mode}
-                onChange={(e) =>
-                  multiplayerManager.updateLobbySettings({
-                    mode: e.target.value as 'mp_fast' | 'mp_long',
-                  })
-                }
-                className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
-              >
-                <option value="mp_fast">⚡ Tryb Przyspieszony (~1h)</option>
-                <option value="mp_long">🏛️ Kampania Długa (Głęboka)</option>
-              </select>
+          {/* Ustawienia Hosta (Tryb, Mapa, AI, Katastrofy, Zwycięstwo) */}
+          <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-slate-400 block mb-1">Tempo Rozgrywki</label>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.mode}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({
+                      mode: e.target.value as 'mp_fast' | 'mp_long',
+                    })
+                  }
+                  className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
+                >
+                  <option value="mp_fast">⚡ Tryb Przyspieszony (~1h)</option>
+                  <option value="mp_long">🏛️ Kampania Długa (Głęboka)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Rozmiar Mapy</label>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.mapSize}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({ mapSize: Number(e.target.value) })
+                  }
+                  className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
+                >
+                  {MAP_SIZES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Poziom Botów AI</label>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.aiDifficulty}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({ aiDifficulty: Number(e.target.value) })
+                  }
+                  className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
+                >
+                  {DIFFICULTY_LABELS.map((d, idx) => (
+                    <option key={d} value={idx + 1}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="text-slate-400 block mb-1">Rozmiar Mapy</label>
-              <select
-                disabled={!isHost}
-                value={lobbyState.mapSize}
-                onChange={(e) =>
-                  multiplayerManager.updateLobbySettings({ mapSize: Number(e.target.value) })
-                }
-                className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
-              >
-                {MAP_SIZES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-slate-400 block mb-1">Poziom Botów AI</label>
-              <select
-                disabled={!isHost}
-                value={lobbyState.aiDifficulty}
-                onChange={(e) =>
-                  multiplayerManager.updateLobbySettings({ aiDifficulty: Number(e.target.value) })
-                }
-                className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 disabled:opacity-70"
-              >
-                {DIFFICULTY_LABELS.map((d, idx) => (
-                  <option key={d} value={idx + 1}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
+              <div className={!isHost ? 'opacity-70 pointer-events-none' : ''}>
+                <DarkToggle
+                  checked={lobbyState.disastersEnabled ?? true}
+                  onChange={(val) =>
+                    multiplayerManager.updateLobbySettings({ disastersEnabled: val })
+                  }
+                  label="Katastrofy naturalne (trzęsienia, powodzie, burze)"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-400">Warunek zwycięstwa:</span>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.victoryMode ?? 'solo'}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({
+                      victoryMode: e.target.value as 'solo' | 'coalition',
+                    })
+                  }
+                  className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
+                >
+                  <option value="solo">👑 Dominacja Solowa</option>
+                  <option value="coalition">🤝 Dominacja Koalicji</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Lista graczy (1-4) */}
+          {/* Lista graczy (1-8) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-300 uppercase">
@@ -336,13 +379,24 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               Bezpośrednie połączenie P2P gotowe pod GitHub Pages (HTTPS/WSS + STUN)
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onLeave}
-            className="px-3 py-1.5 rounded-lg bg-[#1a2438] text-xs text-slate-300 hover:text-white"
-          >
-            ← Wróć
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenTutorial && (
+              <button
+                type="button"
+                onClick={onOpenTutorial}
+                className="px-2.5 py-1.5 rounded-lg bg-[#182235] border border-amber-500/40 text-amber-200 text-xs font-semibold"
+              >
+                🎓 Samouczek
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onLeave}
+              className="px-3 py-1.5 rounded-lg bg-[#1a2438] text-xs text-slate-300 hover:text-white"
+            >
+              ← Wróć
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">

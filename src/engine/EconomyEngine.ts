@@ -1,12 +1,134 @@
 import { GAME_CONFIG } from '../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
+import { formatGameDate } from '../utils/formatters';
 import type {
   Building,
   GameState,
+  MarketCyclePhase,
+  MarketCycleState,
+  MarketSectorKey,
   MonopolyShare,
   Player,
+  Plot,
   ResourceType,
 } from './types';
+
+const RESOURCE_SECTOR_MAP: Partial<Record<ResourceType, MarketSectorKey>> = {
+  gold: 'gold_luxury',
+  diamonds: 'gold_luxury',
+  jewelry: 'gold_luxury',
+  coal: 'energy',
+  oil: 'energy',
+  fuel: 'energy',
+  uranium: 'energy',
+  electricity: 'energy',
+  semiconductors: 'tech',
+  lithium: 'tech',
+  batteries: 'tech',
+  electronics: 'tech',
+  rareMetals: 'tech',
+  chemicals: 'tech',
+  ironOre: 'industry',
+  copper: 'industry',
+  steel: 'industry',
+  prefabs: 'industry',
+  gravel: 'industry',
+  weapons: 'industry',
+  water: 'green',
+};
+
+export function createInitialMarketCycles(): MarketCycleState[] {
+  const specs: { sector: MarketSectorKey; name: string }[] = [
+    { sector: 'gold_luxury', name: 'Indeks Złota i Luksusu (GLD)' },
+    { sector: 'energy', name: 'Indeks Energetyczny (NRG)' },
+    { sector: 'tech', name: 'Indeks High-Tech i Baterii (TEC)' },
+    { sector: 'industry', name: 'Indeks Przemysłu Ciężkiego (IND)' },
+    { sector: 'green', name: 'Indeks Żywności i Mediów (ECO)' },
+  ];
+  return specs.map((s) => ({
+    sector: s.sector,
+    name: s.name,
+    phase: 'hossa',
+    multiplier: 1.0,
+    ticksRemaining: 24 + Math.floor(Math.random() * 18),
+    indexValue: 1000,
+    previousIndexValue: 1000,
+    changePercent: 0,
+    history: [1000],
+  }));
+}
+
+export function updateMarketCyclesTick(state: GameState): void {
+  if (!state.marketCycles || state.marketCycles.length === 0) {
+    state.marketCycles = createInitialMarketCycles();
+  }
+
+  for (const cycle of state.marketCycles) {
+    cycle.ticksRemaining -= 1;
+    let nextPhase: MarketCyclePhase = cycle.phase;
+
+    if (cycle.ticksRemaining <= 0) {
+      const r = Math.random();
+      if (cycle.phase === 'hossa') {
+        nextPhase = r < 0.34 ? 'banka' : 'korekta';
+        cycle.multiplier = nextPhase === 'banka' ? 1.48 + Math.random() * 0.35 : 0.88 + Math.random() * 0.08;
+        cycle.ticksRemaining = nextPhase === 'banka' ? 18 + Math.floor(Math.random() * 10) : 14 + Math.floor(Math.random() * 10);
+      } else if (cycle.phase === 'banka') {
+        nextPhase = r < 0.68 ? 'krach' : 'korekta';
+        cycle.multiplier = nextPhase === 'krach' ? 0.44 + Math.random() * 0.14 : 0.78 + Math.random() * 0.1;
+        cycle.ticksRemaining = nextPhase === 'krach' ? 16 + Math.floor(Math.random() * 10) : 14 + Math.floor(Math.random() * 8);
+      } else if (cycle.phase === 'krach') {
+        nextPhase = r < 0.72 ? 'hossa' : 'korekta';
+        cycle.multiplier = nextPhase === 'hossa' ? 1.12 + Math.random() * 0.2 : 0.85 + Math.random() * 0.1;
+        cycle.ticksRemaining = 22 + Math.floor(Math.random() * 16);
+      } else {
+        // korekta
+        nextPhase = r < 0.65 ? 'hossa' : r < 0.85 ? 'korekta' : 'krach';
+        cycle.multiplier =
+          nextPhase === 'hossa'
+            ? 1.14 + Math.random() * 0.22
+            : nextPhase === 'krach'
+              ? 0.52 + Math.random() * 0.1
+              : 0.9 + Math.random() * 0.08;
+        cycle.ticksRemaining = 20 + Math.floor(Math.random() * 14);
+      }
+
+      if (nextPhase !== cycle.phase && (nextPhase === 'banka' || nextPhase === 'krach')) {
+        const hl =
+          nextPhase === 'banka'
+            ? `🔥 Bańka spekulacyjna: ${cycle.name}`
+            : `📉 KRACH rynkowy: ${cycle.name}`;
+        const br =
+          nextPhase === 'banka'
+            ? `Kapitał masowo płynie do sektora — wyceny surowców sięgają +${Math.round((cycle.multiplier - 1) * 100)}%!`
+            : `Gwałtowna wyprzedaż w sektorze zbiła wyceny o ${Math.round((1 - cycle.multiplier) * 100)}%.`;
+        state.news.unshift({
+          id: `mkt_${state.time.tick}_${cycle.sector}`,
+          headline: hl,
+          brief: br,
+          fullText: br,
+          analysis: `Cykl koniunkturalny sektora ${cycle.name} przeszedł w fazę ${nextPhase.toUpperCase()}.`,
+          hints: ['Sprawdź wskaźniki sektorowe klikając pasek notowań giełdowych u góry ekranu.'],
+          type: nextPhase === 'banka' ? 'opportunity' : 'negative',
+          dateLabel: formatGameDate(state.time),
+          tick: state.time.tick,
+          read: false,
+        });
+        if (state.news.length > 40) state.news.pop();
+      }
+      cycle.phase = nextPhase;
+    }
+
+    const noise = (Math.random() - 0.5) * 32;
+    const targetIdx = Math.max(280, Math.round(1000 * cycle.multiplier + noise));
+    cycle.previousIndexValue = cycle.indexValue;
+    cycle.indexValue = Math.max(250, Math.round(cycle.indexValue + (targetIdx - cycle.indexValue) * 0.22));
+    cycle.changePercent = Number(
+      (((cycle.indexValue - cycle.previousIndexValue) / Math.max(1, cycle.previousIndexValue)) * 100).toFixed(2)
+    );
+    cycle.history = [...cycle.history.slice(-29), cycle.indexValue];
+  }
+}
 
 export function getResourcePrice(state: GameState, resource: ResourceType): number {
   return (
@@ -152,6 +274,7 @@ export function updateMarketPrices(
 
   for (const rp of state.resourcePrices) {
     const def = RESOURCE_DEFINITIONS[rp.type];
+    if (!def || def.tradeable === false) continue;
     const supply = Math.max(10, 80 + (supplyAccum[rp.type] ?? 0));
     const demand = Math.max(10, 80 + (demandAccum[rp.type] ?? 0));
     rp.supply = Math.round(supply);
@@ -159,14 +282,20 @@ export function updateMarketPrices(
 
     const imbalance = (demand - supply) / Math.max(supply, demand);
     let eventMult = (eventPriceTargets[rp.type] ?? 1) * (eventPriceTargets['all'] ?? 1);
-    // Złoto działa jako bezpieczna przystań w trakcie recesji!
-    if (rp.type === 'gold' && isRecession) {
-      eventMult = 1.28;
+    const sectorKey = RESOURCE_SECTOR_MAP[rp.type];
+    const sectorCycle = sectorKey ? state.marketCycles?.find((c) => c.sector === sectorKey) : undefined;
+    const cycleMult = sectorCycle ? sectorCycle.multiplier : 1.0;
+
+    // Złoto i diamenty działają jako bezpieczna przystań w trakcie recesji!
+    if ((rp.type === 'gold' || rp.type === 'diamonds') && isRecession) {
+      eventMult = Math.max(eventMult, 1.28);
     }
 
-    const targetPrice = def.basePrice * (1 + imbalance * def.elasticity) * eventMult;
-    const noise = (Math.random() - 0.5) * 2 * def.volatility * 0.45;
-    const meanPull = (targetPrice - rp.price) * 0.14;
+    const targetPrice = def.basePrice * (1 + imbalance * def.elasticity) * eventMult * cycleMult;
+    const volScale = sectorCycle?.phase === 'krach' ? 1.45 : sectorCycle?.phase === 'banka' ? 1.25 : 1.0;
+    const noise = (Math.random() - 0.5) * 2 * def.volatility * 0.45 * volScale;
+    const pullRate = sectorCycle?.phase === 'krach' ? 0.24 : 0.15;
+    const meanPull = (targetPrice - rp.price) * pullRate;
     const nextPrice = Math.round(
       Math.max(def.minPrice, Math.min(def.maxPrice, rp.price + meanPull + rp.price * noise))
     );
@@ -319,6 +448,13 @@ export function takeBankLoan(
   amount: number,
   months: number
 ): { ok: boolean; error?: string } {
+  const isMp = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
+  if (isMp && player.loans.length >= GAME_CONFIG.maxMpLoans) {
+    return {
+      ok: false,
+      error: 'Osiągnięto limit 3 aktywnych kredytów w trybie Multiplayer. Spłać istniejące zobowiązanie.',
+    };
+  }
   if (amount <= 0 || amount > 5_000_000) {
     return { ok: false, error: 'Kwota kredytu musi wynosić od 1 zł do 5 000 000 zł.' };
   }
@@ -380,4 +516,135 @@ export function processLoansTick(player: Player): number {
     }
   }
   return totalPaid;
+}
+
+export function processInsolvencyAndBailiffTick(state: GameState): void {
+  for (const player of state.players) {
+    if (player.isEliminated) continue;
+
+    const deeplyInsolvent = player.cash < -60_000 || (player.cash < 0 && player.loans.length > 0 && player.netWorth < 0);
+
+    if (!deeplyInsolvent) {
+      if ((player.insolvencyGraceTicks ?? 0) > 0 && player.cash >= 0) {
+        player.insolvencyGraceTicks = 0;
+        player.insolvencyReason = undefined;
+      }
+      continue;
+    }
+
+    if ((player.insolvencyGraceTicks ?? 0) <= 0) {
+      player.insolvencyGraceTicks = 12;
+      player.insolvencyReason = 'Ujemne saldo gotówkowe i zaległe zobowiązania wobec wierzycieli';
+      const br = `Spółka odnotowała krytyczny deficyt gotówki (${Math.round(player.cash).toLocaleString('pl-PL')} zł). Za 12 cykli komornik rozpocznie przymusową licytację działek i majątku!`;
+      state.news.unshift({
+        id: `bailiff_warn_${state.time.tick}_${player.id}`,
+        headline: `⚠️ Ostateczne Wezwanie Komornicze dla ${player.companyName}`,
+        brief: br,
+        fullText: br,
+        analysis: 'Niewypłacalność spółki uruchamia procedurę zajęcia i licytacji majątku.',
+        hints: ['Sprzedaj zapasy, weź kredyt lub spienięż zbędną działkę przed upływem 12 cykli.'],
+        type: 'negative',
+        dateLabel: formatGameDate(state.time),
+        tick: state.time.tick,
+        read: false,
+      });
+      if (state.news.length > 40) state.news.pop();
+      continue;
+    }
+
+    player.insolvencyGraceTicks = (player.insolvencyGraceTicks ?? 1) - 1;
+    if (player.insolvencyGraceTicks > 0) continue;
+
+    // Egzekucja komornicza majątku!
+    const ownedPlots = state.plots.filter((p) => p.ownerId === player.id);
+    if (ownedPlots.length === 0) {
+      player.isEliminated = true;
+      player.insolvencyReason = 'Ogłoszono upadłość likwidacyjną (brak majątku na pokrycie długów)';
+      for (const c of state.contracts) {
+        if ((c.buyerId === player.id || c.sellerId === player.id) && c.status !== 'completed') {
+          c.status = 'cancelled';
+        }
+      }
+      if (state.coalitions) {
+        for (const col of state.coalitions) {
+          col.memberIds = col.memberIds.filter((id) => id !== player.id);
+        }
+      }
+      const br = `Sąd gospodarczy zamknął działalność firmy ${player.companyName} po bezskutecznej egzekucji długów.`;
+      state.news.unshift({
+        id: `bankrupt_${state.time.tick}_${player.id}`,
+        headline: `💀 UPADŁOŚĆ LIKWIDACYJNA: ${player.companyName}`,
+        brief: br,
+        fullText: br,
+        analysis: 'Podmiot został wykluczony z obrotu giełdowego i umów B2B.',
+        hints: ['Utrzymuj dodatnie saldo gotówkowe i bezpieczny limit zadłużenia.'],
+        type: 'negative',
+        dateLabel: formatGameDate(state.time),
+        tick: state.time.tick,
+        read: false,
+      });
+      if (state.news.length > 40) state.news.pop();
+      continue;
+    }
+
+    // Licytuj najcenniejszy składnik majątku (preferuj nie-HQ, na końcu HQ)
+    const sortedForAuction: Plot[] = [...ownedPlots].sort((a, b) => {
+      const aIsHq = a.building?.type === 'corporateHQ' ? 1 : 0;
+      const bIsHq = b.building?.type === 'corporateHQ' ? 1 : 0;
+      if (aIsHq !== bIsHq) return aIsHq - bIsHq;
+      const valA = a.price + (a.building ? getBuildingBookValue(a.building) * 0.65 : 0);
+      const valB = b.price + (b.building ? getBuildingBookValue(b.building) * 0.65 : 0);
+      return valB - valA;
+    });
+
+    const targetPlot = sortedForAuction[0];
+    const auctionValue = Math.max(
+      45_000,
+      Math.round((targetPlot.price + (targetPlot.building ? getBuildingBookValue(targetPlot.building) * 0.65 : 0)) * 0.62)
+    );
+    const seizedName = targetPlot.building ? `${targetPlot.building.name} + działka` : `działka (${targetPlot.gridX},${targetPlot.gridY})`;
+
+    targetPlot.ownerId = null;
+    targetPlot.building = null;
+    targetPlot.hasRoad = false;
+    targetPlot.roadType = 'none';
+    targetPlot.tollRate = 'free';
+    targetPlot.roadBlocked = false;
+    targetPlot.blockedPlayers = [];
+    targetPlot.isPlayerRoad = false;
+    targetPlot.purchasable = targetPlot.terrain !== 'water' && (targetPlot.irradiatedTicks ?? 0) <= 0;
+    state.networkRevision = (state.networkRevision ?? 0) + 1;
+
+    player.cash += auctionValue;
+    // Jeśli nadal na minusie, ustaw krótszy termin na kolejną licytację
+    player.insolvencyGraceTicks = player.cash < 0 ? 6 : 0;
+    if (player.cash >= 0) player.insolvencyReason = undefined;
+
+    const brAuction = `Komornik zlicytował majątek na działce (${targetPlot.gridX}, ${targetPlot.gridY}) za ${auctionValue.toLocaleString('pl-PL')} zł na pokrycie długów.`;
+    state.news.unshift({
+      id: `bailiff_seize_${state.time.tick}_${player.id}`,
+      headline: `🔨 Egzekucja Komornicza: ${player.companyName} straciła ${seizedName}`,
+      brief: brAuction,
+      fullText: brAuction,
+      analysis: 'Kliknij powiadomienie, aby przejść bezpośrednio do zlicytowanej nieruchomości.',
+      hints: ['Ogranicz koszty stałe lub wypowiedz nierentowne obiekty zanim komornik zajmie kolejne.'],
+      type: 'negative',
+      dateLabel: formatGameDate(state.time),
+      tick: state.time.tick,
+      read: false,
+      focusPlotId: targetPlot.id,
+    });
+    if (state.news.length > 40) state.news.pop();
+  }
+}
+
+export function calculateCoalitionNetWorthSum(state: GameState, coalitionId: string): number {
+  const col = (state.coalitions ?? []).find((c) => c.id === coalitionId);
+  if (!col) return 0;
+  let sum = 0;
+  for (const mId of col.memberIds) {
+    const p = state.players.find((pl) => pl.id === mId && !pl.isEliminated);
+    if (p) sum += Math.max(0, p.netWorth);
+  }
+  return sum;
 }

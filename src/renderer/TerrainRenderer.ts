@@ -1,6 +1,7 @@
 import { hasPlayerDiscoveredPlot, hasPlayerSurveyedPlot } from '../engine/PlotSystem';
 import type {
   Camera,
+  GameState,
   MapHeatmapMode,
   MapPlot,
   Player,
@@ -32,6 +33,8 @@ const DEPOSIT_BADGES: Record<string, { color: string; symbol: string }> = {
   oil: { color: '#fbbf24', symbol: 'Oil' },
   uranium: { color: '#84cc16', symbol: 'U' },
   rareMetals: { color: '#38bdf8', symbol: 'RM' },
+  diamonds: { color: '#67e8f9', symbol: 'Di' },
+  lithium: { color: '#c084fc', symbol: 'Li' },
 };
 
 function isRoadPlot(plot: MapPlot | undefined): boolean {
@@ -48,7 +51,8 @@ export class TerrainRenderer {
     originY: number,
     supersample: number,
     currentPlayerId = 'player_1',
-    heatmapMode: MapHeatmapMode = 'standard'
+    heatmapMode: MapHeatmapMode = 'standard',
+    state?: GameState
   ): void {
     const tw = TILE_WIDTH * supersample;
     const th = TILE_HEIGHT * supersample;
@@ -98,7 +102,7 @@ export class TerrainRenderer {
       }
 
       if (!plot.building && plot.terrain !== 'water') {
-        const discovered = hasPlayerDiscoveredPlot(plot, currentPlayerId, viewerPlayer);
+        const discovered = hasPlayerDiscoveredPlot(plot, currentPlayerId, viewerPlayer, state);
         if (discovered && plot.deposits.length > 0) {
           this.drawDepositBadge(ctx, plot, screenX, screenY, tw);
         } else if (hasPlayerSurveyedPlot(plot, currentPlayerId) && plot.deposits.length === 0) {
@@ -108,6 +112,37 @@ export class TerrainRenderer {
     }
 
     void mapSize;
+  }
+
+  renderTargetFootprint(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    hoveredPlot: MapPlot | null,
+    targetMode: 'missile' | 'nuke' | null,
+    plotGrid: (MapPlot | null)[],
+    gridSize: number,
+    frameCount: number
+  ): void {
+    if (!hoveredPlot || !targetMode || gridSize <= 0) return;
+    const radius = targetMode === 'nuke' ? 2 : 1;
+    const tw = TILE_WIDTH * camera.zoom;
+    const th = TILE_HEIGHT * camera.zoom;
+    const pulse = 0.35 + Math.sin(frameCount * 0.16) * 0.2;
+    const fill =
+      targetMode === 'nuke' ? `rgba(132, 204, 22, ${pulse * 0.55})` : `rgba(239, 68, 68, ${pulse * 0.55})`;
+    const stroke = targetMode === 'nuke' ? '#a3e635' : '#ef4444';
+
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const gx = hoveredPlot.gridX + dx;
+        const gy = hoveredPlot.gridY + dy;
+        if (gx < 0 || gx >= gridSize || gy < 0 || gy >= gridSize) continue;
+        const p = plotGrid[gy * gridSize + gx];
+        if (!p) continue;
+        const { screenX, screenY } = worldToScreen(gx, gy, tw, th, camera.x, camera.y);
+        this.strokeDiamond(ctx, screenX, screenY, tw, th, fill, stroke, dx === 0 && dy === 0 ? 2.4 : 1.3);
+      }
+    }
   }
 
   renderHoverAndSelection(
@@ -256,6 +291,26 @@ export class TerrainRenderer {
     }
 
     this.drawTerrainDetails(ctx, plot.terrain, cx, cy, supersample);
+
+    if ((plot.irradiatedTicks ?? 0) > 0 && plot.terrain !== 'water') {
+      ctx.beginPath();
+      ctx.moveTo(topX, topY);
+      ctx.lineTo(rightX, rightY);
+      ctx.lineTo(bottomX, bottomY);
+      ctx.lineTo(leftX, leftY);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(132, 204, 22, 0.36)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(163, 230, 53, 0.78)';
+      ctx.lineWidth = 1.4 * supersample;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(190, 242, 100, 0.9)';
+      ctx.font = `700 ${Math.round(9 * supersample)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('☢', cx, cy - 1 * supersample);
+    }
 
     if (heatmapMode !== 'standard' && plot.terrain !== 'water') {
       const heatFill = this.getHeatmapTint(plot, heatmapMode);

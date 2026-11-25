@@ -17,13 +17,18 @@ export function computePlayerUtilityAndResourceBalance(
   const waterSources: { label: string; produced: number }[] = [];
   const waterConsumers: { label: string; consumed: number }[] = [];
 
+  let sewageProduced = 0;
+  let sewageTreated = 0;
+  let wasteProduced = 0;
+  let wasteProcessed = 0;
+
   const resProduced: Partial<Record<ResourceType, number>> = {};
   const resConsumed: Partial<Record<ResourceType, number>> = {};
   const resImport: Partial<Record<ResourceType, number>> = {};
   const resExport: Partial<Record<ResourceType, number>> = {};
 
   for (const plot of state.plots) {
-    if (plot.ownerId !== player.id || !plot.building || !plot.building.isActive) continue;
+    if (plot.ownerId !== player.id || !plot.building || !plot.building.isActive || plot.building.destroyedRuins) continue;
     const b = plot.building;
     const def = BUILDING_DEFINITIONS[b.type];
     const mods = getAggregatedBuildingModifiers(b);
@@ -61,6 +66,22 @@ export function computePlayerUtilityAndResourceBalance(
         label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
         consumed: consW,
       });
+    }
+
+    // Ścieki przemysłowe (m3)
+    const rawSewage = def.sewageUsage ?? 0;
+    if (rawSewage < 0) {
+      sewageTreated += Math.round(Math.abs(rawSewage) * (1 + mods.sewageTreatmentBonus) * Math.max(0.25, b.efficiency / 100));
+    } else if (rawSewage > 0) {
+      sewageProduced += Math.round(rawSewage * Math.max(0.2, 1 + mods.sewageDelta));
+    }
+
+    // Odpady i śmieci (t)
+    const rawWaste = def.wasteUsage ?? 0;
+    if (rawWaste < 0) {
+      wasteProcessed += Math.round(Math.abs(rawWaste) * (1 + mods.wasteProcessingBonus) * Math.max(0.25, b.efficiency / 100));
+    } else if (rawWaste > 0) {
+      wasteProduced += Math.round(rawWaste * Math.max(0.2, 1 + mods.wasteDelta));
     }
 
     // Surowce i półprodukty
@@ -104,17 +125,30 @@ export function computePlayerUtilityAndResourceBalance(
     };
   }).filter((rb) => rb.produced > 0 || rb.consumed > 0 || rb.b2bImport > 0 || rb.b2bExport > 0);
 
+  const electricityCoverageRatio =
+    electricityConsumed > 0 ? Math.min(1, Number((electricityProduced / electricityConsumed).toFixed(3))) : 1;
+  const waterCoverageRatio =
+    waterConsumed > 0 ? Math.min(1, Number((waterProduced / waterConsumed).toFixed(3))) : 1;
+
   return {
     electricityProduced,
     electricityConsumed,
     electricityNet: electricityProduced - electricityConsumed,
+    electricityCoverageRatio,
     electricityByPlant,
     electricityConsumers,
     waterProduced,
     waterConsumed,
     waterNet: waterProduced - waterConsumed,
+    waterCoverageRatio,
     waterSources,
     waterConsumers,
+    sewageProduced,
+    sewageTreated,
+    sewageNet: sewageTreated - sewageProduced,
+    wasteProduced,
+    wasteProcessed,
+    wasteNet: wasteProcessed - wasteProduced,
     resourceBalances,
   };
 }

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { SERVICE_VEHICLE_COST } from '../../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
+import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import { getRepairCost } from '../../engine/BuildingSystem';
 import { getSafetyCoverageForPlot, getStationEffectiveMaxFleet } from '../../engine/HazardSystem';
 import { calculateZUSBreakdown, getTrainingCost } from '../../engine/HRSystem';
 import { getSuggestedPlotBuyoutValuation } from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
-import type { Building, BuildingTechNode, EmergencyServiceKind, GameState, Player, Plot, ResourceType } from '../../engine/types';
+import type { Building, BuildingTechNode, BuildingType, EmergencyServiceKind, GameState, Player, Plot, ResourceType } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
 import { DarkNumberInput, DarkToggle } from '../HUD/DarkControls';
 
@@ -26,6 +27,8 @@ interface BuildingPanelProps {
   onToggleStockpile: (buildingId: string) => void;
   onBuyServiceVehicle?: (buildingId: string) => void;
   onDemolish: (plotId: string) => void;
+  onCloneBuilding?: (buildingType: BuildingType) => void;
+  onOpenB2BMarket?: () => void;
   onProposePlotOffer?: (
     plotId: string,
     offeredPrice: number,
@@ -61,6 +64,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     onToggleStockpile,
     onBuyServiceVehicle,
     onDemolish,
+    onCloneBuilding,
+    onOpenB2BMarket,
     onProposePlotOffer,
     onProposeContract,
     onClose,
@@ -130,8 +135,13 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   Poz. {building.level}
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-mono text-[10px]">
-                  2.5D Tier {building.visualTier ?? 0}/3
+                  2.5D Tier {building.visualTier ?? 0}/4
                 </span>
+                {(building.visualTier ?? 0) >= 4 && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-[10px]">
+                    ★ APEX
+                  </span>
+                )}
               </div>
               <div className="text-[11px] text-slate-400 truncate">
                 Właściciel:{' '}
@@ -142,62 +152,150 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="hidden md:flex w-7 h-7 rounded bg-[#1c2434] text-slate-400 hover:text-white items-center justify-center shrink-0"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {isMine && !building.destroyedRuins && onCloneBuilding && (
+              <button
+                type="button"
+                onClick={() => onCloneBuilding(building.type)}
+                className="px-2 py-1 rounded bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-300 text-[11px] font-semibold"
+                title="Pipeta: sklonuj ten typ budynku na inną własną pustą działkę"
+              >
+                🧪 Klonuj
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="hidden md:flex w-7 h-7 rounded bg-[#1c2434] text-slate-400 hover:text-white items-center justify-center shrink-0"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
+        {/* Widok RUIN po pożarze lub katastrofie */}
+        {building.destroyedRuins && (
+          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/60 space-y-2 text-xs">
+            <div className="font-bold text-rose-200 flex items-center gap-1.5">
+              <span>🏚️ ZAWALONE RUINY OBIEKTU</span>
+            </div>
+            <p className="text-rose-200/80 leading-relaxed">
+              Konstrukcja uległa całkowitemu zniszczeniu wskutek katastrofy lub nieugaszonego incydentu.
+              Obiekt nie produkuje i nie zatrudnia załogi.
+            </p>
+            {isMine && (
+              <button
+                type="button"
+                onClick={() => onDemolish(plot.id)}
+                className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+              >
+                🧹 Uprzątnij Ruiny ({formatMoney(Math.max(5000, Math.round(BUILDING_DEFINITIONS[building.type].baseCost * 0.12)))})
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Alerty statusowe i zagrożenia */}
-        {(building.status.onFire ||
-          building.status.robberyActive ||
-          building.status.hazmatIncident ||
-          building.activeHazard ||
-          building.status.noRoadLink ||
-          building.logisticsMode === 'isolated' ||
-          building.status.noPower ||
-          building.status.noWater ||
-          building.status.breakdown ||
-          building.status.droughtHit ||
-          building.status.boycotted) && (
-          <div className="p-2 rounded-lg bg-rose-950/30 border border-rose-500/40 text-xs text-rose-200 space-y-1">
-            {(building.status.onFire || building.activeHazard?.kind === 'fire') && (
-              <div className="text-orange-300 font-semibold">
-                🔥 AKTYWNY POŻAR!{' '}
-                {building.activeHazard?.contained
-                  ? 'Wóz strażacki gasi ogień na miejscu.'
-                  : 'Jednostka w drodze po sieci dróg — postaw bliższą remizę lub szybsze autostrady!'}
-              </div>
-            )}
-            {(building.status.robberyActive || building.activeHazard?.kind === 'robbery') && (
-              <div className="text-rose-300 font-semibold">
-                🚨 NAPAD / KRADZIEŻ!{' '}
-                {building.activeHazard?.contained
-                  ? 'Patrol Policji zabezpieczył obiekt.'
-                  : 'Radiowozy jadą na interwencję — zwiększ liczbę patroli PPP!'}
-              </div>
-            )}
-            {(building.status.hazmatIncident ||
-              (building.activeHazard &&
-                building.activeHazard.kind !== 'fire' &&
-                building.activeHazard.kind !== 'robbery')) && (
-              <div className="text-lime-300 font-semibold">
-                ☣️ WYCIEK CHEMICZNY / RADIACYJNY!{' '}
-                {building.activeHazard?.contained
-                  ? 'Zespół HAZMAT zabezpiecza teren.'
-                  : 'Pojazdy HAZMAT w drodze (lub brak bazy HAZMAT / połączenia drogowego)!'}
-              </div>
-            )}
-            {(building.status.noRoadLink || building.logisticsMode === 'isolated') && (
-              <div className="text-amber-300">
-                🛣️ Zakład odcięty od sieci miejskiej (brak własnej drogi lub blokada rywala)! Połóż drogę/autostradę albo postaw Port/Lotnisko Cargo.
-              </div>
-            )}
-            {building.status.breakdown && <div>⚠️ Poważna awaria — wymagany natychmiastowy remont!</div>}
-            {building.status.noPower && <div>⚡ Deficyt prądu w sieci — wydajność obniżona!</div>}
+        {!building.destroyedRuins &&
+          (building.status.onFire ||
+            building.status.robberyActive ||
+            building.status.hazmatIncident ||
+            building.activeHazard ||
+            building.status.missingInputs ||
+            building.status.sewageCrisis ||
+            building.status.wasteCrisis ||
+            building.status.disasterStruck ||
+            building.status.noRoadLink ||
+            building.logisticsMode === 'isolated' ||
+            building.status.noPower ||
+            building.status.noWater ||
+            building.status.breakdown ||
+            building.status.droughtHit ||
+            building.status.boycotted) && (
+            <div className="p-2 rounded-lg bg-rose-950/30 border border-rose-500/40 text-xs text-rose-200 space-y-1">
+              {(building.status.onFire || building.activeHazard?.kind === 'fire') && (
+                <div className="text-orange-300 font-semibold space-y-1">
+                  <div>
+                    🔥 AKTYWNY POŻAR!{' '}
+                    {building.activeHazard?.contained
+                      ? 'Wóz strażacki gasi ogień na miejscu.'
+                      : 'Jednostka w drodze po sieci dróg — postaw bliższą remizę lub szybsze autostrady!'}
+                  </div>
+                  {(building.activeHazard?.destructionProgress ?? 0) > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between text-[10px]">
+                        <span>Postęp destrukcji do RUIN:</span>
+                        <span className="font-mono">{Math.round(building.activeHazard?.destructionProgress ?? 0)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-black/50 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-orange-500"
+                          style={{ width: `${Math.min(100, building.activeHazard?.destructionProgress ?? 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {(building.status.robberyActive || building.activeHazard?.kind === 'robbery') && (
+                <div className="text-rose-300 font-semibold">
+                  🚨 NAPAD / KRADZIEŻ!{' '}
+                  {building.activeHazard?.contained
+                    ? 'Patrol Policji zabezpieczył obiekt.'
+                    : 'Radiowozy jadą na interwencję — zwiększ liczbę patroli PPP!'}
+                </div>
+              )}
+              {(building.status.hazmatIncident ||
+                (building.activeHazard &&
+                  building.activeHazard.kind !== 'fire' &&
+                  building.activeHazard.kind !== 'robbery')) && (
+                <div className="text-lime-300 font-semibold space-y-1">
+                  <div>
+                    ☣️ WYCIEK CHEMICZNY / RADIACYJNY!{' '}
+                    {building.activeHazard?.contained
+                      ? 'Zespół HAZMAT zabezpiecza teren.'
+                      : 'Pojazdy HAZMAT w drodze (lub brak bazy HAZMAT / połączenia drogowego)!'}
+                  </div>
+                  {(building.activeHazard?.destructionProgress ?? 0) > 0 && (
+                    <div className="h-1.5 w-full bg-black/50 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-lime-500"
+                        style={{ width: `${Math.min(100, building.activeHazard?.destructionProgress ?? 0)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {building.status.missingInputs && (
+                <div className="flex items-center justify-between gap-2 text-rose-300 font-semibold">
+                  <span>⛔ Brak wsadu surowcowego (Gospodarka Zamknięta MP)!</span>
+                  {onOpenB2BMarket && (
+                    <button
+                      type="button"
+                      onClick={onOpenB2BMarket}
+                      className="px-2 py-0.5 rounded bg-sky-600/30 border border-sky-400/50 text-sky-200 text-[10px]"
+                    >
+                      Rynek B2B →
+                    </button>
+                  )}
+                </div>
+              )}
+              {building.status.sewageCrisis && (
+                <div className="text-teal-300">🚰 Kryzys ściekowy — postaw Oczyszczalnię Ścieków!</div>
+              )}
+              {building.status.wasteCrisis && (
+                <div className="text-lime-300">🗑️ Przepełnienie odpadów — postaw Spalarnię lub Recykling!</div>
+              )}
+              {building.status.disasterStruck && (
+                <div className="text-amber-300">🌪️ Skutki katastrofy naturalnej obniżają efektywność!</div>
+              )}
+              {(building.status.noRoadLink || building.logisticsMode === 'isolated') && (
+                <div className="text-amber-300">
+                  🛣️ Zakład odcięty od sieci miejskiej (brak własnej drogi lub blokada rywala)! Połóż drogę/autostradę albo postaw Port/Lotnisko Cargo.
+                </div>
+              )}
+              {building.status.breakdown && <div>⚠️ Poważna awaria — wymagany natychmiastowy remont!</div>}
+              {building.status.noPower && <div>⚡ Krytyczny deficyt prądu w sieci — sprawdź bilans MW!</div>}
             {building.status.noWater && <div>💧 Deficyt wody przemysłowej — wydajność obniżona!</div>}
             {building.status.droughtHit && <div>☀️ Susza obniża moc i chłodzenie obiektu!</div>}
             {building.status.boycotted && <div>📢 Aktywny bojkot konsumencki (−35% przychodów)!</div>}
@@ -580,9 +678,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         {/* ── ZAKŁADKA WEWNĘTRZNE DRZEWKO TECH (NODE-LINK TREE) ── */}
         {tab === 'tech' && (
           <div className="space-y-3 animate-fadeIn">
-            {/* Graf węzłów z krzywymi Beziera SVG */}
+            {/* Graf węzłów z krzywymi Beziera SVG (poszerzony pod poziom EKSTRA / APEX) */}
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] overflow-x-auto">
-              <div className="relative min-w-[430px] h-[275px]">
+              <div className="relative min-w-[680px] h-[300px]">
                 <svg className="absolute inset-0 w-full h-full pointer-events-none">
                   {/* Połączenia zależności */}
                   {building.techTree.map((node) =>
@@ -633,6 +731,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 {building.techTree.map((node) => {
                   const isSel = selectedTechNode?.id === node.id;
                   const st = node.status;
+                  const isApex = Boolean(node.effects.isApex || node.tier === 4);
 
                   return (
                     <button
@@ -642,27 +741,34 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                       style={{ left: node.graphPos.x, top: node.graphPos.y }}
                       className={`absolute w-[150px] p-2 rounded-lg border text-left transition-all duration-150 ${
                         st === 'done'
-                          ? 'bg-emerald-950/60 border-emerald-400 text-emerald-100 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                          ? isApex
+                            ? 'bg-amber-950/60 border-amber-400 text-amber-100 shadow-[0_0_16px_rgba(250,204,21,0.3)]'
+                            : 'bg-emerald-950/60 border-emerald-400 text-emerald-100 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
                           : st === 'researching'
                             ? 'bg-sky-950/70 border-sky-400 text-sky-100'
                             : st === 'available'
-                              ? 'bg-[#151c28] border-amber-400/70 text-slate-100 animate-node-avail hover:scale-[1.03]'
+                              ? isApex
+                                ? 'bg-[#1c162b] border-amber-400 text-amber-100 animate-node-avail hover:scale-[1.03]'
+                                : 'bg-[#151c28] border-amber-400/70 text-slate-100 animate-node-avail hover:scale-[1.03]'
                               : st === 'excluded'
                                 ? 'bg-[#121016] border-rose-900/40 text-slate-500 opacity-55 line-through'
-                                : 'bg-[#101520] border-[#243044] text-slate-500 opacity-70'
+                                : isApex
+                                  ? 'bg-[#141020] border-amber-500/35 text-slate-400 opacity-80'
+                                  : 'bg-[#101520] border-[#243044] text-slate-500 opacity-70'
                       } ${isSel ? 'ring-2 ring-white/80' : ''}`}
                     >
                       <div className="flex items-center justify-between text-[9px] font-mono mb-0.5">
-                        <span>
+                        <span className={isApex ? 'text-amber-300 font-bold' : ''}>
+                          {isApex ? '★ EKSTRA · ' : ''}
                           {st === 'done'
-                            ? '✅ GOTOWE'
+                            ? 'GOTOWE'
                             : st === 'researching'
-                              ? `⚙️ ${Math.round(node.progress)}%`
+                              ? `${Math.round(node.progress)}%`
                               : st === 'excluded'
-                                ? '⊘ WYKLUCZONE'
+                                ? 'WYKL.'
                                 : st === 'available'
-                                  ? '✨ DOSTĘPNE'
-                                  : '🔒 BLOKADA'}
+                                  ? 'DOSTĘPNE'
+                                  : 'BLOKADA'}
                         </span>
                         <span className="text-amber-300">{Math.round(node.cost / 1000)}k</span>
                       </div>

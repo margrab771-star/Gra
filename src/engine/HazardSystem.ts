@@ -1,6 +1,7 @@
 import { SERVICE_VEHICLE_COST } from '../config/gameConfig';
 import { formatGameDate } from '../utils/formatters';
 import { getPlayerGlobalTechModifiers } from './EconomyEngine';
+import { recalculateSpatialNetwork } from './PlotSystem';
 import { computeWeightedRoadRouteWithIndex } from './TransportSystem';
 import type {
   Building,
@@ -291,6 +292,7 @@ export function triggerHazardForBuilding(
     ticksRemaining: immediatelyContained ? 4 : 10,
     contained: immediatelyContained,
     responderBuildingId: responderId,
+    destructionProgress: 0,
   };
   building.status.onFire = kind === 'fire';
   building.status.hazmatIncident = kind === 'chemical_leak' || kind === 'radiation';
@@ -338,7 +340,7 @@ export function processHazardsTick(state: GameState): void {
   // 2. Przetwarzanie aktywnych incydentów i generowanie nowych
   for (const plot of state.plots) {
     const b = plot.building;
-    if (!b || !b.isActive || !b.ownerId) continue;
+    if (!b || !b.isActive || !b.ownerId || b.destroyedRuins) continue;
     const owner = state.players.find((p) => p.id === b.ownerId);
     if (!owner) continue;
 
@@ -362,7 +364,7 @@ export function processHazardsTick(state: GameState): void {
           const stPlot = state.plots.find((p) => p.id === respId);
           if (stPlot?.building) {
             const busy = countActiveDispatchesFromStation(state, respId);
-            const route = computeWeightedRoadRouteWithIndex(stPlot, plot, owner.id, plotsByCoord, true);
+            const route = computeWeightedRoadRouteWithIndex(stPlot, plot, owner.id, plotsByCoord, true, state);
             const eta = route ? Math.max(1, Math.round(route.etaTicks / getStationSpeedMultiplier(stPlot.building))) : 3;
             const status = busy < (stPlot.building.fleetSize ?? 1) ? 'en_route' : 'queued';
             state.dispatches.push({
@@ -383,16 +385,21 @@ export function processHazardsTick(state: GameState): void {
 
       if (b.activeHazard.kind === 'fire') {
         const dmg = b.activeHazard.contained ? 1.2 : 8.5;
-        b.damagePercent = Math.min(95, b.damagePercent + dmg);
+        b.damagePercent = Math.min(98, b.damagePercent + dmg);
+        b.activeHazard.destructionProgress = b.activeHazard.contained
+          ? Math.max(0, (b.activeHazard.destructionProgress ?? 0) - 7)
+          : Math.min(100, (b.activeHazard.destructionProgress ?? 0) + 14);
       } else if (b.activeHazard.kind === 'chemical_leak' || b.activeHazard.kind === 'radiation') {
         if (!b.activeHazard.contained) {
           const fine = 35_000;
           owner.cash -= fine;
           owner.lastTickTaxes.environmental += fine;
-          b.damagePercent = Math.min(95, b.damagePercent + 5.0);
+          b.damagePercent = Math.min(98, b.damagePercent + 5.0);
+          b.activeHazard.destructionProgress = Math.min(100, (b.activeHazard.destructionProgress ?? 0) + 11);
           state.voterMood = Math.max(-100, state.voterMood - 2.0);
         } else {
-          b.damagePercent = Math.min(95, b.damagePercent + 1.0);
+          b.damagePercent = Math.min(98, b.damagePercent + 1.0);
+          b.activeHazard.destructionProgress = Math.max(0, (b.activeHazard.destructionProgress ?? 0) - 6);
         }
       } else if (b.activeHazard.kind === 'robbery') {
         if (!b.activeHazard.contained) {
@@ -407,6 +414,40 @@ export function processHazardsTick(state: GameState): void {
         }
       }
 
+      if ((b.activeHazard.destructionProgress ?? 0) >= 100) {
+        b.destroyedRuins = true;
+        b.isActive = false;
+        b.damagePercent = 100;
+        b.condition = 0;
+        b.workers = 0;
+        b.efficiency = 0;
+        b.revenue = 0;
+        b.activeHazard = null;
+        b.status.onFire = false;
+        b.status.hazmatIncident = false;
+        b.status.robberyActive = false;
+        state.networkRevision = (state.networkRevision ?? 0) + 1;
+        recalculateSpatialNetwork(state.plots);
+
+        state.news = [
+          {
+            id: `ruins_${state.time.tick}_${b.id}`,
+            headline: `💥 Obiekt obrócił się w RUINY: ${b.name} (${owner.companyName})`,
+            brief: `Nieugaszony incydent całkowicie zniszczył konstrukcję na działce (${plot.gridX}, ${plot.gridY}). Wymagane płatne uprzątnięcie gruzu.`,
+            fullText: `Brak sprawnej interwencji Straży Pożarnej lub HAZMAT doprowadził do całkowitej destrukcji obiektu "${b.name}". Kliknij alert, aby przejść na działkę i uprzątnąć gruz.`,
+            analysis: 'Zbuduj remizy lub bazy HAZMAT oraz inwestuj w drogi i śmigłowce ratownicze.',
+            hints: ['Użyj przycisku "Uprzątnij Ruiny" w panelu działki.'],
+            type: 'negative' as const,
+            dateLabel: formatGameDate(state.time),
+            tick: state.time.tick,
+            read: false,
+            focusPlotId: plot.id,
+          },
+          ...state.news,
+        ].slice(0, 35);
+        continue;
+      }
+
       b.condition = Math.max(5, 100 - b.damagePercent);
       b.activeHazard.ticksRemaining -= 1;
 
@@ -419,37 +460,51 @@ export function processHazardsTick(state: GameState): void {
       continue;
     }
 
-    if (state.time.tick < 8) continue;
+    if (state.time.tick < 12) continue;
 
+    // Rzadsze pożary i skażenia HAZMAT — wyłącznie w obiektach wysokiego ryzyka
     const fireProne =
-      b.category === 'mining' ||
-      b.category === 'processing' ||
-      b.type === 'warehouse' ||
-      b.type === 'coalPowerPlant';
-    const hazmatProne =
+      b.type === 'coalPowerPlant' ||
+      b.type === 'gasPowerPlant' ||
+      b.type === 'wasteIncinerator' ||
+      b.type === 'oilRefinery' ||
+      b.type === 'steelMill' ||
       b.type === 'chemicalPlant' ||
       b.type === 'semiconductorFab' ||
+      b.type === 'batteryFactory' ||
+      b.type === 'weaponsComplex';
+    const hazmatProne =
+      b.type === 'chemicalPlant' ||
+      b.type === 'oilRefinery' ||
+      b.type === 'semiconductorFab' ||
       b.type === 'uraniumMine' ||
-      b.type === 'nuclearPowerPlant';
+      b.type === 'uraniumEnrichment' ||
+      b.type === 'nuclearPowerPlant' ||
+      b.type === 'fusionReactor' ||
+      b.type === 'batteryFactory';
     const heistProne =
       b.type === 'casino' ||
       b.type === 'jewelryWorkshop' ||
+      b.type === 'jewelryLuxury' ||
       b.type === 'investmentBank' ||
       b.type === 'resort';
 
     const safetyReduction = Math.max(0.2, 1 - techMods.safetyBonus * 0.5);
     const damageRisk = b.damagePercent > 45 ? 1.8 : 1.0;
 
-    if (hazmatProne && Math.random() < 0.0055 * safetyReduction * damageRisk) {
+    if (hazmatProne && Math.random() < 0.0022 * safetyReduction * damageRisk) {
       const kind =
-        b.type === 'uraniumMine' || b.type === 'nuclearPowerPlant'
+        b.type === 'uraniumMine' ||
+        b.type === 'uraniumEnrichment' ||
+        b.type === 'nuclearPowerPlant' ||
+        b.type === 'fusionReactor'
           ? 'radiation'
           : 'chemical_leak';
       triggerHazardForBuilding(b, kind, coverage, state, plot);
       if (owner.id === state.currentPlayerId) {
         pushHazardNews(state, plot, owner, kind, Boolean(coverage.hazmatPlotId));
       }
-    } else if (fireProne && Math.random() < 0.0075 * safetyReduction * damageRisk) {
+    } else if (fireProne && Math.random() < 0.0028 * safetyReduction * damageRisk) {
       triggerHazardForBuilding(b, 'fire', coverage, state, plot);
       if (owner.id === state.currentPlayerId) {
         pushHazardNews(state, plot, owner, 'fire', Boolean(coverage.fireStationPlotId));
@@ -507,6 +562,7 @@ function pushHazardNews(
       dateLabel: formatGameDate(state.time),
       tick: state.time.tick,
       read: false,
+      focusPlotId: plot.id,
     },
     ...state.news,
   ].slice(0, 35);

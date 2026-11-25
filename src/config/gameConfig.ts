@@ -12,19 +12,21 @@ import type {
 export const GAME_CONFIG = {
   title: 'Market Dominion',
   subtitle: 'Symulator Imperium Biznesowego & Giełdy Surowców',
-  version: '2.0.0',
+  version: '4.5.0',
   startingCash: 5_000_000,
   challengeDurationSeconds: 3600,
   mpFastDurationSeconds: 3600,
   defaultMapSize: 24,
   tickIntervalMs: 1000,
   ticksPerGameMonth: 30,
+  maxMpLoans: 3,
+  maxPlayers: 8,
   baseTaxRateCIT: 0.19,
   vatExciseRate: 0.08,
   propertyTaxPerPlotPerTick: 45,
   playerRoadCost: 18_000,
   highwayCost: 68_000,
-  highwayInputs: { gravel: 10, prefabs: 6 } as Record<string, number>,
+  highwayInputs: {} as Record<string, number>,
   areaSurveyMultiplier: 2.3,
   baseWagePerWorkerPerTick: 18,
   baseZUSRate: 0.2048,
@@ -101,8 +103,9 @@ export const CORPORATION_LEVELS: Record<
   },
 };
 
-export const SPEED_OPTIONS: { value: 0 | 1 | 2 | 5 | 10; label: string }[] = [
+export const SPEED_OPTIONS: { value: 0 | 0.5 | 1 | 2 | 5 | 10; label: string }[] = [
   { value: 0, label: 'Pauza' },
+  { value: 0.5, label: '0.5×' },
   { value: 1, label: '1×' },
   { value: 2, label: '2×' },
   { value: 5, label: '5×' },
@@ -123,6 +126,7 @@ export const BUILDING_CATEGORIES: { key: BuildingCategory; label: string; icon: 
   { key: 'mining', label: 'Wydobycie', icon: '⛏️' },
   { key: 'processing', label: 'Przetwórstwo', icon: '🏭' },
   { key: 'energy', label: 'Energetyka', icon: '⚡' },
+  { key: 'waste', label: 'Ścieki i Odpady', icon: '♻️' },
   { key: 'logistics', label: 'Logistyka', icon: '🚛' },
   { key: 'real_estate', label: 'Nieruchomości', icon: '🏢' },
   { key: 'attractions', label: 'Atrakcje i Luksus', icon: '🎡' },
@@ -136,7 +140,8 @@ export const BUILDING_CATEGORIES: { key: BuildingCategory; label: string; icon: 
 export const MAP_SIZES = [
   { value: 20, label: 'Kompaktowa (20×20)' },
   { value: 24, label: 'Standardowa (24×24)' },
-  { value: 30, label: 'Rozległa (30×30)' },
+  { value: 32, label: 'Duża (32×32 · do 8 graczy)' },
+  { value: 40, label: 'Kontynentalna (40×40 · Epicka)' },
 ];
 
 export const PLAYER_COLORS = [

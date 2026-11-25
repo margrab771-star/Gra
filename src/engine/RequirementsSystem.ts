@@ -109,6 +109,63 @@ export function evaluateNonFinancialRequirements(
     });
   }
 
+  if (req.requiredCorpLevel !== undefined) {
+    const met = player.corporationLevel >= req.requiredCorpLevel;
+    items.push({
+      id: `corp_${req.requiredCorpLevel}`,
+      label: `Poziom Korporacji: min. Poz. ${req.requiredCorpLevel} (masz Poz. ${player.corporationLevel})`,
+      met,
+      hint: met
+        ? 'Wymagana skala korporacji osiągnięta'
+        : `Zwiększ wartość netto i przychody, aby osiągnąć ${req.requiredCorpLevel}. poziom korporacji.`,
+    });
+  }
+
+  if (req.minVoterApproval !== undefined) {
+    const approval = Math.round(player.influence.voterApproval ?? 50);
+    const met = approval >= req.minVoterApproval;
+    items.push({
+      id: `voter_${req.minVoterApproval}`,
+      label: `Poparcie społeczne: min. ${req.minVoterApproval}% (masz ${approval}%)`,
+      met,
+      hint: met
+        ? 'Mandat społeczny zabezpieczony'
+        : 'Buduj parki, szpitale, centra kultury lub prowadź kampanie PR w panelu Wpływy.',
+    });
+  }
+
+  if (req.requiredInfluenceScore !== undefined) {
+    const score = Math.round(
+      (player.influence.financial ?? 0) +
+        (player.influence.military ?? 0) +
+        (player.influence.social ?? 0)
+    );
+    const met = score >= req.requiredInfluenceScore;
+    items.push({
+      id: `inf_${req.requiredInfluenceScore}`,
+      label: `Siła Wpływów Politycznych: min. ${req.requiredInfluenceScore} pkt (masz ${score} pkt)`,
+      met,
+      hint: met
+        ? 'Pozycja polityczna wystarczająca'
+        : 'Rozwijaj Lobby, Centrum Wywiadu lub podejmuj akcje w panelu 🏛️ Wpływy.',
+    });
+  }
+
+  if (req.requiredTechCount !== undefined) {
+    const doneCount = Object.values(player.globalTech).filter((t) => t.status === 'done').length;
+    const met = doneCount >= req.requiredTechCount;
+    items.push({
+      id: `techcount_${req.requiredTechCount}`,
+      label: `Zbadane technologie R&D: min. ${req.requiredTechCount} (masz ${doneCount})`,
+      met,
+      hint: met
+        ? 'Zaplecze naukowe gotowe'
+        : 'Zbadaj kolejne technologie w drzewku 🔬 Technologie.',
+    });
+  }
+
+  const isMpClosedEconomy = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
+
   if (req.requiredResources) {
     for (const [resKey, neededRaw] of Object.entries(req.requiredResources)) {
       const res = resKey as ResourceType;
@@ -126,8 +183,10 @@ export function evaluateNonFinancialRequirements(
         met,
         hint: met
           ? 'Surowiec zabezpieczony w magazynie'
-          : `Produkuj w trybie magazynowania, zawrzyj kontrakt B2B lub dokup brakujące ${missingAmount} ${def.unit}.`,
-        missingResource: met ? undefined : { resource: res, missingAmount, spotCost },
+          : isMpClosedEconomy
+            ? `Gospodarka zamknięta MP: wydobywaj/produkuj we własnych zakładach albo kup od innego gracza na rynku B2B (brakuje ${missingAmount} ${def.unit}).`
+            : `Produkuj w trybie magazynowania, zawrzyj kontrakt B2B lub dokup brakujące ${missingAmount} ${def.unit}.`,
+        missingResource: met || isMpClosedEconomy ? undefined : { resource: res, missingAmount, spotCost },
       });
     }
   }

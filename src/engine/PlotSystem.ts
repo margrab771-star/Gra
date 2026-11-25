@@ -1,5 +1,6 @@
 import { GAME_CONFIG, TOLL_RATE_CONFIG } from '../config/gameConfig';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
+import { getPlayerCoalition } from './CoalitionSystem';
 import { getPlayerEntrepreneurModifiers } from './EconomyEngine';
 import type {
   GameState,
@@ -95,6 +96,14 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
+        if (hash2D(x, y, seed + 241) > 0.87) {
+          deposits.push({
+            type: 'diamonds',
+            amount: Math.round(900 + rRoll2 * 1100),
+            richness: 1.15,
+            discovered: false,
+          });
+        }
       } else if (terrain === 'desert') {
         if (rRoll > 0.46) {
           deposits.push({
@@ -112,14 +121,30 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
+        if (hash2D(x, y, seed + 263) > 0.77) {
+          deposits.push({
+            type: 'lithium',
+            amount: Math.round(2400 + rRoll * 2600),
+            richness: 1.22,
+            discovered: false,
+          });
+        }
       } else if (terrain === 'grass' || terrain === 'forest') {
         if (rRoll > 0.74) {
-          const types: ResourceType[] = ['coal', 'ironOre', 'copper', 'oil', 'rareMetals'];
+          const types: ResourceType[] = ['coal', 'ironOre', 'copper', 'oil', 'rareMetals', 'lithium'];
           const chosen = types[Math.floor(hash2D(x, y, seed + 303) * types.length)];
           deposits.push({
             type: chosen,
-            amount: 4200,
+            amount: chosen === 'lithium' ? 2800 : 4200,
             richness: 1.08,
+            discovered: false,
+          });
+        }
+        if (terrain === 'forest' && hash2D(x, y, seed + 319) > 0.91) {
+          deposits.push({
+            type: 'diamonds',
+            amount: 1050,
+            richness: 1.1,
             discovered: false,
           });
         }
@@ -128,6 +153,14 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
           deposits.push({
             type: 'oil',
             amount: 4500,
+            richness: 1.15,
+            discovered: false,
+          });
+        }
+        if (hash2D(x, y, seed + 347) > 0.84) {
+          deposits.push({
+            type: 'lithium',
+            amount: 2400,
             richness: 1.15,
             discovered: false,
           });
@@ -203,11 +236,20 @@ export function hasPlayerSurveyedPlot(plot: Plot, playerId: string): boolean {
 export function hasPlayerDiscoveredPlot(
   plot: Plot,
   viewerId: string,
-  viewerPlayer?: Player
+  viewerPlayer?: Player,
+  state?: GameState
 ): boolean {
   if (hasPlayerSurveyedPlot(plot, viewerId)) return true;
-  if (plot.building && plot.building.category === 'mining') return true;
+  if (plot.building && plot.building.category === 'mining' && !plot.building.destroyedRuins) return true;
   if (plot.ownerId && viewerPlayer?.spiedPlayers?.[plot.ownerId]) return true;
+  if (state) {
+    const col = getPlayerCoalition(state, viewerId);
+    if (col?.shareGeology) {
+      for (const allyId of col.memberIds) {
+        if (allyId !== viewerId && hasPlayerSurveyedPlot(plot, allyId)) return true;
+      }
+    }
+  }
   return false;
 }
 
@@ -218,41 +260,59 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
     (p) =>
       p.building &&
       p.building.isActive &&
-      (p.building.category === 'energy' || p.building.type === 'copperCablePlant')
+      !p.building.destroyedRuins &&
+      (p.building.category === 'energy' ||
+        p.building.type === 'copperCablePlant' ||
+        p.building.type === 'wasteIncinerator')
   );
   const waterSources = plots.filter(
     (p) =>
       p.terrain === 'water' ||
       p.terrain === 'coastal' ||
-      (p.building && p.building.isActive && p.building.type === 'waterPlant')
+      (p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'waterPlant')
   );
   const heavyIndustry = plots.filter(
     (p) =>
       p.building &&
       p.building.isActive &&
+      !p.building.destroyedRuins &&
       (p.building.category === 'mining' ||
         p.building.type === 'oilRefinery' ||
         p.building.type === 'steelMill' ||
         p.building.type === 'chemicalPlant' ||
-        p.building.type === 'coalPowerPlant')
+        p.building.type === 'coalPowerPlant' ||
+        p.building.type === 'gasPowerPlant' ||
+        p.building.type === 'wasteIncinerator' ||
+        p.building.type === 'uraniumEnrichment' ||
+        p.building.type === 'batteryFactory')
   );
   const attractions = plots.filter(
     (p) =>
       p.building &&
       p.building.isActive &&
+      !p.building.destroyedRuins &&
       (p.building.type === 'amusementPark' ||
         p.building.type === 'culturalCenter' ||
         p.building.type === 'marinaPromenade' ||
         p.building.type === 'casino')
   );
   const casinos = plots.filter(
-    (p) => p.building && p.building.isActive && p.building.type === 'casino'
+    (p) => p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'casino'
   );
   const policeStations = plots.filter(
     (p) =>
       p.building &&
       p.building.isActive &&
+      !p.building.destroyedRuins &&
       (p.building.type === 'policeStation' || p.building.type === 'militaryBase')
+  );
+  const devBoosters = plots.filter(
+    (p) =>
+      p.building &&
+      !p.building.destroyedRuins &&
+      (p.building.category === 'real_estate' ||
+        p.building.category === 'attractions' ||
+        p.building.category === 'education')
   );
 
   for (const plot of plots) {
@@ -336,6 +396,7 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
     if (
       plot.building &&
       (plot.building.type === 'jewelryWorkshop' ||
+        plot.building.type === 'jewelryLuxury' ||
         plot.building.type === 'investmentBank' ||
         plot.building.type === 'shoppingMall')
     ) {
@@ -364,23 +425,18 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
                   : 50;
 
     let devBoost = 0;
-    for (const p2 of plots) {
-      if (!p2.building || p2.id === plot.id) continue;
-      if (
-        p2.building.category === 'real_estate' ||
-        p2.building.category === 'attractions' ||
-        p2.building.category === 'education'
-      ) {
-        const d = Math.hypot(p2.gridX - plot.gridX, p2.gridY - plot.gridY);
-        if (d <= 3.5) devBoost += 6;
-      }
+    for (const p2 of devBoosters) {
+      if (p2.id === plot.id) continue;
+      const d = Math.hypot(p2.gridX - plot.gridX, p2.gridY - plot.gridY);
+      if (d <= 3.5) devBoost += 6;
     }
 
+    const radPenalty = (plot.irradiatedTicks ?? 0) > 0 ? 50 : 0;
     plot.attractiveness = Math.max(
       5,
       Math.min(
         100,
-        baseAttr + Math.min(20, devBoost) + Math.round(plot.attractionBonus * 0.6) - plot.neighborPenalty
+        baseAttr + Math.min(20, devBoost) + Math.round(plot.attractionBonus * 0.6) - plot.neighborPenalty - radPenalty
       )
     );
 
@@ -402,7 +458,7 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
             visibleMineBonus) /
             500
         ) * 500;
-      plot.purchasable = plot.ownerId === null;
+      plot.purchasable = plot.ownerId === null && (plot.irradiatedTicks ?? 0) <= 0;
     }
   }
 }
@@ -413,6 +469,12 @@ export function buyPlotForPlayer(
   plot: Plot
 ): { ok: boolean; error?: string } {
   if (plot.terrain === 'water') return { ok: false, error: 'Nie można kupić akwenu wodnego.' };
+  if ((plot.irradiatedTicks ?? 0) > 0) {
+    return {
+      ok: false,
+      error: `Działka znajduje się w strefie skażenia nuklearnego (jeszcze ${plot.irradiatedTicks} tur).`,
+    };
+  }
   if (plot.ownerId !== null) return { ok: false, error: 'Działka ma już właściciela.' };
   if (player.cash < plot.price) return { ok: false, error: 'Niewystarczająca gotówka na zakup działki.' };
 
@@ -427,6 +489,7 @@ export function buyPlotForPlayer(
       neighbor.basePrice = Math.round(neighbor.basePrice * 1.03);
     }
   }
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   return { ok: true };
 }
@@ -448,7 +511,8 @@ export function sellPlotForPlayer(
   plot.roadBlocked = false;
   plot.blockedPlayers = [];
   plot.isPlayerRoad = false;
-  plot.purchasable = plot.terrain !== 'water';
+  plot.purchasable = plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0;
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   return { ok: true };
 }
@@ -461,6 +525,12 @@ export function buildPlayerRoadOnPlot(
 ): { ok: boolean; error?: string } {
   if (plot.terrain === 'water') {
     return { ok: false, error: 'Nie można budować drogi na wodzie (użyj Portu Towarowego).' };
+  }
+  if ((plot.irradiatedTicks ?? 0) > 0) {
+    return {
+      ok: false,
+      error: `Strefa skażenia nuklearnego — zakaz budowy dróg jeszcze przez ${plot.irradiatedTicks} tur.`,
+    };
   }
   if (plot.ownerId !== player.id) {
     return { ok: false, error: 'Najpierw kup działkę, aby wybudować na niej drogę.' };
@@ -519,6 +589,7 @@ export function buildPlayerRoadOnPlot(
   if (roadClass === 'highway' && plot.tollRate === 'free') {
     plot.tollRate = 'standard';
   }
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   return { ok: true };
 }

@@ -27,6 +27,8 @@ export const GameSetup: React.FC<GameSetupProps> = ({ onStart, onBack }) => {
   const [playerCount, setPlayerCount] = useState(4);
   const [aiDifficulty, setAiDifficulty] = useState(2);
   const [mapSize, setMapSize] = useState(24);
+  const [disastersEnabled, setDisastersEnabled] = useState(true);
+  const [victoryMode, setVictoryMode] = useState<'solo' | 'coalition'>('solo');
   const [withTutorial, setWithTutorial] = useState(false);
 
   const handleLaunch = () => {
@@ -37,6 +39,8 @@ export const GameSetup: React.FC<GameSetupProps> = ({ onStart, onBack }) => {
       mapSize,
       challengeDurationSeconds: mode === 'challenge1h' ? GAME_CONFIG.challengeDurationSeconds : 0,
       economyMultiplier: 1.0,
+      disastersEnabled,
+      victoryMode,
     };
     onStart(settings, playerName, companyName, color, withTutorial);
   };
@@ -47,7 +51,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({ onStart, onBack }) => {
         <div className="flex items-center justify-between border-b border-[#243044] pb-3">
           <div>
             <h2 className="text-xl font-bold text-white">Konfiguracja Kampanii Single Player</h2>
-            <p className="text-xs text-slate-400">Działa w 100% lokalnie i offline z inteligentnymi botami AI</p>
+            <p className="text-xs text-slate-400">Działa w 100% lokalnie i offline z inteligentnymi botami AI (do 8 firm)</p>
           </div>
           <button
             type="button"
@@ -133,16 +137,17 @@ export const GameSetup: React.FC<GameSetupProps> = ({ onStart, onBack }) => {
         {/* Parametry rywalizacji */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div>
-            <label className="block text-slate-400 mb-1">Liczba Podmiotów (Gracz + AI)</label>
+            <label className="block text-slate-400 mb-1">Liczba Podmiotów (1–8)</label>
             <select
               value={playerCount}
               onChange={(e) => setPlayerCount(Number(e.target.value))}
               className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
             >
-              <option value={1}>1 (Tylko Gracz)</option>
-              <option value={2}>2 (Gracz + 1 AI)</option>
-              <option value={3}>3 (Gracz + 2 AI)</option>
-              <option value={4}>4 (Gracz + 3 AI)</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? '1 (Tylko Gracz)' : `${n} (Gracz + ${n - 1} AI)`}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -171,6 +176,27 @@ export const GameSetup: React.FC<GameSetupProps> = ({ onStart, onBack }) => {
                   {m.label}
                 </option>
               ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
+            <DarkToggle
+              checked={disastersEnabled}
+              onChange={setDisastersEnabled}
+              label="Katastrofy naturalne (trzęsienia, powodzie, burze)"
+            />
+          </div>
+          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2">
+            <span className="text-slate-300">Warunek wygranej:</span>
+            <select
+              value={victoryMode}
+              onChange={(e) => setVictoryMode(e.target.value as 'solo' | 'coalition')}
+              className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1 text-slate-100"
+            >
+              <option value="solo">👑 Dominacja Solowa</option>
+              <option value="coalition">🤝 Dominacja Koalicji</option>
             </select>
           </div>
         </div>

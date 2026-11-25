@@ -62,7 +62,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
     );
 
     const playerSurveyed = hasPlayerSurveyedPlot(plot, currentPlayer.id);
-    const playerDiscovered = hasPlayerDiscoveredPlot(plot, currentPlayer.id, currentPlayer);
+    const playerDiscovered = hasPlayerDiscoveredPlot(plot, currentPlayer.id, currentPlayer, gameState);
     const visibleDeposits = playerDiscovered ? plot.deposits : [];
 
     const suggestedOffer = getSuggestedPlotBuyoutValuation(plot, false);
@@ -79,6 +79,11 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
             <div className="text-xs font-mono text-sky-400">
               SEKTOR ({plot.gridX}, {plot.gridY})
             </div>
+            {(plot.irradiatedTicks ?? 0) > 0 && (
+              <div className="mt-1 px-2 py-1 rounded bg-lime-950/70 border border-lime-400/60 text-lime-200 text-[11px] font-semibold">
+                ☢️ STREFA SKAŻENIA NUKLEARNEGO ({plot.irradiatedTicks} tur) — zakaz kupna, dróg i budowy!
+              </div>
+            )}
             <h3 className="text-base font-semibold text-slate-100">
               Działka · {TERRAIN_NAMES[plot.terrain]}
             </h3>

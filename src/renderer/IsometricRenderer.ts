@@ -21,18 +21,21 @@ export class IsometricRenderer {
   private offscreenCanvas: HTMLCanvasElement;
   private offscreenCtx: CanvasRenderingContext2D;
   private cachedTerrainSignature = '';
+  private cachedQuickKey = '';
   private cachedMapSize = 0;
+  private cachedSupersample = OFFSCREEN_SUPERSAMPLE;
   private offscreenOriginX = 0;
   private offscreenOriginY = 0;
   private offscreenLogicalW = 1;
   private offscreenLogicalH = 1;
 
-  // O(1) plot lookup index
+  // O(1) plot lookup index & cached palette
   private plotById = new Map<string, Plot>();
   private plotGrid: (Plot | null)[] = [];
   private plotGridSize = 0;
   private sortedBuildings: Plot[] = [];
   private cachedPlotRef: Plot[] | null = null;
+  private playerColorMap = new Map<string, string>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -56,6 +59,7 @@ export class IsometricRenderer {
 
   private syncPlotCache(state: GameState, heatmapMode: MapHeatmapMode): void {
     const mapSize = state.settings.mapSize;
+    const curPid = state.currentPlayerId;
 
     // Buduj indeks O(1) gdy tablica działek się zmieniła
     if (this.cachedPlotRef !== state.plots) {
@@ -72,20 +76,27 @@ export class IsometricRenderer {
       this.sortedBuildings = sortByDepth(state.plots.filter((p) => p.building !== null));
     }
 
-    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + aktywnej heatmapy
-    const curPid = state.currentPlayerId;
-    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_`;
+    const quickKey = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.time.tick}_${state.networkRevision ?? 0}_${state.coalitions?.length ?? 0}`;
+    if (quickKey === this.cachedQuickKey && this.cachedMapSize === mapSize) {
+      return;
+    }
+    this.cachedQuickKey = quickKey;
+
+    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + skażenia + aktywnej heatmapy
+    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_`;
     for (let i = 0; i < state.plots.length; i++) {
       const p = state.plots[i];
       const surv = p.surveyedBy?.[curPid] ? 1 : 0;
-      if (p.ownerId || p.hasRoad || p.building || surv || heatmapMode !== 'standard') {
-        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
+      const rad = (p.irradiatedTicks ?? 0) > 0 ? 1 : 0;
+      if (p.ownerId || p.hasRoad || p.building || surv || rad || heatmapMode !== 'standard') {
+        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${rad}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
       }
     }
 
     if (sig !== this.cachedTerrainSignature || this.cachedMapSize !== mapSize) {
       this.cachedTerrainSignature = sig;
       this.cachedMapSize = mapSize;
+      this.cachedSupersample = mapSize >= 32 ? 1.5 : OFFSCREEN_SUPERSAMPLE;
 
       const xMin = -(mapSize - 1) * (TILE_WIDTH / 2) - TILE_WIDTH;
       const xMax = (mapSize - 1) * (TILE_WIDTH / 2) + TILE_WIDTH;
@@ -97,8 +108,8 @@ export class IsometricRenderer {
       this.offscreenLogicalW = Math.ceil(xMax - xMin);
       this.offscreenLogicalH = Math.ceil(yMax - yMin);
 
-      this.offscreenCanvas.width = this.offscreenLogicalW * OFFSCREEN_SUPERSAMPLE;
-      this.offscreenCanvas.height = this.offscreenLogicalH * OFFSCREEN_SUPERSAMPLE;
+      this.offscreenCanvas.width = Math.ceil(this.offscreenLogicalW * this.cachedSupersample);
+      this.offscreenCanvas.height = Math.ceil(this.offscreenLogicalH * this.cachedSupersample);
       this.offscreenCtx.clearRect(
         0,
         0,
@@ -113,9 +124,10 @@ export class IsometricRenderer {
         mapSize,
         this.offscreenOriginX,
         this.offscreenOriginY,
-        OFFSCREEN_SUPERSAMPLE,
+        this.cachedSupersample,
         curPid,
-        heatmapMode
+        heatmapMode,
+        state
       );
     }
   }
@@ -127,7 +139,8 @@ export class IsometricRenderer {
     selectedPlotId: string | null,
     vehicles: Vehicle[],
     showTransportRoutes = true,
-    heatmapMode: MapHeatmapMode = 'standard'
+    heatmapMode: MapHeatmapMode = 'standard',
+    targetMode: 'missile' | 'nuke' | null = null
   ): void {
     this.frameCount++;
     this.syncPlotCache(state, heatmapMode);
@@ -147,7 +160,7 @@ export class IsometricRenderer {
     const destH = this.offscreenLogicalH * camera.zoom;
     ctx.drawImage(this.offscreenCanvas, destX, destY, destW, destH);
 
-    // 2. Podświetlenie wyłącznie najechanego i wybranego pola
+    // 2. Podświetlenie najechanego, wybranego pola oraz strefy rażenia (rakieta/atom)
     const hoveredPlot = hoveredPlotId ? this.plotById.get(hoveredPlotId) ?? null : null;
     const selectedPlot = selectedPlotId ? this.plotById.get(selectedPlotId) ?? null : null;
     this.terrainRenderer.renderHoverAndSelection(
@@ -157,6 +170,17 @@ export class IsometricRenderer {
       selectedPlot,
       this.frameCount
     );
+    if (targetMode) {
+      this.terrainRenderer.renderTargetFootprint(
+        ctx,
+        camera,
+        hoveredPlot,
+        targetMode,
+        this.plotGrid,
+        this.plotGridSize,
+        this.frameCount
+      );
+    }
 
     const tw = TILE_WIDTH * camera.zoom;
     const th = TILE_HEIGHT * camera.zoom;
@@ -166,31 +190,100 @@ export class IsometricRenderer {
       this.renderTransportLines(ctx, state, camera, tw, th);
     }
 
-    // 3. Budynki (sortowanie depth wykonane tylko przy zmianie planszy)
+    // 3. Budynki z pełnym Viewport Cullingiem i zerową alokacją obiektów na klatkę
     this.buildingRenderer.tick();
-    const playerColorMap = new Map<string, string>();
-    for (const p of state.players) playerColorMap.set(p.id, p.color);
+    this.playerColorMap.clear();
+    for (let i = 0; i < state.players.length; i++) {
+      const p = state.players[i];
+      this.playerColorMap.set(p.id, p.color);
+    }
 
-    for (const plot of this.sortedBuildings) {
+    for (let i = 0; i < this.sortedBuildings.length; i++) {
+      const plot = this.sortedBuildings[i];
       if (!plot.building) continue;
       const { screenX, screenY } = worldToScreen(plot.gridX, plot.gridY, tw, th, camera.x, camera.y);
       if (
-        screenX + tw * 2 < 0 ||
-        screenX - tw * 2 > this.width ||
-        screenY + th * 4 < 0 ||
-        screenY - th * 4 > this.height
+        screenX + tw * 1.8 < 0 ||
+        screenX - tw * 1.8 > this.width ||
+        screenY + th * 3.8 < 0 ||
+        screenY - th * 3.8 > this.height
       ) {
         continue;
       }
-      const ownerColor = playerColorMap.get(plot.building.ownerId) ?? '#f59e0b';
-      const b = plot.id === selectedPlotId ? { ...plot.building, selected: true } : plot.building;
-      this.buildingRenderer.renderBuilding(ctx, b, screenX, screenY, tw, th, ownerColor);
+      const ownerColor = this.playerColorMap.get(plot.building.ownerId) ?? '#f59e0b';
+      this.buildingRenderer.renderBuilding(
+        ctx,
+        plot.building,
+        screenX,
+        screenY,
+        tw,
+        th,
+        ownerColor,
+        plot.id === selectedPlotId
+      );
     }
 
     // 4. Animowane pojazdy jadące po sieci dróg, morzu i w powietrzu
     this.vehicleRenderer.renderVehicles(ctx, vehicles, camera, this.plotById);
 
+    // 5. Efekty fal uderzeniowych, wybuchów rakiet/nuke i katastrof naturalnych
+    if (state.blastEffects && state.blastEffects.length > 0) {
+      this.renderBlastEffects(ctx, state, camera, tw, th);
+    }
+
     ctx.restore();
+  }
+
+  private renderBlastEffects(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    tw: number,
+    th: number
+  ): void {
+    const effects = state.blastEffects ?? [];
+    for (const fx of effects) {
+      const { screenX, screenY } = worldToScreen(fx.centerX, fx.centerY, tw, th, camera.x, camera.y);
+      const pulse = (Math.sin(this.frameCount * 0.22) + 1) * 0.5;
+      const rx = fx.radius * tw * (0.65 + pulse * 0.35);
+      const ry = fx.radius * th * (0.65 + pulse * 0.35);
+
+      ctx.save();
+      if (fx.kind === 'nuke') {
+        const g = ctx.createRadialGradient(screenX, screenY, 2, screenX, screenY, rx);
+        g.addColorStop(0, 'rgba(254, 240, 138, 0.75)');
+        g.addColorStop(0.45, 'rgba(249, 115, 22, 0.5)');
+        g.addColorStop(0.85, 'rgba(132, 204, 22, 0.25)');
+        g.addColorStop(1, 'rgba(132, 204, 22, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(screenX, screenY, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+        ctx.lineWidth = 2.5 * camera.zoom;
+        ctx.stroke();
+      } else if (fx.kind === 'missile') {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.32)';
+        ctx.beginPath();
+        ctx.ellipse(screenX, screenY, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(249, 115, 22, 0.9)';
+        ctx.lineWidth = 2.2 * camera.zoom;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle =
+          fx.kind === 'flood'
+            ? 'rgba(56, 189, 248, 0.72)'
+            : fx.kind === 'tornado'
+              ? 'rgba(203, 213, 225, 0.75)'
+              : 'rgba(245, 158, 11, 0.72)';
+        ctx.lineWidth = 2.0 * camera.zoom;
+        ctx.beginPath();
+        ctx.ellipse(screenX, screenY, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   private renderTransportLines(

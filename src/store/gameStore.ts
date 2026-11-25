@@ -77,6 +77,17 @@ interface GameStoreState {
   showTransportRoutes: boolean;
   showUtilityPopover: boolean;
   heatmapMode: MapHeatmapMode;
+  targetMode: 'missile' | 'nuke' | null;
+  cloneBuildingType: BuildingType | null;
+  focusRequest: { plotId: string; nonce: number } | null;
+  showTutorialModal: boolean;
+  pinnedResources: ResourceType[];
+
+  setTargetMode: (mode: 'missile' | 'nuke' | null) => void;
+  setCloneBuildingType: (bType: BuildingType | null) => void;
+  focusPlot: (plotId: string) => void;
+  setShowTutorialModal: (show: boolean) => void;
+  togglePinResource: (res: ResourceType) => void;
 
   goToMenu: () => void;
   goToSetup: () => void;
@@ -151,7 +162,13 @@ interface GameStoreState {
     quantityPerTick: number,
     pricePerUnit: number,
     durationTicks: number,
-    isSelling: boolean
+    isSelling: boolean,
+    opts?: {
+      kind?: 'recurring' | 'spot' | 'barter';
+      barterResource?: ResourceType;
+      barterQtyPerTick?: number;
+      openListing?: boolean;
+    }
   ) => void;
   acceptContract: (contractId: string) => void;
   cancelContract: (contractId: string) => void;
@@ -160,6 +177,22 @@ interface GameStoreState {
     targetPlayerId?: string,
     targetPlotId?: string,
     targetBuildingId?: string
+  ) => void;
+  launchTacticalMissile: (targetPlotId: string) => void;
+  startNuclearProject: () => void;
+  launchNuclearStrike: (targetPlotId: string) => void;
+  createCoalition: (name: string, tag: string, color: string) => void;
+  inviteCoalition: (targetPlayerId: string) => void;
+  respondCoalitionInvite: (coalitionId: string, accept: boolean) => void;
+  leaveCoalition: () => void;
+  toggleCoalitionGeology: () => void;
+  proposeNAP: (targetPlayerId: string) => void;
+  acceptNAP: (napId: string) => void;
+  imposeEmbargo: (targetPlayerId: string) => void;
+  submitTenderDelivery: (tenderId: string) => void;
+  sendChatMessage: (
+    text: string,
+    pingPlot?: { plotId: string; gridX: number; gridY: number; label: string }
   ) => void;
   buildPlayerRoad: (plotId: string, roadClass?: 'local' | 'highway') => void;
   setRoadPolicy: (
@@ -212,6 +245,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   showTransportRoutes: true,
   showUtilityPopover: false,
   heatmapMode: 'standard',
+  targetMode: null,
+  cloneBuildingType: null,
+  focusRequest: null,
+  showTutorialModal: false,
+  pinnedResources: ['coal', 'steel', 'oil', 'gold'],
 
   goToMenu: () => {
     multiplayerManager.disconnect();
@@ -271,6 +309,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         mapSize: 20,
         challengeDurationSeconds: 0,
         economyMultiplier: 1.0,
+        disastersEnabled: false,
+        victoryMode: 'solo',
       },
       'Prezes',
       'Akademia Biznesu S.A.',
@@ -284,6 +324,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       isMultiplayer: false,
       isHost: true,
       showTutorial: true,
+      showTutorialModal: false,
       tutorialStep: 0,
       activeModal: 'none',
       showVictoryModal: false,
@@ -383,6 +424,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   setShowUtilityPopover: (show) => set({ showUtilityPopover: show }),
   setHeatmapMode: (mode) => set({ heatmapMode: mode }),
+  setTargetMode: (mode) => set({ targetMode: mode, cloneBuildingType: null }),
+  setCloneBuildingType: (bType) => set({ cloneBuildingType: bType, targetMode: null }),
+  focusPlot: (plotId) =>
+    set({
+      selectedPlotId: plotId,
+      focusRequest: { plotId, nonce: Date.now() },
+      activeModal: 'none',
+    }),
+  setShowTutorialModal: (show) => set({ showTutorialModal: show }),
+  togglePinResource: (res) =>
+    set((s) => {
+      const exists = s.pinnedResources.includes(res);
+      const next = exists
+        ? s.pinnedResources.filter((r) => r !== res)
+        : [...s.pinnedResources, res].slice(0, 8);
+      return { pinnedResources: next };
+    }),
 
   initNetworkListeners: () => {
     multiplayerManager.setCallbacks({
@@ -861,7 +919,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   repayLoan: (loanId) => {
     get().dispatchAction({ type: 'repayLoan', playerId: get().localPlayerId, loanId });
   },
-  proposeContract: (partnerId, resource, quantityPerTick, pricePerUnit, durationTicks, isSelling) => {
+  proposeContract: (partnerId, resource, quantityPerTick, pricePerUnit, durationTicks, isSelling, opts) => {
     get().dispatchAction({
       type: 'proposeContract',
       playerId: get().localPlayerId,
@@ -871,6 +929,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       pricePerUnit,
       durationTicks,
       isSelling,
+      kind: opts?.kind,
+      barterResource: opts?.barterResource,
+      barterQtyPerTick: opts?.barterQtyPerTick,
+      openListing: opts?.openListing,
     });
   },
   acceptContract: (contractId) => {
@@ -887,6 +949,100 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       targetPlayerId,
       targetPlotId,
       targetBuildingId,
+    });
+  },
+  launchTacticalMissile: (targetPlotId) => {
+    get().dispatchAction({
+      type: 'launchTacticalMissile',
+      playerId: get().localPlayerId,
+      targetPlotId,
+    });
+    set({ targetMode: null });
+  },
+  startNuclearProject: () => {
+    get().dispatchAction({
+      type: 'startNuclearProject',
+      playerId: get().localPlayerId,
+    });
+  },
+  launchNuclearStrike: (targetPlotId) => {
+    get().dispatchAction({
+      type: 'launchNuclearStrike',
+      playerId: get().localPlayerId,
+      targetPlotId,
+    });
+    set({ targetMode: null });
+  },
+  createCoalition: (name, tag, color) => {
+    get().dispatchAction({
+      type: 'createCoalition',
+      playerId: get().localPlayerId,
+      name,
+      tag,
+      color,
+    });
+  },
+  inviteCoalition: (targetPlayerId) => {
+    get().dispatchAction({
+      type: 'inviteCoalition',
+      playerId: get().localPlayerId,
+      targetPlayerId,
+    });
+  },
+  respondCoalitionInvite: (coalitionId, accept) => {
+    get().dispatchAction({
+      type: 'respondCoalitionInvite',
+      playerId: get().localPlayerId,
+      coalitionId,
+      accept,
+    });
+  },
+  leaveCoalition: () => {
+    get().dispatchAction({
+      type: 'leaveCoalition',
+      playerId: get().localPlayerId,
+    });
+  },
+  toggleCoalitionGeology: () => {
+    get().dispatchAction({
+      type: 'toggleCoalitionGeology',
+      playerId: get().localPlayerId,
+    });
+  },
+  proposeNAP: (targetPlayerId) => {
+    get().dispatchAction({
+      type: 'proposeNAP',
+      playerId: get().localPlayerId,
+      targetPlayerId,
+    });
+  },
+  acceptNAP: (napId) => {
+    get().dispatchAction({
+      type: 'acceptNAP',
+      playerId: get().localPlayerId,
+      napId,
+    });
+  },
+  imposeEmbargo: (targetPlayerId) => {
+    get().dispatchAction({
+      type: 'imposeEmbargo',
+      playerId: get().localPlayerId,
+      targetPlayerId,
+    });
+  },
+  submitTenderDelivery: (tenderId) => {
+    get().dispatchAction({
+      type: 'submitTenderDelivery',
+      playerId: get().localPlayerId,
+      tenderId,
+    });
+  },
+  sendChatMessage: (text, pingPlot) => {
+    get().dispatchAction({
+      type: 'sendChatMessage',
+      playerId: get().localPlayerId,
+      text,
+      pingPlot,
     });
   },
   buildPlayerRoad: (plotId, roadClass = 'local') => {

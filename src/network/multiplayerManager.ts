@@ -7,7 +7,17 @@ import type {
   LobbyPlayer,
   LobbyState,
   PlayerAction,
+  Plot,
 } from '../engine/types';
+
+export interface GameStateDelta {
+  __delta: true;
+  changedPlots: Plot[];
+  snapshotMeta: Omit<
+    GameState,
+    'plots' | 'globalTechDefs' | 'entrepreneurSkillDefs'
+  >;
+}
 
 export type ConnectionStage =
   | 'idle'
@@ -39,6 +49,7 @@ export type NetworkMessage =
       startedAt: number;
     }
   | { kind: 'STATE_SYNC'; state: GameState }
+  | { kind: 'STATE_DELTA'; delta: GameStateDelta }
   | {
       kind: 'STATE_SYNC_CHUNK';
       transferId: string;
@@ -261,7 +272,7 @@ export class StateChunkAssembler {
     index: number,
     total: number,
     data: string
-  ): { complete: false } | { complete: true; state: GameState | null; error?: string } {
+  ): { complete: false } | { complete: true; state: GameState | GameStateDelta | null; error?: string } {
     this.pruneExpired();
 
     if (total <= 0 || index < 0 || index >= total) {
@@ -291,7 +302,7 @@ export class StateChunkAssembler {
     this.pending.delete(transferId);
     const fullJson = entry.parts.join('');
     try {
-      const parsed = JSON.parse(fullJson) as GameState;
+      const parsed = JSON.parse(fullJson) as GameState | GameStateDelta;
       return { complete: true, state: parsed };
     } catch (e) {
       return {
@@ -356,30 +367,94 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
   return toJsonSafe(trimmed);
 }
 
-/**
- * Buduje listę komunikatów (pojedynczy STATE_SYNC albo chunki <= 48 KB) do wysłania przez DataChannel.
- */
-export function buildStateSyncMessages(
-  state: GameState,
-  transferIdPrefix = 'sync'
-): NetworkMessage[] {
-  const safe = sanitizeStateForNetwork(state);
-  const directMsg: NetworkMessage = { kind: 'STATE_SYNC', state: safe };
-  const directJson = JSON.stringify(directMsg);
-  if (getUtf8ByteLength(directJson) <= MAX_WEBRTC_CHUNK_BYTES) {
-    return [directMsg];
+export function buildStateDelta(prev: GameState, next: GameState): GameStateDelta {
+  const safeNext = sanitizeStateForNetwork(next);
+  const changedPlots: Plot[] = [];
+  const prevPlots = prev.plots;
+  const nextPlots = safeNext.plots;
+
+  for (let i = 0; i < nextPlots.length; i++) {
+    const np = nextPlots[i];
+    const pp = prevPlots[i];
+    if (!pp || pp.id !== np.id) {
+      changedPlots.push(np);
+      continue;
+    }
+    if (
+      pp.ownerId === np.ownerId &&
+      pp.price === np.price &&
+      pp.hasRoad === np.hasRoad &&
+      pp.roadType === np.roadType &&
+      pp.tollRate === np.tollRate &&
+      pp.roadBlocked === np.roadBlocked &&
+      pp.attractiveness === np.attractiveness &&
+      pp.crimeScore === np.crimeScore &&
+      pp.responseEta === np.responseEta &&
+      pp.hasElectricity === np.hasElectricity &&
+      pp.hasWater === np.hasWater &&
+      (pp.irradiatedTicks ?? 0) === (np.irradiatedTicks ?? 0) &&
+      (pp.disasterDamagedTicks ?? 0) === (np.disasterDamagedTicks ?? 0) &&
+      pp.building === null &&
+      np.building === null &&
+      Object.keys(pp.surveyedBy ?? {}).length === Object.keys(np.surveyedBy ?? {}).length &&
+      (pp.blockedPlayers?.length ?? 0) === (np.blockedPlayers?.length ?? 0)
+    ) {
+      continue;
+    }
+    if (JSON.stringify(pp) !== JSON.stringify(np)) {
+      changedPlots.push(np);
+    }
   }
 
-  const stateJson = JSON.stringify(safe);
+  const {
+    plots: _omitPlots,
+    globalTechDefs: _omitTech,
+    entrepreneurSkillDefs: _omitEnt,
+    ...snapshotMeta
+  } = safeNext;
+
+  return {
+    __delta: true,
+    changedPlots,
+    snapshotMeta,
+  };
+}
+
+export function applyStateDelta(current: GameState, delta: GameStateDelta): GameState {
+  const updatedPlots = [...current.plots];
+  if (delta.changedPlots.length > 0) {
+    const idxById = new Map<string, number>();
+    for (let i = 0; i < updatedPlots.length; i++) {
+      idxById.set(updatedPlots[i].id, i);
+    }
+    for (const cp of delta.changedPlots) {
+      const idx = idxById.get(cp.id);
+      if (idx !== undefined) {
+        updatedPlots[idx] = cp;
+      }
+    }
+  }
+
+  return {
+    ...current,
+    ...delta.snapshotMeta,
+    plots: updatedPlots,
+    globalTechDefs: current.globalTechDefs,
+    entrepreneurSkillDefs: current.entrepreneurSkillDefs,
+  };
+}
+
+function chunkSerializedPayload(
+  payloadJson: string,
+  transferIdPrefix: string
+): NetworkMessage[] {
   const transferId = `${transferIdPrefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-  // Rezerwujemy ~200 B na kopertę komunikatu + ok. ~25% zapasu na escapowanie cudzysłowów w JSON
   const payloadEnvelopeBytes = 256;
   const rawChunks = splitJsonIntoByteChunks(
-    stateJson,
+    payloadJson,
     Math.floor((MAX_WEBRTC_CHUNK_BYTES - payloadEnvelopeBytes) * 0.72)
   );
 
-  // Dodatkowo przytnij dowolny fragment, gdyby miał nadzwyczaj dużo eskapowanych znaków
   const finalChunks: string[] = [];
   for (const part of rawChunks) {
     const wrappedLen = getUtf8ByteLength(
@@ -410,6 +485,36 @@ export function buildStateSyncMessages(
     total: finalChunks.length,
     data,
   }));
+}
+
+export function buildStateDeltaMessages(
+  prev: GameState,
+  next: GameState,
+  transferIdPrefix = 'delta'
+): NetworkMessage[] {
+  const delta = buildStateDelta(prev, next);
+  const directMsg: NetworkMessage = { kind: 'STATE_DELTA', delta };
+  const directJson = JSON.stringify(directMsg);
+  if (getUtf8ByteLength(directJson) <= MAX_WEBRTC_CHUNK_BYTES) {
+    return [directMsg];
+  }
+  return chunkSerializedPayload(JSON.stringify(delta), transferIdPrefix);
+}
+
+/**
+ * Buduje listę komunikatów (pojedynczy STATE_SYNC albo chunki <= 16 KB) do wysłania przez DataChannel.
+ */
+export function buildStateSyncMessages(
+  state: GameState,
+  transferIdPrefix = 'sync'
+): NetworkMessage[] {
+  const safe = sanitizeStateForNetwork(state);
+  const directMsg: NetworkMessage = { kind: 'STATE_SYNC', state: safe };
+  const directJson = JSON.stringify(directMsg);
+  if (getUtf8ByteLength(directJson) <= MAX_WEBRTC_CHUNK_BYTES) {
+    return [directMsg];
+  }
+  return chunkSerializedPayload(JSON.stringify(safe), transferIdPrefix);
 }
 
 export function translatePeerError(err: unknown): string {
@@ -561,6 +666,9 @@ export class MultiplayerManager {
   private startRetryAttempts = 0;
   private ackedPlayerIds: Set<string> = new Set();
   private lastBroadcastedState: GameState | null = null;
+  private lastDeltaBaseline: GameState | null = null;
+  private deltasSinceFull = 0;
+  private lastClientState: GameState | null = null;
   private lastStartTimestamp = 0;
   private ackedStartTimestamp = 0;
   private hasReceivedInitialSync = false;
@@ -640,7 +748,9 @@ export class MultiplayerManager {
       mode: 'mp_fast',
       mapSize: 24,
       aiDifficulty: 2,
-      maxPlayers: 4,
+      maxPlayers: 8,
+      disastersEnabled: true,
+      victoryMode: 'solo',
       gameStarted: false,
       players: [
         {
@@ -1045,6 +1155,8 @@ export class MultiplayerManager {
       }
     } else if (msg.kind === 'STATE_SYNC') {
       this.handleClientStateReceived(msg.state);
+    } else if (msg.kind === 'STATE_DELTA') {
+      this.handleClientDeltaReceived(msg.delta);
     } else if (msg.kind === 'STATE_SYNC_CHUNK') {
       const assembled = this.chunkAssembler.pushChunk(
         msg.transferId,
@@ -1054,7 +1166,11 @@ export class MultiplayerManager {
       );
       if (assembled.complete) {
         if (assembled.state) {
-          this.handleClientStateReceived(assembled.state);
+          if ('__delta' in assembled.state && assembled.state.__delta) {
+            this.handleClientDeltaReceived(assembled.state as GameStateDelta);
+          } else {
+            this.handleClientStateReceived(assembled.state as GameState);
+          }
         } else {
           this.requestFullSync();
         }
@@ -1066,7 +1182,17 @@ export class MultiplayerManager {
     }
   }
 
+  private handleClientDeltaReceived(delta: GameStateDelta): void {
+    if (!this.lastClientState) {
+      this.requestFullSync();
+      return;
+    }
+    const merged = applyStateDelta(this.lastClientState, delta);
+    this.handleClientStateReceived(merged);
+  }
+
   private handleClientStateReceived(state: GameState): void {
+    this.lastClientState = state;
     this.hasReceivedInitialSync = true;
     this.callbacks.onStateSync?.(state, this.localPlayerId);
     const ackTargetTs = this.lastStartTimestamp || Date.now();
@@ -1093,7 +1219,7 @@ export class MultiplayerManager {
   }
 
   updateLobbySettings(
-    partial: Partial<Pick<LobbyState, 'mode' | 'mapSize' | 'aiDifficulty'>>
+    partial: Partial<Pick<LobbyState, 'mode' | 'mapSize' | 'aiDifficulty' | 'disastersEnabled' | 'victoryMode'>>
   ): void {
     if (!this.isHostFlag || !this.lobby) return;
     this.lobby = { ...this.lobby, ...partial };
@@ -1225,6 +1351,8 @@ export class MultiplayerManager {
     if (!this.isHostFlag || !this.lobby) return;
     this.lobby.gameStarted = true;
     this.lastBroadcastedState = state;
+    this.lastDeltaBaseline = state;
+    this.deltasSinceFull = 0;
     this.ackedPlayerIds.clear();
     this.startRetryAttempts = 0;
     this.lastStartTimestamp = Date.now();
@@ -1265,7 +1393,15 @@ export class MultiplayerManager {
       return;
     }
     this.lastSyncSentAt = now;
-    const syncMessages = buildStateSyncMessages(state, 'tick');
+
+    const sendFull = !this.lastDeltaBaseline || this.deltasSinceFull >= 18;
+    const syncMessages = sendFull
+      ? buildStateSyncMessages(state, 'tick')
+      : buildStateDeltaMessages(this.lastDeltaBaseline!, state, 'delta');
+
+    this.lastDeltaBaseline = state;
+    this.deltasSinceFull = sendFull ? 0 : this.deltasSinceFull + 1;
+
     for (const conn of this.clientConns.values()) {
       if (!conn.open) continue;
       const buffered = (conn as unknown as { dataChannel?: { bufferedAmount?: number } }).dataChannel
@@ -1348,6 +1484,9 @@ export class MultiplayerManager {
     this.peerToPlayerId.clear();
     this.ackedPlayerIds.clear();
     this.lastBroadcastedState = null;
+    this.lastDeltaBaseline = null;
+    this.deltasSinceFull = 0;
+    this.lastClientState = null;
     this.lastStartTimestamp = 0;
     this.ackedStartTimestamp = 0;
     this.hasReceivedInitialSync = false;

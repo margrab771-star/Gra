@@ -3,7 +3,7 @@ import type { EventEffect, ResourceType } from '../engine/types';
 export interface EventTemplate {
   id: string;
   name: string;
-  category: 'weather' | 'economy' | 'policy' | 'labor' | 'opportunity';
+  category: 'weather' | 'economy' | 'policy' | 'labor' | 'opportunity' | 'disaster';
   headline: string;
   forecastHeadline?: string;
   forecastBody?: string;
@@ -269,6 +269,110 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     effects: [
       { kind: 'priceMultiplier', target: 'electricity', value: 1.22 },
       { kind: 'voterMoodDelta', value: 5 },
+    ],
+  },
+  // ─── KATASTROFY NATURALNE (Gdy disastersEnabled = true) ──────────────────
+  {
+    id: 'disaster_earthquake',
+    name: 'Trzęsienie Ziemi',
+    category: 'disaster',
+    forecastHeadline: 'Sejsmolodzy odnotowują rosnące naprężenia tektoniczne pod regionem',
+    forecastBody:
+      'Stacje sejsmiczne ostrzegają przed możliwością wystąpienia silnych wstrząsów ziemi w ciągu najbliższych dni.',
+    headline: 'TRZĘSIENIE ZIEMI! Poważne uszkodzenia budynków i infrastruktury!',
+    body: 'Silne wstrząsy sejsmiczne przeszły przez mapę, uszkadzając kopalnie, huty, zakłady przemysłowe i drogi!',
+    analysis:
+      'Nieregularne wstrząsy natychmiast podnoszą poziom zniszczeń obiektów. Zakłady bez włączonej autonaprawy ryzykują awarie.',
+    hints: ['Upewnij się, że masz rezerwę gotówki na naprawy i włączoną Autonaprawę.'],
+    mitigationHint: 'Rezerwa gotówki, Remizy i Szpitale przyspieszające reakcję kryzysową.',
+    durationTicks: 10,
+    forecastLeadTicks: 4,
+    effects: [
+      { kind: 'disasterDamage', value: 24 },
+      { kind: 'voterMoodDelta', value: -8 },
+    ],
+  },
+  {
+    id: 'disaster_flood',
+    name: 'Katastrofalna Powódź Rzeczna',
+    category: 'disaster',
+    forecastHeadline: 'Gwałtowne ulewy podnoszą stan wód na rzekach — ryzyko powodzi na wybrzeżach',
+    forecastBody:
+      'Synoptycy prognozują przekroczenie stanów alarmowych na polach przybrzeżnych i w pobliżu rzek.',
+    headline: 'POWÓDŹ ZALEWA WYBRZEŻE! Obiekty nadrzeczne i porty pod wodą!',
+    body: 'Woda wystąpiła z brzegów, uszkadzając infrastrukturę nadbrzeżną, drogi przy rzece oraz zakłady przemysłowe na terenach nisko położonych.',
+    analysis:
+      'Działki typu coastal i grass są najbardziej narażone na zalanie oraz przejściowe skoki cen materiałów budowlanych.',
+    hints: ['Dywersyfikuj inwestycje poza samą linię brzegową i zabezpiecz finanse.'],
+    mitigationHint: 'Prefabrykaty na odbudowę i obiekty na terenach wyżynnych.',
+    durationTicks: 12,
+    forecastLeadTicks: 4,
+    effects: [
+      { kind: 'disasterDamage', value: 20 },
+      { kind: 'priceMultiplier', target: 'steel', value: 1.25 },
+    ],
+  },
+  {
+    id: 'disaster_tornado',
+    name: 'Niszczycielskie Tornado',
+    category: 'disaster',
+    forecastHeadline: 'Alerty tornadowe: gwałtowny front burzowy zbliża się nad równiny',
+    forecastBody:
+      'Służby meteorologiczne ostrzegają przed lokalnym lejem kondensacyjnym mogącym przejść przez pas przemysłowy.',
+    headline: 'TORNADO PRZESZŁO PRZEZ MAPĘ! Zniszczony pas zakładów i turbin!',
+    body: 'Gwałtowna trąba powietrzna przetoczyła się przez losowy pas terenu, niszcząc linie energetyczne, farmy wiatrowe i fabryki na swojej trasie.',
+    analysis:
+      'Tornado uderza punktowo z ogromną siłą — warto natychmiast sprawdzić uszkodzenia w wyznaczonym sektorze.',
+    hints: ['Napraw uszkodzone obiekty lub wyślij ekipy techniczne zanim stan spadnie do ruiny.'],
+    mitigationHint: 'Autonaprawa oraz dywersyfikacja przestrzenna fabryk.',
+    durationTicks: 8,
+    forecastLeadTicks: 3,
+    effects: [{ kind: 'disasterDamage', value: 28 }],
+  },
+  {
+    id: 'disaster_heatwave',
+    name: 'Ekstremalna Fala Upałów i Susza',
+    category: 'disaster',
+    forecastHeadline: 'Rekordowa kopuła gorąca nadciąga nad kontynent — grozi załamanie ujęć wody',
+    forecastBody:
+      'Temperatury przekraczają normy klimatyczne, drastycznie zwiększając zapotrzebowanie na wodę i energię chłodzącą.',
+    headline: 'KATASTROFALNA FALA UPAŁÓW! Kryzys chłodzenia w całej gospodarce!',
+    body: 'Rekordowe upały sparaliżowały rzeki i wywołały gwałtowny skok cen wody oraz prądu.',
+    analysis:
+      'Elektrownie wodne i zakłady bez obiegów zamkniętych tracą ogromną część wydajności.',
+    hints: ['Stawiaj Stacje Wody i rozwijaj moduły ochrony przed suszą.'],
+    mitigationHint: 'Moduły obiegów zamkniętych, studnie głębinowe, elektrownie OZE/Gazowe.',
+    durationTicks: 18,
+    forecastLeadTicks: 5,
+    relatedResource: 'water',
+    effects: [
+      { kind: 'hydroPenalty', value: 0.6 },
+      { kind: 'waterPenalty', value: 0.45 },
+      { kind: 'priceMultiplier', target: 'water', value: 1.75 },
+      { kind: 'weatherCloudy', value: 0.1 },
+    ],
+  },
+  {
+    id: 'disaster_geomagnetic',
+    name: 'Burza Magnetyczna (Słońce)',
+    category: 'disaster',
+    forecastHeadline: 'Obserwatoria ostrzegają przed potężnym rozbłyskiem słonecznym klasy X',
+    forecastBody:
+      'Koronalny wyrzut masy może wywołać zakłócenia w sieciach wysokiego napięcia, fabrykach półprzewodników i farmach solarnych.',
+    headline: 'BURZA MAGNETYCZNA! Zakłócenia sieci energetycznych i elektroniki!',
+    body: 'Silna burza geomagnetyczna przeciążyła transformatory i linie przesyłowe, obniżając moc elektrowni o 30% i windując ceny elektroniki.',
+    analysis:
+      'W trakcie burzy magnetycznej firmy o małym zapasie mocy MW wpadają w ostry deficyt prądu.',
+    hints: ['Utrzymuj bezpieczną nadwyżkę mocy MW ponad bieżące zużycie!'],
+    mitigationHint: 'Nadwyżka mocy energetycznej, technologia Inteligentne Sieci, Baterie EV.',
+    durationTicks: 12,
+    forecastLeadTicks: 4,
+    relatedResource: 'electricity',
+    effects: [
+      { kind: 'energyPenalty', value: 0.3 },
+      { kind: 'weatherCloudy', value: 0.25 },
+      { kind: 'priceMultiplier', target: 'electricity', value: 1.45 },
+      { kind: 'priceMultiplier', target: 'semiconductors', value: 1.25 },
     ],
   },
 ];

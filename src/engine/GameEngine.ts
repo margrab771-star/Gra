@@ -1,4 +1,5 @@
 import { AI_STRATEGY_LABELS, CORPORATION_LEVELS, GAME_CONFIG, PLAYER_COLORS } from '../config/gameConfig';
+import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { DEFAULT_ENTREPRENEUR_SKILLS } from '../data/entrepreneurTree';
 import { RESOURCE_DEFINITIONS, createInitialResourcePrices } from '../data/resources';
 import { DEFAULT_GLOBAL_TECH_TREE } from '../data/techTrees';
@@ -12,19 +13,41 @@ import {
   processBuildingTick,
   repairBuilding,
   startBuildingTechResearch,
+  type UtilityTickSnapshot,
 } from './BuildingSystem';
+import {
+  acceptNAPForPlayer,
+  createCoalitionForPlayer,
+  getPlayerCoalition,
+  imposeEmbargoForPlayer,
+  inviteToCoalitionForPlayer,
+  leaveCoalitionForPlayer,
+  processDiplomacyExpiryTick,
+  proposeNAPForPlayer,
+  respondToCoalitionInvite,
+  toggleCoalitionGeology,
+} from './CoalitionSystem';
 import { acceptB2BContract, cancelB2BContract, processContractsTick, proposeB2BContract } from './ContractSystem';
 import {
+  calculateCoalitionNetWorthSum,
   calculatePlayerNetWorth,
+  createInitialMarketCycles,
   getOverallDominanceScore,
   getPlayerEntrepreneurModifiers,
   getResourcePrice,
+  processInsolvencyAndBailiffTick,
   processLoansTick,
   repayBankLoan,
   takeBankLoan,
+  updateMarketCyclesTick,
   updateMarketPrices,
 } from './EconomyEngine';
-import { computeDynamicTaxAndZUS, processEventsTick } from './EventSystem';
+import {
+  computeDynamicTaxAndZUS,
+  processEventsTick,
+  processPatentsAndTendersTick,
+  submitTenderDelivery,
+} from './EventSystem';
 import { buyServiceVehicleForPlayer, processHazardsTick } from './HazardSystem';
 import {
   computeLaborShortageIndex,
@@ -32,7 +55,13 @@ import {
   hireWorkersForBuilding,
   trainBuildingWorkers,
 } from './HRSystem';
-import { executeInfluenceAction } from './InfluenceSystem';
+import {
+  executeInfluenceAction,
+  executeNuclearStrike,
+  executeTacticalMissileStrike,
+  processNuclearProjectTick,
+  startSecretNuclearProject,
+} from './InfluenceSystem';
 import {
   buildPlayerRoadOnPlot,
   buyPlotForPlayer,
@@ -77,6 +106,7 @@ const AI_NAMES = [
   { name: 'Marek Szary', company: 'Eminencja Media Group', strategy: 'shadowBroker' as AIStrategy },
   { name: 'Gen. Marek Wilk', company: 'Kondotier Tactical', strategy: 'military' as AIStrategy },
   { name: 'Zofia Lin', company: 'Nexus B2B Logistics', strategy: 'supplyChain' as AIStrategy },
+  { name: 'Aleksander Novak', company: 'Novak Lithium & Tech', strategy: 'supplyChain' as AIStrategy },
 ];
 
 export function createPlayerEntity(opts: {
@@ -117,6 +147,8 @@ export function createPlayerEntity(opts: {
     cashFlowPerMin: 0,
     electricityBalance: 0,
     waterBalance: 0,
+    sewageBalance: 0,
+    wasteBalance: 0,
     researchPoints: 35,
     skillPoints: 2,
     reputation: 50,
@@ -155,6 +187,15 @@ export function createPlayerEntity(opts: {
     dominantStrategy: opts.aiStrategy ? AI_STRATEGY_LABELS[opts.aiStrategy] : 'Strategia Zrównoważona',
     totalRevenueEarned: 0,
     isEliminated: false,
+    insolvencyGraceTicks: 0,
+    coalitionId: null,
+    leftCoalitionCooldown: 0,
+    secretNuclearRevealed: false,
+    nuclearProjectActive: false,
+    nuclearProjectProgress: 0,
+    nuclearWarheadsReady: 0,
+    nuclearDetectedByPlayers: [],
+    pinnedResources: ['coal', 'steel', 'oil', 'gold'],
   };
 }
 
@@ -205,6 +246,8 @@ export function initializeMultiplayerGame(lobby: LobbyState, localPlayerId: stri
     mapSize: lobby.mapSize,
     challengeDurationSeconds: isFast ? GAME_CONFIG.mpFastDurationSeconds : 0,
     economyMultiplier: isFast ? 2.4 : 1.0,
+    disastersEnabled: lobby.disastersEnabled ?? true,
+    victoryMode: lobby.victoryMode ?? 'solo',
   };
 
   const players: Player[] = lobby.players.map((lp, idx) =>
@@ -276,6 +319,15 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     transportLines: [],
     dispatches: [],
     stocks: [],
+    coalitions: [],
+    naps: [],
+    embargoes: [],
+    patents: [],
+    tenders: [],
+    marketCycles: createInitialMarketCycles(),
+    blastEffects: [],
+    chatMessages: [],
+    networkRevision: 1,
     taxRate: GAME_CONFIG.baseTaxRateCIT,
     zusMultiplier: 1.0,
     baseInterestRate: GAME_CONFIG.baseLoanInterestRate,
@@ -309,16 +361,28 @@ export function stepGameSimulation(state: GameState): void {
   state.lastSyncTimestamp = Date.now();
 
   processEventsTick(state);
+  updateMarketCyclesTick(state);
+  processDiplomacyExpiryTick(state);
   const { effectiveTaxRate, effectiveZusMult } = computeDynamicTaxAndZUS(state);
   state.taxRate = effectiveTaxRate;
   state.zusMultiplier = effectiveZusMult;
   state.laborShortageIndex = computeLaborShortageIndex(state);
 
   // Przelicz bilans mediów każdego gracza przed tiknięciem budynków
+  const utilityByPlayer = new Map<string, UtilityTickSnapshot>();
   for (const player of state.players) {
+    if (player.isEliminated) continue;
     const util = computePlayerUtilityAndResourceBalance(state, player);
     player.electricityBalance = util.electricityNet;
     player.waterBalance = util.waterNet;
+    player.sewageBalance = util.sewageNet;
+    player.wasteBalance = util.wasteNet;
+    utilityByPlayer.set(player.id, {
+      elecRatio: util.electricityCoverageRatio,
+      waterRatio: util.waterCoverageRatio,
+      sewageNet: util.sewageNet,
+      wasteNet: util.wasteNet,
+    });
 
     player.lastTickRevenueByCategory = {};
     player.lastTickCostsByCategory = {};
@@ -371,9 +435,11 @@ export function stepGameSimulation(state: GameState): void {
   const supplyAccum: Partial<Record<ResourceType, number>> = {};
   const demandAccum: Partial<Record<ResourceType, number>> = {};
 
+  // Faza I: Podatek gruntowy + wydobycie, energetyka i gospodarka odpadami (zasila magazyn przed przetwórstwem)
+  const deferredProcessingPlots: typeof state.plots = [];
   for (const plot of state.plots) {
     const owner = plot.ownerId ? state.players.find((p) => p.id === plot.ownerId) : undefined;
-    if (!owner) continue;
+    if (!owner || owner.isEliminated) continue;
 
     const propTax = GAME_CONFIG.propertyTaxPerPlotPerTick * (plot.terrain === 'urban' ? 1.5 : 1);
     owner.cash -= propTax;
@@ -381,15 +447,46 @@ export function stepGameSimulation(state: GameState): void {
     owner.lastTickCostsByCategory['Podatek od Nieruchomości'] =
       (owner.lastTickCostsByCategory['Podatek od Nieruchomości'] ?? 0) + propTax;
 
-    if (plot.building && plot.building.isActive) {
-      processBuildingTick(plot.building, plot, owner, state, supplyAccum, demandAccum);
+    if (plot.building && plot.building.isActive && !plot.building.destroyedRuins) {
+      const cat = BUILDING_DEFINITIONS[plot.building.type].category;
+      if (cat === 'mining' || cat === 'energy' || cat === 'waste') {
+        processBuildingTick(
+          plot.building,
+          plot,
+          owner,
+          state,
+          supplyAccum,
+          demandAccum,
+          utilityByPlayer.get(owner.id)
+        );
+      } else {
+        deferredProcessingPlots.push(plot);
+      }
     }
   }
 
+  // Faza II: Przetwórstwo, nieruchomości, usługi, bezpieczeństwo i wpływy
+  for (const plot of deferredProcessingPlots) {
+    const owner = plot.ownerId ? state.players.find((p) => p.id === plot.ownerId) : undefined;
+    if (!owner || !plot.building) continue;
+    processBuildingTick(
+      plot.building,
+      plot,
+      owner,
+      state,
+      supplyAccum,
+      demandAccum,
+      utilityByPlayer.get(owner.id)
+    );
+  }
+
   processContractsTick(state);
+  processPatentsAndTendersTick(state);
+  processNuclearProjectTick(state);
   processTollsAndLogisticsTick(state);
 
   for (const player of state.players) {
+    if (player.isEliminated) continue;
     const loanPaid = processLoansTick(player);
     if (loanPaid > 0) {
       player.lastTickCostsByCategory['Raty Kredytowe'] =
@@ -399,8 +496,10 @@ export function stepGameSimulation(state: GameState): void {
 
   processStockDividendsAndBondsTick(state);
   updateMarketPrices(state, supplyAccum, demandAccum);
+  processInsolvencyAndBailiffTick(state);
 
   for (const player of state.players) {
+    if (player.isEliminated) continue;
     const totalRev = Object.values(player.lastTickRevenueByCategory).reduce((a, b) => a + b, 0);
     const totalCosts = Object.values(player.lastTickCostsByCategory).reduce((a, b) => a + b, 0) + player.lastTickTaxes.cit;
     const netTick = totalRev - totalCosts;
@@ -440,9 +539,10 @@ export function stepGameSimulation(state: GameState): void {
     }
   }
 
+  let aiIdx = 0;
   for (const player of state.players) {
     if (player.isAI) {
-      executeAITurn(state, player);
+      executeAITurn(state, player, aiIdx++);
     }
   }
 
@@ -468,6 +568,7 @@ function detectDominantStrategy(state: GameState, player: Player): string {
     case 'processing':
       return 'Baron Surowcowo-Przemysłowy';
     case 'energy':
+    case 'waste':
     case 'education':
       return 'Monopolista Energetyczno-Tech';
     case 'real_estate':
@@ -487,14 +588,53 @@ function detectDominantStrategy(state: GameState, player: Player): string {
 
 function checkVictoryConditions(state: GameState): void {
   if (state.winnerId) return;
+  const activePlayers = state.players.filter((p) => !p.isEliminated);
+  if (state.players.length > 1 && activePlayers.length === 1) {
+    const survivor = activePlayers[0];
+    state.winnerId = survivor.id;
+    state.victoryReason = `${survivor.companyName} przetrwała kryzys i została jedyną aktywną korporacją na rynku!`;
+    if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
+      state.phase = 'GameOver';
+    }
+    return;
+  }
+
   if (state.time.tick >= 40 && state.players.length > 1) {
-    for (const p of state.players) {
-      if (p.isEliminated) continue;
+    if (state.settings.victoryMode === 'coalition' && state.coalitions && state.coalitions.length > 0) {
+      const totalMarketNetWorth = state.players.reduce((s, p) => s + Math.max(0, p.netWorth), 0);
+      for (const col of state.coalitions) {
+        const activeMembers = col.memberIds.filter((id) => state.players.some((p) => p.id === id && !p.isEliminated));
+        if (activeMembers.length === 0) continue;
+        const combinedNW = calculateCoalitionNetWorthSum(state, col.id);
+        const wealthPct = totalMarketNetWorth > 0 ? (combinedNW / totalMarketNetWorth) * 100 : 0;
+        const combinedBuildings = state.plots.filter(
+          (pl) => pl.ownerId && activeMembers.includes(pl.ownerId) && pl.building && !pl.building.destroyedRuins
+        ).length;
+        const avgDominance =
+          activeMembers.reduce((sum, id) => sum + getOverallDominanceScore(state, id), 0) * 0.85;
+
+        if ((wealthPct >= 70 || avgDominance >= 82) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
+          state.winningCoalitionId = col.id;
+          state.winnerId = col.leaderId;
+          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.round(wealthPct)}% kapitału) i zwyciężyła jako sojusz!`;
+          if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
+            state.phase = 'GameOver';
+          }
+          return;
+        }
+      }
+    }
+
+    for (const p of activePlayers) {
       const dominance = getOverallDominanceScore(state, p.id);
-      const ownedBuildings = state.plots.filter((pl) => pl.ownerId === p.id && pl.building).length;
+      const ownedBuildings = state.plots.filter((pl) => pl.ownerId === p.id && pl.building && !pl.building.destroyedRuins).length;
       if (dominance >= 78 && ownedBuildings >= 5 && p.netWorth > 12_000_000) {
+        const col = state.settings.victoryMode === 'coalition' ? getPlayerCoalition(state, p.id) : undefined;
+        state.winningCoalitionId = col?.id ?? null;
         state.winnerId = p.id;
-        state.victoryReason = `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}%) na mapie i kontroluje rynek!`;
+        state.victoryReason = col
+          ? `Koalicja [${col.tag}] ${col.name} zdominowała rynek dzięki potędze ${p.companyName} (${dominance}%)!`
+          : `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}%) na mapie i kontroluje rynek!`;
         if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
           state.phase = 'GameOver';
         }
@@ -548,6 +688,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         toggleBlockedPlayerId: action.toggleBlockedPlayerId,
       });
       if (r.ok) {
+        state.networkRevision = (state.networkRevision ?? 0) + 1;
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
@@ -681,6 +822,18 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       return { ok: true, message: `Sprzedano ${qty.toFixed(1)} jedn. za ${revenue.toLocaleString('pl-PL')} zł.` };
     }
     case 'buyWarehouseStock': {
+      const isMp = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
+      if (isMp) {
+        return {
+          ok: false,
+          message:
+            'Gospodarka zamknięta Multiplayer: nie można kupować towarów z zewnątrz. Produkuj własne lub zawrzyj kontrakt B2B z innym graczem!',
+        };
+      }
+      const rdef = RESOURCE_DEFINITIONS[action.resource];
+      if (!rdef || rdef.tradeable === false) {
+        return { ok: false, message: 'Tego medium nie można kupić na giełdzie.' };
+      }
       if (action.amount <= 0) return { ok: false, message: 'Nieprawidłowa ilość.' };
       const unitPrice = getResourcePrice(state, action.resource);
       const totalCost = Math.round(action.amount * unitPrice);
@@ -690,7 +843,6 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       player.cash -= totalCost;
       player.warehouseStockpile[action.resource] =
         (player.warehouseStockpile[action.resource] ?? 0) + action.amount;
-      const rdef = RESOURCE_DEFINITIONS[action.resource];
       return {
         ok: true,
         message: `Kupiono ${action.amount} ${rdef.unit} ${rdef.genitiveName} do magazynu za ${totalCost.toLocaleString('pl-PL')} zł.`,
@@ -744,6 +896,31 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const def = state.entrepreneurSkillDefs.find((s) => s.id === action.nodeId);
       const cur = player.entrepreneurSkills[action.nodeId];
       if (!def || cur !== 'available') return { ok: false, message: 'Umiejętność niedostępna.' };
+      if (def.requiredCorpLevel && player.corporationLevel < def.requiredCorpLevel) {
+        return {
+          ok: false,
+          message: `Wymaga ${def.requiredCorpLevel}. Poziomu Korporacji (masz Poz. ${player.corporationLevel}).`,
+        };
+      }
+      if (def.requiredInfluenceScore) {
+        const totalInf =
+          player.influence.financial + player.influence.military + player.influence.social;
+        if (totalInf < def.requiredInfluenceScore) {
+          return {
+            ok: false,
+            message: `Wymaga min. ${def.requiredInfluenceScore} pkt łącznych wpływów (masz ${Math.round(totalInf)}).`,
+          };
+        }
+      }
+      if (def.requiredGlobalTechCount) {
+        const doneTech = Object.values(player.globalTech).filter((t) => t.status === 'done').length;
+        if (doneTech < def.requiredGlobalTechCount) {
+          return {
+            ok: false,
+            message: `Wymaga zbadania min. ${def.requiredGlobalTechCount} technologii R&D (masz ${doneTech}).`,
+          };
+        }
+      }
       if (player.skillPoints < def.skillPointCost) {
         return { ok: false, message: `Brak punktów rozwoju (${def.skillPointCost} wymagane).` };
       }
@@ -783,7 +960,13 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         action.quantityPerTick,
         action.pricePerUnit,
         action.durationTicks,
-        action.isSelling
+        action.isSelling,
+        {
+          kind: action.kind,
+          barterResource: action.barterResource,
+          barterQtyPerTick: action.barterQtyPerTick,
+          openListing: action.openListing,
+        }
       );
       return { ok: r.ok, message: r.error ?? 'Wysłano ofertę kontraktu B2B.' };
     }
@@ -805,6 +988,82 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         action.targetBuildingId
       );
       return { ok: r.ok, message: r.message };
+    }
+    case 'launchTacticalMissile': {
+      const r = executeTacticalMissileStrike(state, player, action.targetPlotId);
+      return { ok: r.ok, message: r.message };
+    }
+    case 'startNuclearProject': {
+      const r = startSecretNuclearProject(state, player);
+      return { ok: r.ok, message: r.message };
+    }
+    case 'launchNuclearStrike': {
+      const r = executeNuclearStrike(state, player, action.targetPlotId);
+      return { ok: r.ok, message: r.message };
+    }
+    case 'createCoalition': {
+      const r = createCoalitionForPlayer(state, player, action.name, action.tag, action.color);
+      return { ok: r.ok, message: r.error ?? `Założono koalicję [${action.tag.toUpperCase()}]!` };
+    }
+    case 'inviteCoalition': {
+      const r = inviteToCoalitionForPlayer(state, player, action.targetPlayerId);
+      return { ok: r.ok, message: r.error ?? 'Wysłano zaproszenie do koalicji.' };
+    }
+    case 'respondCoalitionInvite': {
+      const r = respondToCoalitionInvite(state, player, action.coalitionId, action.accept);
+      return {
+        ok: r.ok,
+        message: r.error ?? (action.accept ? 'Dołączono do koalicji!' : 'Odrzucono zaproszenie.'),
+      };
+    }
+    case 'leaveCoalition': {
+      const r = leaveCoalitionForPlayer(state, player);
+      return { ok: r.ok, message: r.error ?? 'Opuszczono koalicję.' };
+    }
+    case 'toggleCoalitionGeology': {
+      const r = toggleCoalitionGeology(state, player);
+      return { ok: r.ok, message: r.error ?? 'Zaktualizowano współdzielenie map geologicznych.' };
+    }
+    case 'proposeNAP': {
+      const r = proposeNAPForPlayer(state, player, action.targetPlayerId);
+      return { ok: r.ok, message: r.error ?? 'Wysłano propozycję Paktu o Nieagresji.' };
+    }
+    case 'acceptNAP': {
+      const r = acceptNAPForPlayer(state, player, action.napId);
+      return { ok: r.ok, message: r.error ?? 'Pakt o Nieagresji wszedł w życie!' };
+    }
+    case 'imposeEmbargo': {
+      const r = imposeEmbargoForPlayer(state, player, action.targetPlayerId);
+      return { ok: r.ok, message: r.error ?? 'Nałożono embargo handlowe i blokadę dróg.' };
+    }
+    case 'submitTenderDelivery': {
+      const r = submitTenderDelivery(state, player, action.tenderId);
+      return {
+        ok: r.ok,
+        message: r.error ?? (r.completed ? 'Przetarg zrealizowany w 100% — nagroda przyznana!' : 'Dostarczono partię surowców na przetarg.'),
+      };
+    }
+    case 'sendChatMessage': {
+      const cleanText = action.text.trim().slice(0, 240);
+      if (!cleanText && !action.pingPlot) {
+        return { ok: false, message: 'Pusta wiadomość.' };
+      }
+      state.chatMessages = state.chatMessages ?? [];
+      state.chatMessages.push({
+        id: `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        senderId: player.id,
+        senderName: player.name,
+        companyName: player.companyName,
+        color: player.color,
+        text: cleanText || `📍 Ping działki (${action.pingPlot?.gridX}, ${action.pingPlot?.gridY})`,
+        tick: state.time.tick,
+        timestamp: Date.now(),
+        pingPlot: action.pingPlot,
+      });
+      if (state.chatMessages.length > 60) {
+        state.chatMessages = state.chatMessages.slice(-60);
+      }
+      return { ok: true };
     }
     case 'setSpeed': {
       state.speed = action.speed;
@@ -912,14 +1171,62 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.transportLines = state.transportLines ?? [];
   state.dispatches = state.dispatches ?? [];
   state.stocks = state.stocks ?? [];
+  state.coalitions = state.coalitions ?? [];
+  state.naps = state.naps ?? [];
+  state.embargoes = state.embargoes ?? [];
+  state.patents = state.patents ?? [];
+  state.tenders = state.tenders ?? [];
+  state.marketCycles = state.marketCycles && state.marketCycles.length > 0 ? state.marketCycles : createInitialMarketCycles();
+  state.blastEffects = state.blastEffects ?? [];
+  state.chatMessages = state.chatMessages ?? [];
+  state.networkRevision = state.networkRevision ?? 1;
+  state.settings.disastersEnabled = state.settings.disastersEnabled ?? true;
+  state.settings.victoryMode = state.settings.victoryMode ?? 'solo';
+
+  // Zaktualizuj definicje drzewek globalnych i prezesa dla starszych zapisów
+  state.globalTechDefs = DEFAULT_GLOBAL_TECH_TREE.map((t) => ({ ...t }));
+  state.entrepreneurSkillDefs = DEFAULT_ENTREPRENEUR_SKILLS.map((s) => ({ ...s }));
+
+  // Uzupełnij brakujące surowce (np. diamenty, lit, baterie) w notowaniach ze starszych zapisów
+  const freshPrices = createInitialResourcePrices();
+  for (const fp of freshPrices) {
+    if (!state.resourcePrices.some((rp) => rp.type === fp.type)) {
+      state.resourcePrices.push(fp);
+    }
+  }
+  state.resourcePrices = state.resourcePrices.filter((rp) => RESOURCE_DEFINITIONS[rp.type]?.tradeable !== false);
 
   for (const p of state.players) {
     p.defaultAutoRepair = p.defaultAutoRepair ?? { enabled: true, threshold: 40 };
     p.corporationLevel = p.corporationLevel ?? 1;
     p.electricityBalance = p.electricityBalance ?? 0;
     p.waterBalance = p.waterBalance ?? 0;
+    p.sewageBalance = p.sewageBalance ?? 0;
+    p.wasteBalance = p.wasteBalance ?? 0;
     p.bonds = p.bonds ?? [];
     p.inspectionRisk = p.inspectionRisk ?? 0;
+    p.insolvencyGraceTicks = p.insolvencyGraceTicks ?? 0;
+    p.coalitionId = p.coalitionId ?? null;
+    p.leftCoalitionCooldown = p.leftCoalitionCooldown ?? 0;
+    p.secretNuclearRevealed = p.secretNuclearRevealed ?? false;
+    p.nuclearProjectActive = p.nuclearProjectActive ?? false;
+    p.nuclearProjectProgress = p.nuclearProjectProgress ?? 0;
+    p.nuclearWarheadsReady = p.nuclearWarheadsReady ?? 0;
+    p.nuclearDetectedByPlayers = p.nuclearDetectedByPlayers ?? [];
+    p.pinnedResources = p.pinnedResources ?? ['coal', 'steel', 'oil', 'gold'];
+
+    for (const tDef of state.globalTechDefs) {
+      if (!p.globalTech[tDef.id]) {
+        const prereqMet = tDef.prerequisites.every((pid) => p.globalTech[pid]?.status === 'done');
+        p.globalTech[tDef.id] = { status: prereqMet ? 'available' : 'locked', progress: 0 };
+      }
+    }
+    for (const sDef of state.entrepreneurSkillDefs) {
+      if (!p.entrepreneurSkills[sDef.id]) {
+        const prereqMet = sDef.prerequisites.every((pid) => p.entrepreneurSkills[pid] === 'done');
+        p.entrepreneurSkills[sDef.id] = prereqMet ? 'available' : 'locked';
+      }
+    }
   }
 
   for (const pl of state.plots) {
@@ -934,6 +1241,8 @@ export function migrateGameStateInPlace(state: GameState): void {
     pl.blockedPlayers = pl.blockedPlayers ?? [];
     pl.tollRevenueTotal = pl.tollRevenueTotal ?? 0;
     pl.crimeScore = pl.crimeScore ?? 5;
+    pl.irradiatedTicks = pl.irradiatedTicks ?? 0;
+    pl.disasterDamagedTicks = pl.disasterDamagedTicks ?? 0;
 
     if (pl.building) {
       // Migracja usuniętego Węzła Drogowego do Autostrady Płatnej
@@ -946,6 +1255,7 @@ export function migrateGameStateInPlace(state: GameState): void {
       }
       pl.building.damagePercent =
         pl.building.damagePercent ?? Math.max(0, 100 - (pl.building.condition ?? 100));
+      pl.building.destroyedRuins = pl.building.destroyedRuins ?? false;
       pl.building.autoRepairEnabled = pl.building.autoRepairEnabled ?? true;
       pl.building.autoRepairThreshold = pl.building.autoRepairThreshold ?? 40;
       pl.building.activeHazard = pl.building.activeHazard ?? null;
@@ -957,6 +1267,10 @@ export function migrateGameStateInPlace(state: GameState): void {
       pl.building.status.hazmatIncident = pl.building.status.hazmatIncident ?? false;
       pl.building.status.noRoadLink = pl.building.status.noRoadLink ?? false;
       pl.building.status.robberyActive = pl.building.status.robberyActive ?? false;
+      pl.building.status.missingInputs = pl.building.status.missingInputs ?? false;
+      pl.building.status.sewageCrisis = pl.building.status.sewageCrisis ?? false;
+      pl.building.status.wasteCrisis = pl.building.status.wasteCrisis ?? false;
+      pl.building.status.disasterStruck = pl.building.status.disasterStruck ?? false;
     }
   }
   syncCorporateStocks(state);

@@ -11,6 +11,7 @@ const CATEGORY_PALETTES: Record<BuildingCategory, BuildingPalette> = {
   mining: { primary: '#8c6724', secondary: '#6b4d18', accent: '#f59e0b' },
   processing: { primary: '#56677a', secondary: '#3f4d5e', accent: '#fb7185' },
   energy: { primary: '#3b6e52', secondary: '#29503b', accent: '#facc15' },
+  waste: { primary: '#4d7c0f', secondary: '#365314', accent: '#a3e635' },
   logistics: { primary: '#475569', secondary: '#334155', accent: '#38bdf8' },
   real_estate: { primary: '#2d5d8c', secondary: '#1e4268', accent: '#7dd3fc' },
   attractions: { primary: '#be185d', secondary: '#831843', accent: '#f472b6' },
@@ -37,20 +38,30 @@ export class BuildingRenderer {
     screenY: number,
     tileW: number,
     tileH: number,
-    ownerColor: string
+    ownerColor: string,
+    isSelectedOverride?: boolean
   ): void {
     const scale = tileW / 64;
-    const palette = CATEGORY_PALETTES[building.category];
-    const visualTier =
-      building.visualTier ??
-      Math.min(3, building.techTree.filter((t) => t.status === 'done').length);
+    const palette = CATEGORY_PALETTES[building.category] ?? CATEGORY_PALETTES.processing;
+    const isSel = isSelectedOverride ?? building.selected;
 
     ctx.save();
     ctx.translate(screenX, screenY);
 
-    if (building.selected) {
+    if (isSel) {
       this.drawSelectionGlow(ctx, tileW, tileH);
     }
+
+    if (building.destroyedRuins) {
+      this.drawRuinedBuilding(ctx, scale);
+      this.drawOwnerAndLevelBadge(ctx, scale, 0, ownerColor);
+      ctx.restore();
+      return;
+    }
+
+    const visualTier =
+      building.visualTier ??
+      Math.min(3, building.techTree.filter((t) => t.status === 'done').length);
 
     if ((building.upgradeFlashTicks ?? 0) > 0) {
       const flashAlpha = 0.28 + Math.sin(this.frameCount * 0.25) * 0.16;
@@ -72,6 +83,43 @@ export class BuildingRenderer {
         break;
       case 'coalPowerPlant':
         this.drawCoalPlant(ctx, scale, palette, building.level + visualTier);
+        break;
+      case 'windFarm':
+        this.drawWindFarm(ctx, scale);
+        break;
+      case 'solarFarm':
+        this.drawSolarFarm(ctx, scale);
+        break;
+      case 'gasPowerPlant':
+        this.drawGasPlant(ctx, scale, palette, building.level + visualTier);
+        break;
+      case 'geothermalPlant':
+        this.drawGeothermalPlant(ctx, scale);
+        break;
+      case 'fusionReactor':
+        this.drawFusionReactor(ctx, scale);
+        break;
+      case 'sewagePlant':
+        this.drawSewagePlant(ctx, scale);
+        break;
+      case 'wasteIncinerator':
+        this.drawWasteIncinerator(ctx, scale);
+        break;
+      case 'recyclingPlant':
+        this.drawRecyclingPlant(ctx, scale);
+        break;
+      case 'uraniumEnrichment':
+        this.drawUraniumEnrichment(ctx, scale);
+        break;
+      case 'coldStorage':
+        this.drawColdStorage(ctx, scale, building.level + visualTier);
+        break;
+      case 'diamondMine':
+      case 'lithiumMine':
+        this.drawSpecializedMine(ctx, scale, building.type === 'diamondMine' ? '#67e8f9' : '#c084fc', palette, building.level + visualTier);
+        break;
+      case 'batteryFactory':
+        this.drawBatteryFactory(ctx, scale, building.level + visualTier);
         break;
       case 'spaceCenter':
         this.drawSpaceCenter(ctx, scale);
@@ -150,7 +198,8 @@ export class BuildingRenderer {
         this.drawMarinaPromenade(ctx, scale, palette);
         break;
       case 'jewelryWorkshop':
-        this.drawJewelryWorkshop(ctx, scale, palette, building.level + visualTier);
+      case 'jewelryLuxury':
+        this.drawJewelryWorkshop(ctx, scale, palette, building.level + visualTier + (building.type === 'jewelryLuxury' ? 2 : 0));
         break;
       default:
         if (building.category === 'mining') {
@@ -165,6 +214,8 @@ export class BuildingRenderer {
           this.drawFireStation(ctx, scale, building.level + visualTier);
         } else if (building.category === 'attractions') {
           this.drawCulturalCenter(ctx, scale, palette);
+        } else if (building.category === 'waste') {
+          this.drawRecyclingPlant(ctx, scale);
         } else {
           this.drawMilitaryBuilding(ctx, scale, palette, building.level + visualTier);
         }
@@ -192,6 +243,10 @@ export class BuildingRenderer {
       this.drawRobberyAlert(ctx, scale);
     } else if (building.activeHazard || building.status.hazmatIncident) {
       this.drawHazmatAura(ctx, scale);
+    }
+
+    if (building.activeHazard && (building.activeHazard.destructionProgress ?? 0) > 2) {
+      this.drawHazardDestructionBar(ctx, scale, building.activeHazard.destructionProgress ?? 0);
     }
 
     this.drawOwnerAndLevelBadge(ctx, scale, building.level, ownerColor);
@@ -522,6 +577,21 @@ export class BuildingRenderer {
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 0.7 * scale;
       ctx.stroke();
+    }
+    if (visualTier >= 4) {
+      // Poziom EKSTRA / APEX (Tier 4): złoto-fioletowa korona mocy nad budynkiem
+      const aura = 0.55 + Math.sin(this.frameCount * 0.12) * 0.25;
+      ctx.strokeStyle = `rgba(250, 204, 21, ${aura})`;
+      ctx.lineWidth = 1.6 * scale;
+      ctx.beginPath();
+      ctx.ellipse(0, 1 * scale, 20 * scale, 10 * scale, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#fde047';
+      ctx.font = `700 ${Math.max(7, Math.round(7 * scale))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('★', -13 * scale, -18 * scale);
     }
   }
 
@@ -869,7 +939,7 @@ export class BuildingRenderer {
     ownerColor: string
   ): void {
     if (scale < 0.45) return;
-    const label = level >= 1 && level <= 10 ? ROMAN[level - 1] : String(level);
+    const label = level <= 0 ? '✕' : level >= 1 && level <= 10 ? ROMAN[level - 1] : String(level);
     const x = 13 * scale;
     const y = -3 * scale;
 
@@ -881,11 +951,176 @@ export class BuildingRenderer {
     ctx.lineWidth = 1 * scale;
     ctx.stroke();
 
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = level <= 0 ? '#fca5a5' : '#f8fafc';
     ctx.font = `700 ${Math.max(6, Math.round(5 * scale))}px "JetBrains Mono", monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, x, y + 0.3 * scale);
+  }
+
+  private drawRuinedBuilding(ctx: CanvasRenderingContext2D, scale: number): void {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.beginPath();
+    ctx.ellipse(0, 1 * scale, 16 * scale, 8 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    this.drawIsoBox(ctx, -6 * scale, 2 * scale, 8 * scale, 7 * scale, 4 * scale, '#334155', '#1e293b');
+    this.drawIsoBox(ctx, 4 * scale, 1 * scale, 9 * scale, 6 * scale, 5.5 * scale, '#475569', '#1e293b');
+    this.drawIsoBox(ctx, 0, -2 * scale, 6 * scale, 5 * scale, 2.5 * scale, '#78350f', '#451a03');
+    this.drawSmoke(ctx, 2 * scale, -6 * scale, scale * 0.85);
+  }
+
+  private drawHazardDestructionBar(ctx: CanvasRenderingContext2D, scale: number, progress: number): void {
+    const w = 26 * scale;
+    const h = 4 * scale;
+    const x = -w / 2;
+    const y = -28 * scale;
+    ctx.fillStyle = 'rgba(11, 15, 23, 0.9)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = progress > 70 ? '#ef4444' : '#f97316';
+    ctx.fillRect(x + 0.5, y + 0.5, Math.max(1, (w - 1) * Math.min(1, progress / 100)), h - 1);
+  }
+
+  private drawWindFarm(ctx: CanvasRenderingContext2D, scale: number): void {
+    for (const [tx, ty] of [
+      [-6, 1],
+      [6, -1],
+    ]) {
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.6 * scale;
+      ctx.beginPath();
+      ctx.moveTo(tx * scale, ty * scale);
+      ctx.lineTo(tx * scale, (ty - 19) * scale);
+      ctx.stroke();
+      const angle = this.frameCount * 0.08 + tx;
+      for (let i = 0; i < 3; i++) {
+        const a = angle + (i * Math.PI * 2) / 3;
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 1.2 * scale;
+        ctx.beginPath();
+        ctx.moveTo(tx * scale, (ty - 19) * scale);
+        ctx.lineTo((tx + Math.cos(a) * 8) * scale, (ty - 19 + Math.sin(a) * 8) * scale);
+        ctx.stroke();
+      }
+    }
+  }
+
+  private drawSolarFarm(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 22 * scale, 16 * scale, 3 * scale, '#1e3a8a', '#0f172a');
+    for (const [px, py] of [
+      [-6, -2],
+      [4, -2],
+      [-5, 2],
+      [5, 2],
+    ]) {
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(px * scale - 4 * scale, py * scale - 2.5 * scale, 8 * scale, 3.5 * scale);
+      ctx.strokeStyle = '#bae6fd';
+      ctx.lineWidth = 0.5 * scale;
+      ctx.strokeRect(px * scale - 4 * scale, py * scale - 2.5 * scale, 8 * scale, 3.5 * scale);
+    }
+  }
+
+  private drawGasPlant(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
+    const h = (12 + level * 1.2) * scale;
+    this.drawIsoBox(ctx, -3 * scale, 1 * scale, 16 * scale, 12 * scale, h, '#3b82f6', '#1e40af');
+    this.drawIsoBox(ctx, 8 * scale, 0, 6 * scale, 6 * scale, h + 6 * scale, pal.primary, pal.secondary);
+    this.drawSteam(ctx, 8 * scale, -h - 6 * scale, scale * 0.7);
+  }
+
+  private drawGeothermalPlant(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 19 * scale, 14 * scale, 11 * scale, '#475569', '#334155');
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.arc(0, -11 * scale, 4 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    this.drawSteam(ctx, 0, -14 * scale, scale * 1.1);
+  }
+
+  private drawFusionReactor(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 24 * scale, 18 * scale, 9 * scale, '#1e1b4b', '#312e81');
+    const pulse = 0.65 + Math.sin(this.frameCount * 0.16) * 0.3;
+    ctx.strokeStyle = `rgba(56, 189, 248, ${pulse})`;
+    ctx.lineWidth = 3 * scale;
+    ctx.beginPath();
+    ctx.ellipse(0, -12 * scale, 10 * scale, 5 * scale, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(192, 132, 252, ${pulse})`;
+    ctx.beginPath();
+    ctx.arc(0, -12 * scale, 3.2 * scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawSewagePlant(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, -6 * scale, 1 * scale, 11 * scale, 10 * scale, 9 * scale, '#475569', '#334155');
+    for (const [cx, cy] of [
+      [5, -2],
+      [6, 3],
+    ]) {
+      ctx.fillStyle = '#0f766e';
+      ctx.beginPath();
+      ctx.ellipse(cx * scale, cy * scale, 5 * scale, 2.8 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#99f6e4';
+      ctx.lineWidth = 0.8 * scale;
+      ctx.stroke();
+    }
+  }
+
+  private drawWasteIncinerator(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, -2 * scale, 1 * scale, 18 * scale, 14 * scale, 11 * scale, '#78350f', '#451a03');
+    this.drawIsoBox(ctx, 5 * scale, -1 * scale, 5 * scale, 5 * scale, 20 * scale, '#57534e', '#292524');
+    this.drawSmoke(ctx, 5 * scale, -21 * scale, scale * 1.15);
+  }
+
+  private drawRecyclingPlant(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 20 * scale, 15 * scale, 11 * scale, '#15803d', '#166534');
+    this.drawIsoBox(ctx, 0, -10 * scale, 12 * scale, 9 * scale, 4 * scale, '#22c55e', '#15803d');
+    ctx.fillStyle = '#ecfccb';
+    ctx.font = `700 ${Math.max(6, Math.round(7 * scale))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('♻', 0, -14 * scale);
+  }
+
+  private drawUraniumEnrichment(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 20 * scale, 15 * scale, 12 * scale, '#3f6212', '#1a2e05');
+    for (const dx of [-6, 0, 6]) {
+      this.drawIsoBox(ctx, dx * scale, -11 * scale, 4 * scale, 4 * scale, 7 * scale, '#84cc16', '#4d7c0f');
+    }
+  }
+
+  private drawColdStorage(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (11 + level) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, h, '#e0f2fe', '#7dd3fc');
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(-6 * scale, -h - 2 * scale, 12 * scale, 2 * scale);
+  }
+
+  private drawSpecializedMine(
+    ctx: CanvasRenderingContext2D,
+    scale: number,
+    gemColor: string,
+    pal: BuildingPalette,
+    level: number
+  ): void {
+    this.drawMiningBuilding(ctx, scale, pal, level);
+    ctx.fillStyle = gemColor;
+    ctx.beginPath();
+    ctx.moveTo(0, -24 * scale);
+    ctx.lineTo(3.5 * scale, -20 * scale);
+    ctx.lineTo(0, -16 * scale);
+    ctx.lineTo(-3.5 * scale, -20 * scale);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  private drawBatteryFactory(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (13 + level * 1.2) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 21 * scale, 15 * scale, h, '#312e81', '#1e1b4b');
+    ctx.fillStyle = '#a855f7';
+    ctx.fillRect(-5 * scale, -h - 4 * scale, 10 * scale, 3 * scale);
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillRect(-2 * scale, -h - 6 * scale, 4 * scale, 2 * scale);
   }
 
   private drawStatusIcons(ctx: CanvasRenderingContext2D, scale: number, building: Building): void {
@@ -901,6 +1136,10 @@ export class BuildingRenderer {
       icons.push('☣️');
     }
     if (building.status.noRoadLink || building.logisticsMode === 'isolated') icons.push('🛣️');
+    if (building.status.missingInputs) icons.push('⛔');
+    if (building.status.sewageCrisis) icons.push('🚰');
+    if (building.status.wasteCrisis) icons.push('🗑️');
+    if (building.status.disasterStruck) icons.push('🌪️');
     if (building.status.breakdown) icons.push('⚠️');
     if (building.status.noPower) icons.push('⚡');
     if (building.status.noWater || building.status.droughtHit) icons.push('💧');

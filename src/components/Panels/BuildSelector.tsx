@@ -7,7 +7,7 @@ import {
 import { BUILDING_DEFINITION_LIST } from '../../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import { checkBuildingRequirements, getBuildingConstructionCost } from '../../engine/BuildingSystem';
-import { hasPlayerSurveyedPlot } from '../../engine/PlotSystem';
+import { hasPlayerDiscoveredPlot } from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
 import type {
   BuildingCategory,
@@ -173,7 +173,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
               const corpMet = currentPlayer.corporationLevel >= def.requiredCorpLevel;
               const terrainMet = def.requiredTerrain.includes(plot.terrain);
               const depositMet = def.requiredDeposit
-                ? hasPlayerSurveyedPlot(plot, currentPlayer.id) &&
+                ? hasPlayerDiscoveredPlot(plot, currentPlayer.id, currentPlayer, gameState) &&
                   plot.deposits.some((d) => d.type === def.requiredDeposit)
                 : true;
               const cashMet = currentPlayer.cash >= totalCost;
@@ -266,6 +266,10 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       {def.waterUsage < 0
                         ? `+${Math.abs(def.waterUsage)} m³`
                         : `-${def.waterUsage} m³`}
+                      {(def.sewageUsage ?? 0) !== 0 &&
+                        ` · 🚰 ${(def.sewageUsage ?? 0) < 0 ? `+${Math.abs(def.sewageUsage ?? 0)}` : `-${def.sewageUsage}`} m³`}
+                      {(def.wasteUsage ?? 0) !== 0 &&
+                        ` · 🗑️ ${(def.wasteUsage ?? 0) < 0 ? `+${Math.abs(def.wasteUsage ?? 0)}` : `-${def.wasteUsage}`} t`}
                     </span>
                   </div>
 
@@ -361,15 +365,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       {constructionEntries.length > 0 && (
                         <div className="text-slate-300 pt-0.5">
                           <span className="text-sky-400 mr-1">🧱</span>
-                          Materiały budowlane:{' '}
-                          {constructionEntries
-                            .map(([r, q]) => {
-                              const rd = RESOURCE_DEFINITIONS[r as ResourceType];
-                              const stock = Math.round(currentPlayer.warehouseStockpile[r as ResourceType] ?? 0);
-                              return `${rd.name} ${stock}/${q}`;
-                            })
-                            .join(', ')}{' '}
-                          (brakujące dokupowane z giełdy)
+                          Koszt surowcowy budowy: brak (wymagany tylko budżet i technologia)
                         </div>
                       )}
 

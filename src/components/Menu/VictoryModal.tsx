@@ -20,18 +20,28 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
   const winner = gameState.winnerId
     ? gameState.players.find((p) => p.id === gameState.winnerId)
     : null;
+  const winningCoalition = gameState.winningCoalitionId
+    ? (gameState.coalitions ?? []).find((c) => c.id === gameState.winningCoalitionId)
+    : null;
+  const isLocalCoalitionWin = Boolean(
+    winningCoalition && winningCoalition.memberIds.includes(currentPlayer.id)
+  );
   const isChallengeDone = gameState.challengeCompleted && !winner;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-lg rounded-2xl bg-[#111827] border border-amber-400/60 p-6 shadow-2xl space-y-5 text-center">
-        <div className="text-3xl">{winner ? '👑' : '⏱️'}</div>
+        <div className="text-3xl">{winningCoalition ? '🤝👑' : winner ? '👑' : '⏱️'}</div>
         <h2 className="text-xl md:text-2xl font-extrabold text-white">
-          {winner
-            ? winner.id === currentPlayer.id
-              ? 'DOMINACJA RYNKOWA OSIĄGNIĘTA!'
-              : `Koniec Partii — Zwycięzca: ${winner.companyName}`
-            : 'Wyzwanie 1-Godzinne Zakończone!'}
+          {winningCoalition
+            ? isLocalCoalitionWin
+              ? `ZWYCIĘSTWO KOALICJI [${winningCoalition.tag}]!`
+              : `Koniec Partii — Zwycięska Koalicja: [${winningCoalition.tag}] ${winningCoalition.name}`
+            : winner
+              ? winner.id === currentPlayer.id
+                ? 'DOMINACJA RYNKOWA OSIĄGNIĘTA!'
+                : `Koniec Partii — Zwycięzca: ${winner.companyName}`
+              : 'Wyzwanie 1-Godzinne Zakończone!'}
         </h2>
 
         <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
@@ -39,9 +49,32 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
             'Twój wynik wyceny netto oraz wypracowana strategia zostały zapisane w Światowej Tabeli Wyników!'}
         </p>
 
+        {winningCoalition && (
+          <div className="p-3 rounded-xl bg-[#0b0f17] border border-sky-500/30 text-left space-y-1.5 text-xs">
+            <div className="text-[11px] font-bold text-sky-300 uppercase">
+              Członkowie zwycięskiej koalicji:
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {winningCoalition.memberIds.map((mId) => {
+                const mem = gameState.players.find((p) => p.id === mId);
+                if (!mem) return null;
+                return (
+                  <span
+                    key={mId}
+                    className="px-2 py-1 rounded bg-[#161f30] border border-[#243044] text-slate-100 flex items-center gap-1.5"
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: mem.color }} />
+                    {mem.companyName}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="p-4 rounded-xl bg-[#0b0f17] border border-[#243044] grid grid-cols-2 gap-3 text-left text-xs">
           <div>
-            <div className="text-slate-400">Wycena Netto</div>
+            <div className="text-slate-400">Twoja Wycena Netto</div>
             <div className="font-mono text-base font-bold text-emerald-400">
               {formatMoney(currentPlayer.netWorth)}
             </div>

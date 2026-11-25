@@ -253,12 +253,87 @@ export const RESOURCE_DEFINITIONS: Record<ResourceType, ResourceDefinition> = {
     elasticity: 0.45,
     description: 'Sprzęt obronny wzmacniający potencjał militarny i kontrakty zbrojeniowe.',
   },
+  diamonds: {
+    type: 'diamonds',
+    name: 'Diamenty',
+    genitiveName: 'diamentów',
+    emoji: '💎',
+    unit: 'ct',
+    category: 'raw',
+    basePrice: 5400,
+    minPrice: 1900,
+    maxPrice: 16500,
+    volatility: 0.068,
+    elasticity: 0.52,
+    description: 'Ultrarzadkie kryształy dla luksusowego jubilerstwa, laserów precyzyjnych i komputerów kwantowych. Ekstremalna zmienność w bańkach i krachach.',
+  },
+  lithium: {
+    type: 'lithium',
+    name: 'Lit',
+    genitiveName: 'litu',
+    emoji: '🔋',
+    unit: 't',
+    category: 'raw',
+    basePrice: 1180,
+    minPrice: 480,
+    maxPrice: 3800,
+    volatility: 0.052,
+    elasticity: 0.56,
+    description: 'Białe złoto zielonej transformacji — kluczowy surowiec dla fabryk baterii EV, magazynów energii i reaktorów termojądrowych.',
+  },
+  batteries: {
+    type: 'batteries',
+    name: 'Baterie Litowe EV',
+    genitiveName: 'baterii litowych',
+    emoji: '⚡',
+    unit: 'kWh',
+    category: 'hightech',
+    basePrice: 2850,
+    minPrice: 1100,
+    maxPrice: 7800,
+    volatility: 0.05,
+    elasticity: 0.58,
+    description: 'Wysokomarżowe ogniwa magazynowania energii i napędów EV stabilizujące sieć i poparcie ekologiczne.',
+  },
+  sewage: {
+    type: 'sewage',
+    name: 'Ścieki Przemysłowe',
+    genitiveName: 'ścieków',
+    emoji: '🚰',
+    unit: 'm³',
+    category: 'utility',
+    basePrice: 45,
+    minPrice: 20,
+    maxPrice: 160,
+    volatility: 0.02,
+    elasticity: 0.3,
+    tradeable: false,
+    description: 'Medium komunalne generowane przez fabryki, hotele i szpitale. Nieoczyszczone wywołują skażenia, kary i spadek poparcia.',
+  },
+  waste: {
+    type: 'waste',
+    name: 'Odpady i Śmieci',
+    genitiveName: 'odpadów',
+    emoji: '🗑️',
+    unit: 't',
+    category: 'utility',
+    basePrice: 65,
+    minPrice: 25,
+    maxPrice: 220,
+    volatility: 0.02,
+    elasticity: 0.3,
+    tradeable: false,
+    description: 'Odpady przemysłowe wymagające utylizacji w Spalarni (tania, szkodzi poparciu) lub w Zakładzie Recyklingu (odzysk metali).',
+  },
 };
 
 export const RESOURCE_LIST: ResourceType[] = Object.keys(RESOURCE_DEFINITIONS) as ResourceType[];
+export const TRADEABLE_RESOURCE_LIST: ResourceType[] = RESOURCE_LIST.filter(
+  (r) => RESOURCE_DEFINITIONS[r].tradeable !== false
+);
 
 export function createInitialResourcePrices(): ResourcePrice[] {
-  return RESOURCE_LIST.map((type) => {
+  return TRADEABLE_RESOURCE_LIST.map((type) => {
     const def = RESOURCE_DEFINITIONS[type];
     const history: number[] = [];
     const candles: PriceCandle[] = [];

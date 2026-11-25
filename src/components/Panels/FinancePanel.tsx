@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { BUILDING_CATEGORIES, TOLL_RATE_CONFIG } from '../../config/gameConfig';
-import { RESOURCE_DEFINITIONS } from '../../data/resources';
+import { BUILDING_CATEGORIES, GAME_CONFIG, TOLL_RATE_CONFIG } from '../../config/gameConfig';
+import { RESOURCE_DEFINITIONS, TRADEABLE_RESOURCE_LIST } from '../../data/resources';
 import { computePlayerUtilityAndResourceBalance } from '../../engine/BalanceSystem';
 import {
   calculateMonopolyShares,
@@ -527,6 +527,55 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Nowe media: Ścieki & Odpady */}
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-teal-300 text-sm">🚰 Ścieki Przemysłowe (m³)</span>
+                    <span
+                      className={`font-mono font-bold text-sm ${
+                        balanceReport.sewageNet >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {balanceReport.sewageNet >= 0 ? '+' : ''}
+                      {balanceReport.sewageNet} m³
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-slate-300 text-xs">
+                    <div className="flex justify-between">
+                      <span>Przepustowość oczyszczalni:</span>
+                      <span className="font-mono text-emerald-300">+{balanceReport.sewageTreated} m³</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Emisja ścieków zakładów:</span>
+                      <span className="font-mono text-rose-300">-{balanceReport.sewageProduced} m³</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-lime-300 text-sm">🗑️ Odpady i Recykling (t)</span>
+                    <span
+                      className={`font-mono font-bold text-sm ${
+                        balanceReport.wasteNet >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {balanceReport.wasteNet >= 0 ? '+' : ''}
+                      {balanceReport.wasteNet} t
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-slate-300 text-xs">
+                    <div className="flex justify-between">
+                      <span>Moc Spalarni & Recyklingu:</span>
+                      <span className="font-mono text-emerald-300">+{balanceReport.wasteProcessed} t</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Wytwarzane odpady:</span>
+                      <span className="font-mono text-rose-300">-{balanceReport.wasteProduced} t</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Logistyka multimodalna */}
@@ -721,42 +770,76 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
 
           {tab === 'warehouse' && (
             <div className="space-y-3">
-              <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2.5">
-                <div className="font-semibold text-slate-100 text-sm">
-                  Zakup Fizycznych Surowców na Giełdzie (do Magazynu)
+              {gameState.settings.mode === 'mp_fast' || gameState.settings.mode === 'mp_long' ? (
+                <div className="p-3.5 rounded-lg bg-amber-950/30 border border-amber-500/45 space-y-1.5 text-xs">
+                  <div className="font-bold text-amber-300">
+                    🔒 Gospodarka Zamknięta Multiplayer — Zakupy od NPC Zablokowane
+                  </div>
+                  <p className="text-slate-300 leading-relaxed">
+                    W rozgrywce sieciowej wszystkie towary krążą wyłącznie między graczami. Wydobywaj własne
+                    surowce (włączając tryb „Magazynuj” na kopalni/hucie) lub kupuj je od rywali w panelu{' '}
+                    <strong>🤝 Kontrakty B2B</strong>.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Zgromadzone w magazynie surowce zasilają budowę i zaawansowane ulepszenia struktur oraz pozwalają spekulować na skokach cen z Gazety.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <select
-                    value={spotRes}
-                    onChange={(e) => setSpotRes(e.target.value as ResourceType)}
-                    className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100"
-                  >
-                    {Object.values(RESOURCE_DEFINITIONS).map((rd) => (
-                      <option key={rd.type} value={rd.type}>
-                        {rd.emoji} {rd.name}
-                      </option>
-                    ))}
-                  </select>
-                  <DarkNumberInput
-                    value={spotQty}
-                    onChange={setSpotQty}
-                    min={1}
-                    max={500}
-                    step={5}
-                  />
-                  <button
-                    type="button"
-                    disabled={currentPlayer.cash < spotQty * spotPrice}
-                    onClick={() => onBuyStock(spotRes, spotQty)}
-                    className="py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold"
-                  >
-                    Kup ({formatMoney(spotQty * spotPrice)})
-                  </button>
+              ) : (
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2.5">
+                  <div className="font-semibold text-slate-100 text-sm">
+                    Zakup Fizycznych Surowców na Giełdzie (do Magazynu)
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Zgromadzone w magazynie surowce zasilają fabryki oraz pozwalają spekulować na skokach cen z Gazety.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select
+                      value={spotRes}
+                      onChange={(e) => setSpotRes(e.target.value as ResourceType)}
+                      className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100"
+                    >
+                      {TRADEABLE_RESOURCE_LIST.map((rKey) => {
+                        const rd = RESOURCE_DEFINITIONS[rKey];
+                        return (
+                          <option key={rd.type} value={rd.type}>
+                            {rd.emoji} {rd.name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <DarkNumberInput
+                      value={spotQty}
+                      onChange={setSpotQty}
+                      min={1}
+                      max={500}
+                      step={5}
+                    />
+                    <button
+                      type="button"
+                      disabled={currentPlayer.cash < spotQty * spotPrice}
+                      onClick={() => onBuyStock(spotRes, spotQty)}
+                      className="py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold"
+                    >
+                      Kup ({formatMoney(spotQty * spotPrice)})
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {(gameState.patents ?? []).length > 0 && (
+                <div className="p-3 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-1.5 text-xs">
+                  <div className="font-semibold text-amber-300">
+                    🏅 Aktywne Patenty Technologiczne i Tantiemy
+                  </div>
+                  {(gameState.patents ?? []).map((pt) => (
+                    <div key={pt.techId} className="flex justify-between text-[11px] text-slate-300">
+                      <span>
+                        {pt.techName} · Właściciel: <strong className="text-white">{pt.ownerName}</strong>
+                      </span>
+                      <span className="font-mono text-emerald-400">
+                        +{formatMoney(pt.royaltyPerTick)}/T (łącznie {formatCompactMoney(pt.totalRoyaltiesEarned)})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {stockpileItems.length === 0 ? (
                 <div className="p-6 text-center text-slate-500 bg-[#0b0f17] rounded-lg border border-[#243044]">
@@ -879,81 +962,114 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
             </div>
           )}
 
-          {tab === 'loans' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-3">
-                <div className="font-semibold text-slate-100 text-sm">Nowa Linia Kredytowa</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div>
-                    <label className="text-slate-400 block mb-1">Kwota Kapitału</label>
-                    <select
-                      value={loanAmount}
-                      onChange={(e) => setLoanAmount(Number(e.target.value))}
-                      className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 font-mono text-slate-100"
-                    >
-                      <option value={250000}>250 000 zł</option>
-                      <option value={500000}>500 000 zł</option>
-                      <option value={1000000}>1 000 000 zł</option>
-                      <option value={2500000}>2 500 000 zł</option>
-                    </select>
+          {tab === 'loans' && (() => {
+            const isMpMode =
+              gameState.settings.mode === 'mp_fast' || gameState.settings.mode === 'mp_long';
+            const mpLoanLimitReached =
+              isMpMode && currentPlayer.loans.length >= GAME_CONFIG.maxMpLoans;
+            return (
+              <div className="space-y-4">
+                {(currentPlayer.insolvencyGraceTicks ?? 0) > 0 && (
+                  <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-500/60 text-xs text-rose-200">
+                    🔨 <strong>UWAGA KOMORNIK:</strong> Masz{' '}
+                    <strong>{currentPlayer.insolvencyGraceTicks} cykli</strong> na pokrycie ujemnego
+                    salda, inaczej majątek trafi na przymusową licytację!
                   </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Okres Spłaty</label>
-                    <select
-                      value={loanMonths}
-                      onChange={(e) => setLoanMonths(Number(e.target.value))}
-                      className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 font-mono text-slate-100"
-                    >
-                      <option value={6}>6 miesięcy (180 cykli)</option>
-                      <option value={12}>12 miesięcy (360 cykli)</option>
-                      <option value={24}>24 miesiące (720 cykli)</option>
-                    </select>
+                )}
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-slate-100 text-sm">Nowa Linia Kredytowa</div>
+                    {isMpMode && (
+                      <span
+                        className={`px-2 py-0.5 rounded font-mono text-[11px] border ${
+                          mpLoanLimitReached
+                            ? 'bg-rose-500/20 border-rose-400/50 text-rose-300'
+                            : 'bg-[#151c28] border-[#243044] text-sky-300'
+                        }`}
+                      >
+                        Limit MP: {currentPlayer.loans.length} / {GAME_CONFIG.maxMpLoans} kredytów
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      onClick={() => onTakeLoan(loanAmount, loanMonths)}
-                      className="w-full py-2 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
-                    >
-                      Zaciągnij Kredyt
-                    </button>
-                  </div>
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  Stopa bazowa: {(gameState.baseInterestRate * 100).toFixed(1)}% · CIT: {(gameState.taxRate * 100).toFixed(0)}%
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {currentPlayer.loans.length === 0 ? (
-                  <div className="p-4 text-center text-slate-500 bg-[#0b0f17] rounded-lg border border-[#243044]">
-                    Brak aktywnych zobowiązań kredytowych.
-                  </div>
-                ) : (
-                  currentPlayer.loans.map((l) => (
-                    <div key={l.id} className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-semibold text-slate-100">
-                          {l.bankName} ({l.interestRate}% APR)
-                        </div>
-                        <div className="font-mono text-slate-400">
-                          Pozostało: {formatMoney(l.remainingAmount)} · Rata: {formatMoney(l.paymentPerTick)}/T ({l.remainingTicks}T)
-                        </div>
-                      </div>
+                  {mpLoanLimitReached && (
+                    <div className="p-2 rounded bg-rose-950/40 border border-rose-500/40 text-xs text-rose-200">
+                      🔒 Osiągnięto maksymalny limit 3 aktywnych kredytów w Multiplayerze. Spłać
+                      jeden z istniejących poniżej, aby odblokować finansowanie.
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-slate-400 block mb-1">Kwota Kapitału</label>
+                      <select
+                        value={loanAmount}
+                        onChange={(e) => setLoanAmount(Number(e.target.value))}
+                        className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 font-mono text-slate-100"
+                      >
+                        <option value={250000}>250 000 zł</option>
+                        <option value={500000}>500 000 zł</option>
+                        <option value={1000000}>1 000 000 zł</option>
+                        <option value={2500000}>2 500 000 zł</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">Okres Spłaty</label>
+                      <select
+                        value={loanMonths}
+                        onChange={(e) => setLoanMonths(Number(e.target.value))}
+                        className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 font-mono text-slate-100"
+                      >
+                        <option value={6}>6 miesięcy (180 cykli)</option>
+                        <option value={12}>12 miesięcy (360 cykli)</option>
+                        <option value={24}>24 miesiące (720 cykli)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
                       <button
                         type="button"
-                        disabled={currentPlayer.cash < l.remainingAmount}
-                        onClick={() => onRepayLoan(l.id)}
-                        className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
+                        disabled={mpLoanLimitReached}
+                        onClick={() => onTakeLoan(loanAmount, loanMonths)}
+                        className="w-full py-2 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
                       >
-                        Spłać Całość
+                        {mpLoanLimitReached ? 'Limit 3/3 Osiągnięty' : 'Zaciągnij Kredyt'}
                       </button>
                     </div>
-                  ))
-                )}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Stopa bazowa: {(gameState.baseInterestRate * 100).toFixed(1)}% · CIT: {(gameState.taxRate * 100).toFixed(0)}%
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {currentPlayer.loans.length === 0 ? (
+                    <div className="p-4 text-center text-slate-500 bg-[#0b0f17] rounded-lg border border-[#243044]">
+                      Brak aktywnych zobowiązań kredytowych.
+                    </div>
+                  ) : (
+                    currentPlayer.loans.map((l) => (
+                      <div key={l.id} className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-slate-100">
+                            {l.bankName} ({l.interestRate}% APR)
+                          </div>
+                          <div className="font-mono text-slate-400">
+                            Pozostało: {formatMoney(l.remainingAmount)} · Rata: {formatMoney(l.paymentPerTick)}/T ({l.remainingTicks}T)
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={currentPlayer.cash < l.remainingAmount}
+                          onClick={() => onRepayLoan(l.id)}
+                          className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
+                        >
+                          Spłać Całość
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>

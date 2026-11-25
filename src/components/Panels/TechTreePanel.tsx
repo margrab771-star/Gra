@@ -185,6 +185,22 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
                 </div>
                 <h3 className="text-lg font-bold text-slate-100">{selectedNode.name}</h3>
                 <p className="text-xs text-slate-300 leading-relaxed">{selectedNode.description}</p>
+                {(() => {
+                  const patent = (gameState.patents ?? []).find((p) => p.techId === selectedNode.id);
+                  if (!patent) return null;
+                  return (
+                    <div className="p-2 rounded bg-amber-950/40 border border-amber-400/50 text-[11px] text-amber-200">
+                      🏅 <strong>Patent Wyłączny:</strong> Właściciel <strong>{patent.ownerName}</strong> pobiera{' '}
+                      {formatMoney(patent.royaltyPerTick)}/T tantiem (do tury #{patent.expiresTick}).
+                    </div>
+                  );
+                })()}
+                {currentPlayer.secretNuclearRevealed && branch === 'military' && (
+                  <div className="p-2.5 rounded bg-lime-950/35 border border-lime-400/50 text-[11px] text-lime-200">
+                    ☢️ <strong>Odblokowano Tajny Program Jądrowy!</strong> Zarządzaj produkcją głowicy w oknie{' '}
+                    <strong>🏛️ Wpływy → Arsenał</strong>.
+                  </div>
+                )}
 
                 <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-xs">
                   <div className="flex justify-between">

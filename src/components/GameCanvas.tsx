@@ -1,10 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import { HEATMAP_MODE_OPTIONS, TERRAIN_NAMES, TOLL_RATE_CONFIG } from '../config/gameConfig';
+import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { hasPlayerSurveyedPlot } from '../engine/PlotSystem';
 import { stepVehiclePositions } from '../engine/TransportSystem';
-import type { GameState, MapHeatmapMode, Plot } from '../engine/types';
+import type { BuildingType, GameState, MapHeatmapMode, Plot } from '../engine/types';
 import { useIsometricCamera } from '../hooks/useIsometricCamera';
 import { IsometricRenderer } from '../renderer/IsometricRenderer';
+import { TILE_HEIGHT, TILE_WIDTH } from '../renderer/utils';
 import { formatCompactMoney } from '../utils/formatters';
 
 interface GameCanvasProps {
@@ -12,6 +14,11 @@ interface GameCanvasProps {
   selectedPlotId: string | null;
   showTransportRoutes?: boolean;
   heatmapMode?: MapHeatmapMode;
+  targetMode?: 'missile' | 'nuke' | null;
+  cloneBuildingType?: BuildingType | null;
+  focusRequest?: { plotId: string; nonce: number } | null;
+  onCancelSpecialMode?: () => void;
+  onTargetPlot?: (plotId: string) => void;
   onChangeHeatmapMode?: (mode: MapHeatmapMode) => void;
   onSelectPlot: (plotId: string | null) => void;
 }
@@ -22,6 +29,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
     selectedPlotId,
     showTransportRoutes = true,
     heatmapMode = 'standard',
+    targetMode = null,
+    cloneBuildingType = null,
+    focusRequest = null,
+    onCancelSpecialMode,
+    onTargetPlot,
     onChangeHeatmapMode,
     onSelectPlot,
   }) => {
@@ -36,6 +48,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
     const selectedRef = useRef(selectedPlotId);
     const showRoutesRef = useRef(showTransportRoutes);
     const heatmapRef = useRef<MapHeatmapMode>(heatmapMode);
+    const targetModeRef = useRef<'missile' | 'nuke' | null>(targetMode);
     const hoveredPlotIdRef = useRef<string | null>(null);
     const containerWidthRef = useRef(800);
 
@@ -50,7 +63,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       selectedRef.current = selectedPlotId;
       showRoutesRef.current = showTransportRoutes;
       heatmapRef.current = heatmapMode;
-    }, [gameState, selectedPlotId, showTransportRoutes, heatmapMode]);
+      targetModeRef.current = targetMode;
+    }, [gameState, selectedPlotId, showTransportRoutes, heatmapMode, targetMode]);
+
+    useEffect(() => {
+      if (!focusRequest?.plotId) return;
+      const plot = stateRef.current.plots.find((p) => p.id === focusRequest.plotId);
+      const el = containerRef.current;
+      if (!plot || !el) return;
+      const rect = el.getBoundingClientRect();
+      const targetZoom = Math.max(1.05, cameraRef.current.zoom);
+      const tw = TILE_WIDTH * targetZoom;
+      const th = TILE_HEIGHT * targetZoom;
+      const ox = rect.width * 0.5 - (plot.gridX - plot.gridY) * (tw / 2);
+      const oy = rect.height * 0.5 - (plot.gridX + plot.gridY) * (th / 2);
+      centerOn(ox, oy, targetZoom);
+    }, [focusRequest, centerOn, cameraRef]);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -95,7 +123,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           selectedRef.current,
           st.vehicles,
           showRoutesRef.current,
-          heatmapRef.current
+          heatmapRef.current,
+          targetModeRef.current
         );
         animId = requestAnimationFrame(loop);
       };
@@ -178,6 +207,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       const wasClick = handlers.onMouseUp();
       if (wasClick) {
         const plot = pickPlot(e.clientX, e.clientY);
+        if (plot && targetMode && onTargetPlot) {
+          onTargetPlot(plot.id);
+          return;
+        }
         onSelectPlot(plot ? plot.id : null);
       }
     };
@@ -187,6 +220,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       if (wasTap && e.changedTouches.length > 0) {
         const t = e.changedTouches[0];
         const plot = pickPlot(t.clientX, t.clientY);
+        if (plot && targetMode && onTargetPlot) {
+          onTargetPlot(plot.id);
+          return;
+        }
         onSelectPlot(plot ? plot.id : null);
       }
     };
@@ -195,7 +232,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       <div ref={containerRef} id="game-canvas" className="relative w-full h-full overflow-hidden select-none">
         <canvas
           ref={canvasRef}
-          className="block w-full h-full cursor-grab active:cursor-grabbing touch-none"
+          className={`block w-full h-full touch-none ${
+            targetMode || cloneBuildingType ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          }`}
           onMouseDown={handlers.onMouseDown}
           onMouseMove={handlePointerMove}
           onMouseUp={handleMouseUp}
@@ -209,6 +248,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           onTouchMove={handleTouchMoveOrPass(handlers.onTouchMove)}
           onTouchEnd={handleTouchEnd}
         />
+
+        {/* Aktywny baner celowania / klonowania obiektu */}
+        {(targetMode || cloneBuildingType) && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-3.5 py-2 rounded-xl bg-rose-950/90 border border-rose-500/60 shadow-2xl backdrop-blur-md">
+            <span className="text-xs font-semibold text-rose-100">
+              {targetMode === 'nuke'
+                ? '☢️ Wskaż działkę na mapie dla ataku jądrowego 5×5'
+                : targetMode === 'missile'
+                  ? '🚀 Wskaż cel uderzenia taktycznego 3×3'
+                  : `🧪 Tryb klonowania (Pipeta): Kliknij wolną własną działkę, aby postawić "${BUILDING_DEFINITIONS[cloneBuildingType!]?.name ?? cloneBuildingType}"`}
+            </span>
+            {onCancelSpecialMode && (
+              <button
+                type="button"
+                onClick={onCancelSpecialMode}
+                className="px-2 py-0.5 rounded bg-[#0f1623] border border-[#243044] text-[11px] text-slate-300 hover:text-white"
+              >
+                Anuluj
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Pasek dynamicznych nakładek analitycznych mapy (Heatmaps) */}
         {onChangeHeatmapMode && (
