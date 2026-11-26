@@ -1,3 +1,4 @@
+import { getArchetypeDefinition } from '../data/archetypes';
 import { formatGameDate } from '../utils/formatters';
 import { getResourcePrice } from './EconomyEngine';
 import type { CorporateStock, GameState, Player } from './types';
@@ -111,8 +112,15 @@ export function issueCorporateBondForPlayer(
   player: Player,
   amount: number
 ): { ok: boolean; error?: string } {
-  if (player.corporationLevel < 2) {
-    return { ok: false, error: 'Emisja obligacji korporacyjnych wymaga min. Etapu 2 (Przedsiębiorstwo).' };
+  if (state.settings.mutators?.noLoans) {
+    return {
+      ok: false,
+      error: 'Mutator "Bez Kredytów": emisja obligacji dłużnych jest wyłączona w tej rozgrywce.',
+    };
+  }
+  const minCorpLvl = Math.max(1, 2 + getArchetypeDefinition(player.archetype).modifiers.stockAccessCorpLevelDelta);
+  if (player.corporationLevel < minCorpLvl) {
+    return { ok: false, error: `Emisja obligacji korporacyjnych wymaga min. Etapu ${minCorpLvl}.` };
   }
   if ((player.bonds?.length ?? 0) >= 3) {
     return { ok: false, error: 'Osiągnięto limit 3 równoległych serii obligacji korporacyjnych.' };

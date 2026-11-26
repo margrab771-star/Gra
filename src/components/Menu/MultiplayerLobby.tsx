@@ -1,11 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import {
   AI_STRATEGY_LABELS,
+  DEFAULT_MUTATORS,
   DIFFICULTY_LABELS,
+  DIFFICULTY_PRESETS,
   MAP_SIZES,
   PLAYER_COLORS,
+  SCENARIO_DEFINITIONS,
 } from '../../config/gameConfig';
-import type { LastMpSession, LobbyState } from '../../engine/types';
+import { ACHIEVEMENTS, TITLES_CATALOG } from '../../data/achievements';
+import { ARCHETYPE_LIST, getArchetypeDefinition } from '../../data/archetypes';
+import { toPlayerCard } from '../../engine/profileManager';
+import type {
+  ArchetypeId,
+  DifficultyPreset,
+  LastMpSession,
+  LobbyState,
+  MutatorFlags,
+  PlayerCardProfile,
+  ScenarioId,
+  UserAccountProfile,
+} from '../../engine/types';
 import {
   buildInviteLink,
   multiplayerManager,
@@ -16,19 +31,47 @@ import type { ConnectionStage, P2PReadinessReport } from '../../network/multipla
 import { DarkToggle } from '../HUD/DarkControls';
 
 interface MultiplayerLobbyProps {
+  activeProfile: UserAccountProfile;
   initialRoomCode: string | null;
   lastMpSession: LastMpSession | null;
   lobbyState: LobbyState | null;
   isHost: boolean;
   localPlayerId: string;
-  onCreateRoom: (name: string, company: string, color: string) => Promise<void>;
-  onJoinRoom: (code: string, name: string, company: string, color: string) => Promise<void>;
+  onCreateRoom: (
+    name: string,
+    company: string,
+    color: string,
+    options?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
+  ) => Promise<void>;
+  onJoinRoom: (
+    code: string,
+    name: string,
+    company: string,
+    color: string,
+    options?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
+  ) => Promise<void>;
   onStartMatch: () => void;
   onOpenTutorial?: () => void;
   onLeave: () => void;
 }
 
+const FRAME_BORDER_CLASSES: Record<string, string> = {
+  frame_slate: 'border-[#243044]',
+  frame_gold: 'border-amber-400/75',
+  frame_emerald: 'border-emerald-400/75',
+  frame_crimson: 'border-rose-500/80',
+};
+
+const MUTATOR_LIST: { key: keyof MutatorFlags; label: string; desc: string }[] = [
+  { key: 'fogOfWar', label: '🌫️ Mgła Wojny Budynków', desc: 'Budynki rywali ukryte do skanu wywiadu.' },
+  { key: 'noLoans', label: '🚫 Bez Kredytów', desc: 'Zakaz pożyczek bankowych i emisji obligacji.' },
+  { key: 'volatileMarket', label: '📊 Szalona Giełda', desc: 'Mocniejsze cykle i częstsze krachy rynkowe.' },
+  { key: 'freeLocalRoads', label: '🛣️ Darmowe Drogi Lokalne', desc: 'Lokalne odcinki asfaltu za $0.' },
+  { key: 'extremeClimate', label: '⛈️ Ekstremalny Klimat', desc: 'Częstsze katastrofy i wyższe wymogi służb.' },
+];
+
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
+  activeProfile,
   initialRoomCode,
   lastMpSession,
   lobbyState,
@@ -46,11 +89,15 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const [roomCodeInput, setRoomCodeInput] = useState(
     initialRoomCode ?? lastMpSession?.roomCode ?? ''
   );
-  const [playerName, setPlayerName] = useState(lastMpSession?.playerName ?? 'Prezes');
+  const [playerName, setPlayerName] = useState(
+    lastMpSession?.playerName ?? (!activeProfile.isGuest ? activeProfile.nick : 'Prezes')
+  );
   const [companyName, setCompanyName] = useState(
     lastMpSession?.companyName ?? 'Nexus Capital S.A.'
   );
   const [color, setColor] = useState(lastMpSession?.color ?? PLAYER_COLORS[1]);
+  const [archetype, setArchetype] = useState<ArchetypeId>('standard');
+  const [mutatorsOpen, setMutatorsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<ConnectionStage>('idle');
   const [stageLabel, setStageLabel] = useState<string>('');
@@ -73,11 +120,16 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     };
   }, []);
 
+  const localPlayerCard = toPlayerCard(activeProfile);
+
   const handleCreate = async () => {
     setBusy(true);
     setError(null);
     try {
-      await onCreateRoom(playerName, companyName, color);
+      await onCreateRoom(playerName, companyName, color, {
+        archetype,
+        playerCard: localPlayerCard,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Nie udało się utworzyć pokoju.');
     } finally {
@@ -95,7 +147,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     setBusy(true);
     setError(null);
     try {
-      await onJoinRoom(clean, playerName, companyName, color);
+      await onJoinRoom(clean, playerName, companyName, color, {
+        archetype,
+        playerCard: localPlayerCard,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Nie udało się dołączyć do pokoju.');
     } finally {
@@ -223,6 +278,47 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
+              <div>
+                <label className="text-slate-400 block mb-1">⚖️ Trudność Gospodarki PvP</label>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.difficultyPreset ?? 'standard'}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({
+                      difficultyPreset: e.target.value as DifficultyPreset,
+                    })
+                  }
+                  className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
+                >
+                  {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map((k) => (
+                    <option key={k} value={k}>
+                      {DIFFICULTY_PRESETS[k].badge} {DIFFICULTY_PRESETS[k].label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">🎬 Scenariusz Lobby</label>
+                <select
+                  disabled={!isHost}
+                  value={lobbyState.scenarioId ?? 'sandbox'}
+                  onChange={(e) =>
+                    multiplayerManager.updateLobbySettings({
+                      scenarioId: e.target.value as ScenarioId,
+                    })
+                  }
+                  className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
+                >
+                  {SCENARIO_DEFINITIONS.map((sc) => (
+                    <option key={sc.id} value={sc.id}>
+                      {sc.icon} {sc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
               <div className={!isHost ? 'opacity-70 pointer-events-none' : ''}>
                 <DarkToggle
                   checked={lobbyState.disastersEnabled ?? true}
@@ -248,6 +344,75 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   <option value="coalition">🤝 Dominacja Koalicji</option>
                 </select>
               </div>
+            </div>
+
+            {/* Zwijane Mutatory Zasad PvP */}
+            <div className="rounded-lg bg-[#111827] border border-[#243044] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMutatorsOpen((v) => !v)}
+                className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-[#161f32]"
+              >
+                <span className="font-semibold text-slate-200">
+                  🎛️ Mutatory Zasad{' '}
+                  {Object.values(lobbyState.mutators ?? DEFAULT_MUTATORS).filter(Boolean).length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">
+                      {Object.values(lobbyState.mutators ?? DEFAULT_MUTATORS).filter(Boolean).length}{' '}
+                      aktywne
+                    </span>
+                  )}
+                </span>
+                <span className="text-slate-400">{mutatorsOpen ? '▲ Zwiń' : '▼ Rozwiń'}</span>
+              </button>
+              {mutatorsOpen && (
+                <div className="px-3 pb-3 pt-2 border-t border-[#1e293b] grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {MUTATOR_LIST.map((m) => {
+                    const activeMut = lobbyState.mutators ?? DEFAULT_MUTATORS;
+                    return (
+                      <div
+                        key={m.key}
+                        className={`p-2 rounded bg-[#0b0f17] border border-[#243044] ${
+                          !isHost ? 'opacity-75 pointer-events-none' : ''
+                        }`}
+                      >
+                        <DarkToggle
+                          checked={Boolean(activeMut[m.key])}
+                          onChange={(val) =>
+                            multiplayerManager.updateLobbySettings({
+                              mutators: { ...activeMut, [m.key]: val },
+                            })
+                          }
+                          label={m.label}
+                        />
+                        <div className="text-[10px] text-slate-400 mt-0.5">{m.desc}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Wybór własnego Archetypu Korporacji na żywo w pokoju */}
+            <div className="pt-2 border-t border-[#1e293b] flex flex-wrap items-center justify-between gap-2">
+              <span className="text-slate-300 font-semibold">🧬 Twój Archetyp Korporacji:</span>
+              <select
+                value={archetype}
+                onChange={(e) => {
+                  const nextArch = e.target.value as ArchetypeId;
+                  setArchetype(nextArch);
+                  multiplayerManager.updateLocalLobbyProfile({
+                    archetype: nextArch,
+                    playerCard: localPlayerCard,
+                  });
+                }}
+                className="bg-[#151c28] border border-amber-500/40 rounded px-2.5 py-1.5 text-amber-200 font-semibold"
+              >
+                {ARCHETYPE_LIST.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.icon} {a.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -280,41 +445,88 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {lobbyState.players.map((p) => (
-                <div
-                  key={p.id}
-                  className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2 text-xs"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                      className="w-3.5 h-3.5 rounded-full shrink-0"
-                      style={{ backgroundColor: p.color }}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-semibold text-slate-100 truncate">
-                        {p.companyName} {p.id === localPlayerId && '(Ty)'}
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {p.name} ·{' '}
-                        {p.isHost
-                          ? 'HOST'
-                          : p.isAI
-                            ? AI_STRATEGY_LABELS[p.aiStrategy ?? 'industrialist']
-                            : 'Gracz Online'}
+              {lobbyState.players.map((p) => {
+                const card = p.playerCard;
+                const frameClass =
+                  (card && FRAME_BORDER_CLASSES[card.frameId]) || 'border-[#243044]';
+                const titleObj = card
+                  ? TITLES_CATALOG.find((t) => t.id === card.titleId)
+                  : undefined;
+                const pArch = getArchetypeDefinition(p.archetype);
+                const badges = (card?.pinnedBadgeIds ?? [])
+                  .map((bid) => ACHIEVEMENTS.find((a) => a.id === bid))
+                  .filter(Boolean);
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`p-3 rounded-xl bg-[#0b0f17] border-2 ${frameClass} flex items-center justify-between gap-2 text-xs`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {card ? (
+                        <div
+                          className="w-8 h-8 rounded-lg bg-[#151c28] border flex items-center justify-center text-base shrink-0"
+                          style={{ borderColor: p.color }}
+                        >
+                          {card.avatar}
+                        </div>
+                      ) : (
+                        <span
+                          className="w-3.5 h-3.5 rounded-full shrink-0"
+                          style={{ backgroundColor: p.color }}
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-100 truncate flex items-center gap-1.5">
+                          <span className="truncate">
+                            {p.companyName} {p.id === localPlayerId && '(Ty)'}
+                          </span>
+                          {card && (
+                            <span className="px-1 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-[9px] shrink-0">
+                              LVL {card.level}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {p.name}
+                          {titleObj ? ` · ${titleObj.label}` : ''} ·{' '}
+                          {p.isHost
+                            ? 'HOST'
+                            : p.isAI
+                              ? AI_STRATEGY_LABELS[p.aiStrategy ?? 'industrialist']
+                              : 'Gracz Online'}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          <span className="px-1.5 py-0.5 rounded bg-[#151c28] border border-[#243044] text-[10px] text-sky-300">
+                            {pArch.icon} {pArch.shortName}
+                          </span>
+                          {badges.map(
+                            (b) =>
+                              b && (
+                                <span
+                                  key={b.id}
+                                  title={b.name}
+                                  className="px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-500/35 text-[10px] text-amber-200"
+                                >
+                                  {b.badgeEmoji} {b.badgeLabel}
+                                </span>
+                              )
+                          )}
+                        </div>
                       </div>
                     </div>
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono text-[10px] shrink-0 ${
+                        p.ready
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      }`}
+                    >
+                      {p.ready ? 'GOTOWY' : 'CZEKA'}
+                    </span>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded font-mono text-[10px] shrink-0 ${
-                      p.ready
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    }`}
-                  >
-                    {p.ready ? 'GOTOWY' : 'CZEKA'}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -339,7 +551,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   onClick={() => {
                     const next = !guestReady;
                     setGuestReady(next);
-                    multiplayerManager.sendGuestReady(next, playerName, companyName, color);
+                    multiplayerManager.sendGuestReady(next, playerName, companyName, color, {
+                      archetype,
+                      playerCard: localPlayerCard,
+                    });
                   }}
                   className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm ${
                     guestReady
@@ -467,6 +682,21 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 />
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-400 mb-1.5">🧬 Archetyp Korporacji</label>
+            <select
+              value={archetype}
+              onChange={(e) => setArchetype(e.target.value as ArchetypeId)}
+              className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
+            >
+              {ARCHETYPE_LIST.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.icon} {a.name} — {a.tagline}
+                </option>
+              ))}
+            </select>
           </div>
 
           {modeView === 'join' && (

@@ -1,4 +1,5 @@
 import type { BuildingDefinition, BuildingTechNode, BuildingType } from '../engine/types';
+import { V6_BUILDING_DEFINITIONS } from './buildingsV6';
 
 type TechSeed = Omit<BuildingTechNode, 'progress' | 'status'>;
 
@@ -3100,6 +3101,7 @@ const RAW_BUILDING_DEFINITIONS: Record<BuildingType, BuildingDefinition> = {
     specialEffects: ['Najwyższa marża luksusowa i technologiczna', 'Synergia z Kasynem, Kurortem i Mariną'],
     internalTechTree: processingTechTree('diamlux', 690_000),
   },
+  ...V6_BUILDING_DEFINITIONS,
 };
 
 const APEX_EXTRA_NODES: Partial<Record<BuildingType, TechSeed>> = {

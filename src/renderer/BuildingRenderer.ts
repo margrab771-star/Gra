@@ -1,4 +1,4 @@
-import type { Building, BuildingCategory } from '../engine/types';
+import type { Building, BuildingCategory, HQVariantId } from '../engine/types';
 import { darkenColor, lightenColor } from './utils';
 
 interface BuildingPalette {
@@ -128,7 +128,52 @@ export class BuildingRenderer {
         this.drawWarehouse(ctx, scale, palette, building.level + visualTier);
         break;
       case 'corporateHQ':
-        this.drawCorporateHQ(ctx, scale, visualTier, ownerColor);
+        this.drawCorporateHQ(ctx, scale, visualTier, ownerColor, building.hqVariant ?? 'classic');
+        break;
+      case 'busDepot':
+        this.drawBusDepot(ctx, scale, building.level + visualTier);
+        break;
+      case 'metroStation':
+        this.drawMetroStation(ctx, scale);
+        break;
+      case 'trainStation':
+        this.drawTrainStation(ctx, scale, building.level + visualTier);
+        break;
+      case 'passengerTerminal':
+        this.drawPassengerTerminal(ctx, scale);
+        break;
+      case 'apartmentComplex':
+        this.drawApartmentComplex(ctx, scale, building.level + visualTier);
+        break;
+      case 'gastronomyBoulevard':
+        this.drawGastronomyBoulevard(ctx, scale);
+        break;
+      case 'cityPark':
+        this.drawCityPark(ctx, scale);
+        break;
+      case 'arenaStadium':
+        this.drawArenaStadium(ctx, scale);
+        break;
+      case 'conventionCenter':
+        this.drawConventionCenter(ctx, scale);
+        break;
+      case 'lawFirm':
+        this.drawLawFirm(ctx, scale, building.level + visualTier);
+        break;
+      case 'prAgency':
+        this.drawPrAgency(ctx, scale, building.level + visualTier);
+        break;
+      case 'dataCenter':
+        this.drawDataCenter(ctx, scale, building.level + visualTier);
+        break;
+      case 'biotechLab':
+        this.drawBiotechLab(ctx, scale);
+        break;
+      case 'verticalFarm':
+        this.drawVerticalFarm(ctx, scale, building.level + visualTier);
+        break;
+      case 'compositeShipyard':
+        this.drawCompositeShipyard(ctx, scale, palette);
         break;
       case 'officeTower':
       case 'investmentBank':
@@ -467,24 +512,67 @@ export class BuildingRenderer {
     ctx: CanvasRenderingContext2D,
     scale: number,
     visualTier: number,
-    ownerColor: string
+    ownerColor: string,
+    hqVariant: HQVariantId = 'classic'
   ): void {
     const h = (14 + visualTier * 8) * scale;
     const w = (18 + visualTier * 2) * scale;
-    this.drawIsoBox(ctx, 0, 1 * scale, w, 15 * scale, h, '#1e3a5f', '#0f2342');
-    // Przeszklone piętra
+    const bodyPrimary =
+      hqVariant === 'golden'
+        ? '#b45309'
+        : hqVariant === 'eco_dome'
+          ? '#065f46'
+          : hqVariant === 'cyber_citadel'
+            ? '#0f172a'
+            : '#1e3a5f';
+    const bodySecondary =
+      hqVariant === 'golden'
+        ? '#78350f'
+        : hqVariant === 'eco_dome'
+          ? '#064e3b'
+          : hqVariant === 'cyber_citadel'
+            ? '#1e1b4b'
+            : '#0f2342';
+
+    this.drawIsoBox(ctx, 0, 1 * scale, w, 15 * scale, h, bodyPrimary, bodySecondary);
+
     const bands = 2 + visualTier * 2;
     for (let i = 1; i <= bands; i++) {
-      ctx.fillStyle = 'rgba(125, 211, 252, 0.48)';
+      ctx.fillStyle =
+        hqVariant === 'golden'
+          ? 'rgba(253, 224, 71, 0.72)'
+          : hqVariant === 'eco_dome'
+            ? 'rgba(110, 231, 183, 0.58)'
+            : hqVariant === 'cyber_citadel'
+              ? 'rgba(34, 211, 238, 0.75)'
+              : 'rgba(125, 211, 252, 0.48)';
       ctx.fillRect(-w * 0.36, -i * 4 * scale, w * 0.72, 1.8 * scale);
     }
-    // Złoty monogram / korona HQ na wyższych etapach
-    if (visualTier >= 2) {
+
+    if (hqVariant === 'eco_dome') {
+      ctx.fillStyle = 'rgba(52, 211, 153, 0.65)';
+      ctx.beginPath();
+      ctx.arc(0, -h, 8.5 * scale, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#a7f3d0';
+      ctx.lineWidth = 1 * scale;
+      ctx.stroke();
+    } else if (hqVariant === 'cyber_citadel') {
+      const pulse = 0.65 + Math.sin(this.frameCount * 0.14) * 0.3;
+      ctx.strokeStyle = `rgba(34, 211, 238, ${pulse})`;
+      ctx.lineWidth = 1.6 * scale;
+      ctx.beginPath();
+      ctx.moveTo(-6 * scale, -h - 2 * scale);
+      ctx.lineTo(0, -h - 14 * scale);
+      ctx.lineTo(6 * scale, -h - 2 * scale);
+      ctx.stroke();
+    } else if (visualTier >= 2 || hqVariant === 'golden') {
       const roofY = -h - 3 * scale;
-      ctx.fillStyle = ownerColor;
+      ctx.fillStyle = hqVariant === 'golden' ? '#fde047' : ownerColor;
       ctx.fillRect(-5 * scale, roofY - 3 * scale, 10 * scale, 2.2 * scale);
       ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1 * scale;
+      ctx.lineWidth = 1.2 * scale;
       ctx.beginPath();
       ctx.moveTo(0, roofY - 3 * scale);
       ctx.lineTo(0, roofY - 12 * scale);
@@ -1123,10 +1211,206 @@ export class BuildingRenderer {
     ctx.fillRect(-2 * scale, -h - 6 * scale, 4 * scale, 2 * scale);
   }
 
+  renderMaskedFogBuilding(
+    ctx: CanvasRenderingContext2D,
+    screenX: number,
+    screenY: number,
+    tileW: number,
+    tileH: number,
+    ownerColor: string,
+    isSelected: boolean
+  ): void {
+    const scale = tileW / 64;
+    ctx.save();
+    ctx.translate(screenX, screenY);
+    if (isSelected) {
+      this.drawSelectionGlow(ctx, tileW, tileH);
+    }
+    this.drawIsoBox(ctx, 0, 1 * scale, 18 * scale, 14 * scale, 11 * scale, '#1e293b', '#0f172a');
+    ctx.strokeStyle = ownerColor;
+    ctx.lineWidth = 1.2 * scale;
+    ctx.setLineDash([3 * scale, 2 * scale]);
+    ctx.strokeRect(-9 * scale, -14 * scale, 18 * scale, 12 * scale);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `700 ${Math.max(8, Math.round(9 * scale))}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', 0, -9 * scale);
+    ctx.restore();
+  }
+
+  private drawBusDepot(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (8 + level * 1.1) * scale;
+    this.drawIsoBox(ctx, -2 * scale, 1 * scale, 22 * scale, 14 * scale, h, '#0284c7', '#0369a1');
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-9 * scale, -h + 2 * scale, 18 * scale, 2.2 * scale);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(4 * scale, 2 * scale, 8 * scale, 3 * scale);
+  }
+
+  private drawMetroStation(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 20 * scale, 14 * scale, 6 * scale, '#1e293b', '#0f172a');
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(-7 * scale, -13 * scale, 14 * scale, 8 * scale);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `800 ${Math.max(6, Math.round(7 * scale))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('M', 0, -9 * scale);
+  }
+
+  private drawTrainStation(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (11 + level) * scale;
+    this.drawIsoBox(ctx, -2 * scale, 1 * scale, 24 * scale, 15 * scale, h, '#7c2d12', '#431407');
+    this.drawIsoBox(ctx, 8 * scale, 0, 6 * scale, 6 * scale, h + 7 * scale, '#9a3412', '#7c2d12');
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(8 * scale, -h - 4 * scale, 2.2 * scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawPassengerTerminal(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 26 * scale, 18 * scale, 9 * scale, '#38bdf8', '#0284c7');
+    ctx.fillStyle = '#e0f2fe';
+    ctx.beginPath();
+    ctx.moveTo(-14 * scale, -9 * scale);
+    ctx.lineTo(0, -15 * scale);
+    ctx.lineTo(14 * scale, -9 * scale);
+    ctx.closePath();
+    ctx.fill();
+    this.drawIsoBox(ctx, -9 * scale, -4 * scale, 4 * scale, 4 * scale, 17 * scale, '#f8fafc', '#cbd5e1');
+  }
+
+  private drawApartmentComplex(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (16 + level * 2.2) * scale;
+    this.drawIsoBox(ctx, -5 * scale, 2 * scale, 12 * scale, 11 * scale, h, '#cbd5e1', '#64748b');
+    this.drawIsoBox(ctx, 6 * scale, 0, 11 * scale, 10 * scale, h - 3 * scale, '#e2e8f0', '#94a3b8');
+    ctx.fillStyle = '#fde047';
+    for (let y = 4; y < h - 2; y += 4.5 * scale) {
+      ctx.fillRect(-8 * scale, -y, 5 * scale, 1.4 * scale);
+      ctx.fillRect(4 * scale, -y + 1 * scale, 4 * scale, 1.4 * scale);
+    }
+  }
+
+  private drawGastronomyBoulevard(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, 8 * scale, '#f97316', '#c2410c');
+    const glow = 0.65 + Math.sin(this.frameCount * 0.12) * 0.25;
+    ctx.fillStyle = `rgba(253, 224, 71, ${glow})`;
+    for (const dx of [-6, 0, 6]) {
+      ctx.beginPath();
+      ctx.arc(dx * scale, -9 * scale, 2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawCityPark(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 24 * scale, 18 * scale, 2 * scale, '#15803d', '#14532d');
+    ctx.fillStyle = '#0ea5e9';
+    ctx.beginPath();
+    ctx.ellipse(2 * scale, 0, 5 * scale, 2.5 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [tx, ty] of [
+      [-6, -3],
+      [-2, 3],
+      [7, -4],
+      [-8, 2],
+    ]) {
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(tx * scale, (ty - 4) * scale, 3.6 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawArenaStadium(ctx: CanvasRenderingContext2D, scale: number): void {
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.ellipse(0, -3 * scale, 15 * scale, 9 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#16a34a';
+    ctx.beginPath();
+    ctx.ellipse(0, -4 * scale, 10 * scale, 5.5 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.6 * scale;
+    ctx.beginPath();
+    ctx.ellipse(0, -6 * scale, 15 * scale, 9 * scale, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  private drawConventionCenter(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 1 * scale, 26 * scale, 18 * scale, 11 * scale, '#64748b', '#334155');
+    ctx.fillStyle = '#bae6fd';
+    ctx.fillRect(-10 * scale, -9 * scale, 20 * scale, 4 * scale);
+  }
+
+  private drawLawFirm(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (12 + level * 1.4) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 19 * scale, 14 * scale, h, '#e2e8f0', '#64748b');
+    ctx.fillStyle = '#1e293b';
+    for (const dx of [-5, -1, 3]) {
+      ctx.fillRect(dx * scale, -h + 2 * scale, 1.5 * scale, h - 2 * scale);
+    }
+  }
+
+  private drawPrAgency(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (14 + level * 1.4) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 17 * scale, 13 * scale, h, '#7e22ce', '#581c87');
+    const neon = Math.floor(this.frameCount / 10) % 2 === 0;
+    ctx.fillStyle = neon ? '#f472b6' : '#38bdf8';
+    ctx.fillRect(-6 * scale, -h - 6 * scale, 12 * scale, 5 * scale);
+  }
+
+  private drawDataCenter(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (13 + level * 1.5) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, h, '#0f172a', '#020617');
+    const blink = Math.floor(this.frameCount / 6) % 2 === 0;
+    for (const dx of [-6, 0, 6]) {
+      ctx.fillStyle = blink ? '#22d3ee' : '#10b981';
+      ctx.fillRect((dx - 1) * scale, -h + 3 * scale, 2 * scale, (h - 5) * scale);
+    }
+  }
+
+  private drawBiotechLab(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, -3 * scale, 1 * scale, 16 * scale, 14 * scale, 12 * scale, '#f8fafc', '#cbd5e1');
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath();
+    ctx.arc(6 * scale, -9 * scale, 5 * scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawVerticalFarm(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    const h = (16 + level * 2) * scale;
+    this.drawIsoBox(ctx, 0, 1 * scale, 18 * scale, 14 * scale, h, '#065f46', '#064e3b');
+    for (let i = 1; i <= 3; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#a855f7' : '#4ade80';
+      ctx.fillRect(-7 * scale, -i * 4.5 * scale, 14 * scale, 1.8 * scale);
+    }
+  }
+
+  private drawCompositeShipyard(
+    ctx: CanvasRenderingContext2D,
+    scale: number,
+    pal: BuildingPalette
+  ): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 24 * scale, 18 * scale, 6 * scale, '#475569', '#1e293b');
+    ctx.strokeStyle = '#f97316';
+    ctx.lineWidth = 2 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-7 * scale, -4 * scale);
+    ctx.lineTo(-7 * scale, -22 * scale);
+    ctx.lineTo(9 * scale, -18 * scale);
+    ctx.stroke();
+    ctx.fillStyle = pal.accent;
+    ctx.fillRect(-4 * scale, -4 * scale, 12 * scale, 4 * scale);
+  }
+
   private drawStatusIcons(ctx: CanvasRenderingContext2D, scale: number, building: Building): void {
     const icons: string[] = [];
     if (building.status.onFire || building.activeHazard?.kind === 'fire') icons.push('🔥');
     if (building.status.robberyActive || building.activeHazard?.kind === 'robbery') icons.push('🚨');
+    if (building.status.onStrike) icons.push('✊');
     if (
       building.status.hazmatIncident ||
       (building.activeHazard &&

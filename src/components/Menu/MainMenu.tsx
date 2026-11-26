@@ -1,15 +1,21 @@
 import React from 'react';
 import { GAME_CONFIG } from '../../config/gameConfig';
-import type { LastMpSession, SaveSlotId, SaveSlotMeta } from '../../engine/types';
+import { ACHIEVEMENTS, TITLES_CATALOG } from '../../data/achievements';
+import { xpNeededForLevel } from '../../engine/profileManager';
+import type { LastMpSession, SaveSlotId, SaveSlotMeta, UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney, formatTimeRemaining } from '../../utils/formatters';
 
 interface MainMenuProps {
+  activeProfile: UserAccountProfile;
   hasSavedGame: boolean;
   latestSaveMeta: SaveSlotMeta | null;
   saveSlots: SaveSlotMeta[];
   lastMpSession: LastMpSession | null;
   onNewSinglePlayer: () => void;
   onOpenMultiplayer: () => void;
+  onOpenWeeklyChallenge: () => void;
+  onOpenProfile: () => void;
+  onOpenAuth: () => void;
   onContinueGame: () => void;
   onLoadSlot: (slotId: SaveSlotId) => void;
   onQuickRejoinMp: (roomCode: string) => void;
@@ -22,21 +28,30 @@ const MODE_LABELS: Record<string, string> = {
   challenge1h: 'Wyzwanie 1h',
   mp_fast: 'Szybki MP',
   mp_long: 'Długi MP',
+  weekly: 'Wyzwanie Tygodnia',
 };
 
 export const MainMenu: React.FC<MainMenuProps> = ({
+  activeProfile,
   hasSavedGame,
   latestSaveMeta,
   saveSlots,
   lastMpSession,
   onNewSinglePlayer,
   onOpenMultiplayer,
+  onOpenWeeklyChallenge,
+  onOpenProfile,
+  onOpenAuth,
   onContinueGame,
   onLoadSlot,
   onQuickRejoinMp,
   onOpenLeaderboard,
   onStartTutorial,
 }) => {
+  const titleObj = TITLES_CATALOG.find((t) => t.id === activeProfile.titleId) ?? TITLES_CATALOG[0];
+  const nextXp = xpNeededForLevel(activeProfile.level);
+  const xpPct = Math.min(100, Math.round((activeProfile.xp / Math.max(1, nextXp)) * 100));
+
   return (
     <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex flex-col items-center justify-center p-4 relative overflow-y-auto">
       <div
@@ -57,6 +72,53 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             {GAME_CONFIG.title}
           </h1>
           <p className="text-xs md:text-sm text-slate-400">{GAME_CONFIG.subtitle}</p>
+        </div>
+
+        {/* Karta Aktywnego Profilu Prezesa */}
+        <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#151c28] border border-amber-500/40 flex items-center justify-center text-xl shrink-0">
+              {activeProfile.avatar}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-white truncate">{activeProfile.nick}</span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[10px]">
+                  LVL {activeProfile.level}
+                </span>
+                {activeProfile.isGuest && (
+                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px]">
+                    Gość
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-sky-300 truncate">
+                {titleObj.label} · {activeProfile.unlockedAchievements.length}/{ACHIEVEMENTS.length} odznak
+              </div>
+              <div className="w-36 h-1.5 rounded-full bg-[#151c28] overflow-hidden mt-1">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
+                  style={{ width: `${xpPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="px-2.5 py-1.5 rounded-lg bg-[#151c28] hover:bg-[#1e293d] border border-amber-500/40 text-amber-200 font-semibold"
+            >
+              🎖️ Profil
+            </button>
+            <button
+              type="button"
+              onClick={onOpenAuth}
+              className="px-2.5 py-1.5 rounded-lg bg-[#151c28] hover:bg-[#1e293d] border border-[#2d3b52] text-slate-300 font-semibold"
+            >
+              {activeProfile.isGuest ? '🔑 Zaloguj' : '👤 Konto'}
+            </button>
+          </div>
         </div>
 
         {/* Wyraźna karta wznowienia ostatniej rozgrywki */}
@@ -169,6 +231,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             <span className="text-xs font-normal opacity-90">1–8 Graczy + Koalicje</span>
           </button>
 
+          <button
+            type="button"
+            onClick={onOpenWeeklyChallenge}
+            className="w-full py-3 px-4 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/45 text-amber-200 font-bold text-sm transition-all flex items-center justify-between"
+          >
+            <span>🏆 Wyzwanie Tygodnia (Stały Seed Mapy)</span>
+            <span className="text-xs font-normal text-amber-300">Ranking · +400 XP</span>
+          </button>
+
           <div className="grid grid-cols-2 gap-2.5 pt-1">
             <button
               type="button"
@@ -189,16 +260,16 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
         <div className="pt-3 border-t border-[#1e293b] grid grid-cols-3 gap-2 text-center text-[11px] text-slate-400">
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">62 Struktury</div>
-            <div>Tier 4 APEX · OZE · Atom</div>
+            <div className="font-bold text-slate-200">77 Struktur</div>
+            <div>Synergie · Pasażerowie · OZE</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">Mapy do 40×40</div>
-            <div>Ścieki · Odpady · B2B</div>
+            <div className="font-bold text-slate-200">6 Archetypów</div>
+            <div>Cele Tajne · Scenariusze</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
             <div className="font-bold text-slate-200">Do 8 Graczy</div>
-            <div>Koalicje · Dyplomacja</div>
+            <div>Koalicje · Wykresy · SSE</div>
           </div>
         </div>
       </div>

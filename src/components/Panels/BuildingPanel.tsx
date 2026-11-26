@@ -2,10 +2,13 @@ import React, { useState } from 'react';
 import { SERVICE_VEHICLE_COST } from '../../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
-import { getRepairCost } from '../../engine/BuildingSystem';
+import { getInsurancePremiumPerTick, getRepairCost } from '../../engine/BuildingSystem';
 import { getSafetyCoverageForPlot, getStationEffectiveMaxFleet } from '../../engine/HazardSystem';
 import { calculateZUSBreakdown, getTrainingCost } from '../../engine/HRSystem';
-import { getSuggestedPlotBuyoutValuation } from '../../engine/PlotSystem';
+import {
+  getSuggestedPlotBuyoutValuation,
+  isPlotBuildingVisibleToViewer,
+} from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
 import type { Building, BuildingTechNode, BuildingType, EmergencyServiceKind, GameState, Player, Plot, ResourceType } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
@@ -28,6 +31,9 @@ interface BuildingPanelProps {
   onBuyServiceVehicle?: (buildingId: string) => void;
   onDemolish: (plotId: string) => void;
   onCloneBuilding?: (buildingType: BuildingType) => void;
+  onStartCloneBlueprint?: (buildingId: string, buildingType: BuildingType) => void;
+  onToggleInsurance?: (buildingId: string) => void;
+  onRevealFogPlot?: (plotId: string) => void;
   onOpenB2BMarket?: () => void;
   onProposePlotOffer?: (
     plotId: string,
@@ -65,6 +71,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     onBuyServiceVehicle,
     onDemolish,
     onCloneBuilding,
+    onStartCloneBlueprint,
+    onToggleInsurance,
+    onRevealFogPlot,
     onOpenB2BMarket,
     onProposePlotOffer,
     onProposeContract,
@@ -113,6 +122,84 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         )
       : { allMet: true, items: [] };
 
+    const isBuildingVisible = isPlotBuildingVisibleToViewer(
+      plot,
+      currentPlayer.id,
+      currentPlayer,
+      gameState
+    );
+    const insurancePremium = getInsurancePremiumPerTick(building);
+    const synergyList = plot.activeSynergies ?? [];
+    const totalSynergyPct = synergyList.reduce((sum, item) => sum + item.percentDelta, 0);
+
+    if (!isBuildingVisible) {
+      return (
+        <div className="space-y-3 text-sm animate-fadeIn">
+          <div className="flex items-start justify-between border-b border-[#243044] pb-2.5 gap-2">
+            <div>
+              <div className="text-xs font-mono text-amber-400">
+                SEKTOR ({plot.gridX}, {plot.gridY}) · MGŁA WOJNY
+              </div>
+              <h3 className="text-base font-bold text-slate-100">🌫️ Obiekt Nieznany</h3>
+              <div className="text-[11px] text-slate-400">
+                Właściciel:{' '}
+                <span style={{ color: owner?.color }} className="font-semibold">
+                  {owner?.companyName ?? 'Rywal'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="hidden md:flex w-7 h-7 rounded bg-[#1c2434] text-slate-400 hover:text-white items-center justify-center shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-2.5 text-xs">
+            <p className="text-slate-300 leading-relaxed">
+              Mutator <strong>Mgła Wojny Budynków</strong> ukrywa typ, przychody i poziom ulepszeń struktur przeciwników.
+              Wyślij zespół wywiadu gospodarczego, aby na stałe zdemaskować ten sektor.
+            </p>
+            {onRevealFogPlot && (
+              <button
+                type="button"
+                disabled={currentPlayer.cash < 280_000 && currentPlayer.influence.military < 25}
+                onClick={() => onRevealFogPlot(plot.id)}
+                className="w-full py-2.5 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold transition-colors"
+              >
+                🕵️ Ujawnij Obiekt Wywiadem ({formatMoney(280_000)} lub 25 pkt militarnych)
+              </button>
+            )}
+          </div>
+
+          {onProposePlotOffer && owner && (
+            <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2 text-xs">
+              <div className="font-semibold text-amber-300">💰 Ślepa Oferta Wykupu Sektora</div>
+              <DarkToggle
+                checked={includeBldgOffer}
+                onChange={(v) => {
+                  setIncludeBldgOffer(v);
+                  setOfferPrice(getSuggestedPlotBuyoutValuation(plot, v));
+                }}
+                label="Uwzględnij nieznany budynek w wycenie"
+              />
+              <DarkNumberInput value={offerPrice} onChange={setOfferPrice} min={10000} step={10000} />
+              <button
+                type="button"
+                disabled={currentPlayer.cash < offerPrice}
+                onClick={() => onProposePlotOffer(plot.id, offerPrice, includeBldgOffer)}
+                className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
+              >
+                Złóż Ofertę Wykupu ({formatMoney(offerPrice)})
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const logisticsLabel =
       building.logisticsMode === 'air'
         ? '✈️ Lotnicza (Cargo)'
@@ -139,7 +226,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 </span>
                 {(building.visualTier ?? 0) >= 4 && (
                   <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-[10px]">
-                    ★ APEX
+                    ★ PROJEKT FLAGOWY
                   </span>
                 )}
               </div>
@@ -149,18 +236,27 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   {owner?.companyName}
                 </span>{' '}
                 · ({plot.gridX}, {plot.gridY})
+                {plot.isSseZone && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px]">
+                    SSE 0% CIT
+                  </span>
+                )}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {isMine && !building.destroyedRuins && onCloneBuilding && (
+            {isMine && !building.destroyedRuins && (onStartCloneBlueprint || onCloneBuilding) && (
               <button
                 type="button"
-                onClick={() => onCloneBuilding(building.type)}
+                onClick={() =>
+                  onStartCloneBlueprint
+                    ? onStartCloneBlueprint(building.id, building.type)
+                    : onCloneBuilding?.(building.type)
+                }
                 className="px-2 py-1 rounded bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-300 text-[11px] font-semibold"
-                title="Pipeta: sklonuj ten typ budynku na inną własną pustą działkę"
+                title="Klonuj 1:1 ten obiekt (pełny koszt budynku + ulepszeń bez ukrytej zniżki)"
               >
-                🧪 Klonuj
+                🧪 Klonuj 1:1
               </button>
             )}
             <button
@@ -347,6 +443,52 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               🚓 {safety.hasPolice ? `${Math.round(safety.policePatrolRatio * 100)}%` : 'Brak'}
             </span>
           </div>
+        </div>
+
+        {/* Aktywne Synergie i Otoczenie */}
+        <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-[11px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-slate-200">🧩 Aktywne Synergie i Otoczenie</span>
+            <div className="flex items-center gap-1.5 font-mono">
+              <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/35 text-sky-300">
+                🚶 Popyt: {Math.round(plot.passengerDemandPercent ?? 100)}%
+              </span>
+              {synergyList.length > 0 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded border font-bold ${
+                    totalSynergyPct >= 0
+                      ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                      : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                  }`}
+                >
+                  {totalSynergyPct >= 0 ? `+${totalSynergyPct}%` : `${totalSynergyPct}%`}
+                </span>
+              )}
+            </div>
+          </div>
+          {synergyList.length === 0 ? (
+            <div className="text-slate-400">
+              Brak aktywnych synergii dzielnicowych w promieniu 2 pól. Sąsiedztwo stacji pasażerskich, parków lub obiektów komplementarnych zwiększa marżę.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {synergyList.map((syn, idx) => (
+                <div
+                  key={`${syn.label}_${idx}`}
+                  className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-[#131b2b]"
+                >
+                  <span className="text-slate-200 truncate">{syn.label}</span>
+                  <span
+                    className={`font-mono font-semibold shrink-0 ${
+                      syn.percentDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {syn.percentDelta >= 0 ? `+${syn.percentDelta}%` : `${syn.percentDelta}%`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Zarządzanie Flotą Pojazdów (Remiza / HAZMAT / Szpital / Policja) */}
@@ -559,6 +701,30 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                       </span>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Polisa Ubezpieczeniowa Majątku */}
+            {isMine && !building.destroyedRuins && onToggleInsurance && (
+              <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-sky-500/35 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-sky-300">🛡️ Polisa Ubezpieczeniowa</span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleInsurance(building.id)}
+                    className={`px-2.5 py-1 rounded font-bold text-[11px] border transition-colors ${
+                      building.insured
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                        : 'bg-slate-800 border-slate-600 text-slate-300'
+                    }`}
+                  >
+                    {building.insured ? 'Polisa: AKTYWNA' : 'Wykup Polisę'}
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1">
+                  <span>Składka: {formatMoney(insurancePremium)} / cykl</span>
+                  <span>Wypłata szkody: 65% · Roszczenia: {building.insuranceClaimsCount ?? 0}</span>
                 </div>
               </div>
             )}

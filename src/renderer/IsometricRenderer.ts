@@ -1,4 +1,6 @@
-import type { Camera, GameState, MapHeatmapMode, Plot, Vehicle } from '../engine/types';
+import { isPlotBuildingVisibleToViewer } from '../engine/PlotSystem';
+import { previewBuildingSynergyAtPlot } from '../engine/SynergySystem';
+import type { BuildingType, Camera, GameState, MapHeatmapMode, Plot, Vehicle } from '../engine/types';
 import { BuildingRenderer } from './BuildingRenderer';
 import { TerrainRenderer } from './TerrainRenderer';
 import { VehicleRenderer } from './VehicleRenderer';
@@ -82,14 +84,17 @@ export class IsometricRenderer {
     }
     this.cachedQuickKey = quickKey;
 
-    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + skażenia + aktywnej heatmapy
-    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_`;
+    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + SSE + Mgły Wojny + heatmapy
+    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_${state.settings.mutators?.fogOfWar ? 1 : 0}_`;
+    const viewer = state.players.find((pl) => pl.id === curPid);
     for (let i = 0; i < state.plots.length; i++) {
       const p = state.plots[i];
       const surv = p.surveyedBy?.[curPid] ? 1 : 0;
       const rad = (p.irradiatedTicks ?? 0) > 0 ? 1 : 0;
-      if (p.ownerId || p.hasRoad || p.building || surv || rad || heatmapMode !== 'standard') {
-        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${rad}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
+      const sse = p.isSseZone ? 1 : 0;
+      const fogVis = isPlotBuildingVisibleToViewer(p, curPid, viewer, state) ? 1 : 0;
+      if (p.ownerId || p.hasRoad || p.building || surv || rad || sse || heatmapMode !== 'standard') {
+        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${rad}:${sse}:${fogVis}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
       }
     }
 
@@ -140,7 +145,13 @@ export class IsometricRenderer {
     vehicles: Vehicle[],
     showTransportRoutes = true,
     heatmapMode: MapHeatmapMode = 'standard',
-    targetMode: 'missile' | 'nuke' | null = null
+    targetMode: 'missile' | 'nuke' | null = null,
+    overlayOpts?: {
+      areaHighlightIds?: string[];
+      roadPreviewIds?: string[];
+      roadPreviewClass?: 'local' | 'highway';
+      previewBuildingType?: BuildingType | null;
+    }
   ): void {
     this.frameCount++;
     this.syncPlotCache(state, heatmapMode);
@@ -185,18 +196,34 @@ export class IsometricRenderer {
     const tw = TILE_WIDTH * camera.zoom;
     const th = TILE_HEIGHT * camera.zoom;
 
+    // 2a. Podświetlenie hurtowego zaznaczenia działek i ścieżki Drag-to-Build dróg/autostrad
+    if (overlayOpts?.areaHighlightIds && overlayOpts.areaHighlightIds.length > 0) {
+      this.renderAreaHighlights(ctx, state, camera, tw, th, overlayOpts.areaHighlightIds);
+    }
+    if (overlayOpts?.roadPreviewIds && overlayOpts.roadPreviewIds.length > 0) {
+      this.renderRoadDragPreview(
+        ctx,
+        camera,
+        tw,
+        th,
+        overlayOpts.roadPreviewIds,
+        overlayOpts.roadPreviewClass ?? 'local'
+      );
+    }
+
     // 2b. Opcjonalna warstwa linii logistycznych (morskie, lotnicze, drogowe)
     if ((showTransportRoutes || heatmapMode === 'logistics') && state.transportLines?.length > 0 && camera.zoom >= 0.4) {
       this.renderTransportLines(ctx, state, camera, tw, th);
     }
 
-    // 3. Budynki z pełnym Viewport Cullingiem i zerową alokacją obiektów na klatkę
+    // 3. Budynki z pełnym Viewport Cullingiem, Mgłą Wojny i zerową alokacją obiektów na klatkę
     this.buildingRenderer.tick();
     this.playerColorMap.clear();
     for (let i = 0; i < state.players.length; i++) {
       const p = state.players[i];
       this.playerColorMap.set(p.id, p.color);
     }
+    const viewerPlayer = state.players.find((pl) => pl.id === state.currentPlayerId);
 
     for (let i = 0; i < this.sortedBuildings.length; i++) {
       const plot = this.sortedBuildings[i];
@@ -211,16 +238,34 @@ export class IsometricRenderer {
         continue;
       }
       const ownerColor = this.playerColorMap.get(plot.building.ownerId) ?? '#f59e0b';
-      this.buildingRenderer.renderBuilding(
-        ctx,
-        plot.building,
-        screenX,
-        screenY,
-        tw,
-        th,
-        ownerColor,
-        plot.id === selectedPlotId
-      );
+      const visible = isPlotBuildingVisibleToViewer(plot, state.currentPlayerId, viewerPlayer, state);
+      if (!visible) {
+        this.buildingRenderer.renderMaskedFogBuilding(
+          ctx,
+          screenX,
+          screenY,
+          tw,
+          th,
+          ownerColor,
+          plot.id === selectedPlotId
+        );
+      } else {
+        this.buildingRenderer.renderBuilding(
+          ctx,
+          plot.building,
+          screenX,
+          screenY,
+          tw,
+          th,
+          ownerColor,
+          plot.id === selectedPlotId
+        );
+      }
+    }
+
+    // 3b. Podgląd synergii przed budową / klonowaniem nad sąsiednimi polami
+    if (overlayOpts?.previewBuildingType && hoveredPlot && hoveredPlot.terrain !== 'water') {
+      this.renderSynergyPreviewBadges(ctx, state, camera, tw, th, hoveredPlot, overlayOpts.previewBuildingType);
     }
 
     // 4. Animowane pojazdy jadące po sieci dróg, morzu i w powietrzu
@@ -354,5 +399,109 @@ export class IsometricRenderer {
     const mapSize = Math.round(Math.sqrt(plots.length));
     if (gx < 0 || gx >= mapSize || gy < 0 || gy >= mapSize) return null;
     return plots[gy * mapSize + gx] ?? null;
+  }
+
+  private renderAreaHighlights(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    tw: number,
+    th: number,
+    plotIds: string[]
+  ): void {
+    const curPid = state.currentPlayerId;
+    for (let i = 0; i < plotIds.length; i++) {
+      const p = this.plotById.get(plotIds[i]);
+      if (!p) continue;
+      const { screenX, screenY } = worldToScreen(p.gridX, p.gridY, tw, th, camera.x, camera.y);
+      const isBuyable = p.ownerId === null && p.purchasable && p.terrain !== 'water' && (p.irradiatedTicks ?? 0) <= 0;
+      const isMine = p.ownerId === curPid;
+      ctx.beginPath();
+      ctx.moveTo(screenX, screenY - th / 2);
+      ctx.lineTo(screenX + tw / 2, screenY);
+      ctx.lineTo(screenX, screenY + th / 2);
+      ctx.lineTo(screenX - tw / 2, screenY);
+      ctx.closePath();
+      ctx.fillStyle = isBuyable
+        ? 'rgba(16, 185, 129, 0.28)'
+        : isMine
+          ? 'rgba(56, 189, 248, 0.22)'
+          : 'rgba(244, 63, 94, 0.22)';
+      ctx.fill();
+      ctx.strokeStyle = isBuyable ? '#34d399' : isMine ? '#38bdf8' : '#f43f5e';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+  }
+
+  private renderRoadDragPreview(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    tw: number,
+    th: number,
+    plotIds: string[],
+    roadClass: 'local' | 'highway'
+  ): void {
+    for (let i = 0; i < plotIds.length; i++) {
+      const p = this.plotById.get(plotIds[i]);
+      if (!p || p.terrain === 'water' || p.building) continue;
+      const { screenX, screenY } = worldToScreen(p.gridX, p.gridY, tw, th, camera.x, camera.y);
+      ctx.beginPath();
+      ctx.moveTo(screenX, screenY - th / 2);
+      ctx.lineTo(screenX + tw / 2, screenY);
+      ctx.lineTo(screenX, screenY + th / 2);
+      ctx.lineTo(screenX - tw / 2, screenY);
+      ctx.closePath();
+      ctx.fillStyle = roadClass === 'highway' ? 'rgba(245, 158, 11, 0.32)' : 'rgba(16, 185, 129, 0.30)';
+      ctx.fill();
+      ctx.strokeStyle = roadClass === 'highway' ? '#fbbf24' : '#10b981';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  private renderSynergyPreviewBadges(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    tw: number,
+    th: number,
+    targetPlot: Plot,
+    buildingType: BuildingType
+  ): void {
+    const preview = previewBuildingSynergyAtPlot(state, targetPlot, buildingType);
+    if (preview.items.length === 0) return;
+
+    ctx.save();
+    ctx.font = `700 ${Math.max(9, Math.round(10 * camera.zoom))}px "JetBrains Mono", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Narysuj etykietę sumaryczną nad wybraną działką
+    const center = worldToScreen(targetPlot.gridX, targetPlot.gridY, tw, th, camera.x, camera.y);
+    const totalLabel = `Synergia: ${preview.netPercent >= 0 ? '+' : ''}${preview.netPercent}%`;
+    ctx.fillStyle = 'rgba(11, 15, 23, 0.9)';
+    const w = ctx.measureText(totalLabel).width + 12;
+    ctx.fillRect(center.screenX - w / 2, center.screenY - 30 * camera.zoom, w, 16);
+    ctx.strokeStyle = preview.netPercent >= 0 ? '#10b981' : '#f43f5e';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(center.screenX - w / 2, center.screenY - 30 * camera.zoom, w, 16);
+    ctx.fillStyle = preview.netPercent >= 0 ? '#6ee7b7' : '#fda4af';
+    ctx.fillText(totalLabel, center.screenX, center.screenY - 30 * camera.zoom + 8);
+
+    // Narysuj indywidualne wskaźniki nad sąsiednimi polami źródłowymi
+    for (const item of preview.items) {
+      if (!item.sourcePlotId) continue;
+      const srcPlot = this.plotById.get(item.sourcePlotId);
+      if (!srcPlot) continue;
+      const pos = worldToScreen(srcPlot.gridX, srcPlot.gridY, tw, th, camera.x, camera.y);
+      const txt = `${item.percentDelta >= 0 ? '+' : ''}${item.percentDelta}%`;
+      ctx.fillStyle = 'rgba(11, 15, 23, 0.88)';
+      const bw = ctx.measureText(txt).width + 8;
+      ctx.fillRect(pos.screenX - bw / 2, pos.screenY - 26 * camera.zoom, bw, 14);
+      ctx.fillStyle = item.percentDelta >= 0 ? '#34d399' : '#fb7185';
+      ctx.fillText(txt, pos.screenX, pos.screenY - 26 * camera.zoom + 7);
+    }
+    ctx.restore();
   }
 }

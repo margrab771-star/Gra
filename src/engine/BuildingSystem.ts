@@ -1,6 +1,8 @@
-import { CORPORATION_LEVELS, GAME_CONFIG, TERRAIN_NAMES } from '../config/gameConfig';
+import { CORPORATION_LEVELS, DIFFICULTY_PRESETS, GAME_CONFIG, GOVERNMENT_CONFIGS, SERVICE_VEHICLE_COST, TERRAIN_NAMES } from '../config/gameConfig';
+import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
+import { formatGameDate } from '../utils/formatters';
 import {
   calculateTransportCostForBuilding,
   getPlayerEntrepreneurModifiers,
@@ -11,11 +13,13 @@ import { getSafetyCoverageForPlot } from './HazardSystem';
 import { calculateBuildingHRPayroll } from './HRSystem';
 import { hasPlayerDiscoveredPlot, recalculateSpatialNetwork } from './PlotSystem';
 import { consumeRequiredResources, evaluateNonFinancialRequirements } from './RequirementsSystem';
+import { evaluateSynergyForPlotAndType, recalculateSynergiesAndPassengerDemand } from './SynergySystem';
 import { evaluatePlotLogisticsMode } from './TransportSystem';
 import type {
   Building,
   BuildingTechNode,
   BuildingType,
+  CloneBlueprint,
   CorporationLevel,
   EmergencyServiceKind,
   GameState,
@@ -46,6 +50,12 @@ export function checkBuildingRequirements(
 ): { ok: boolean; reason?: string } {
   const def = BUILDING_DEFINITIONS[buildingType];
   if (!def) return { ok: false, reason: 'Nieznany typ struktury.' };
+  if (state.settings.weeklyBannedBuildings?.includes(buildingType)) {
+    return { ok: false, reason: `Reguły Wyzwania Tygodnia zakazują budowy obiektu "${def.name}".` };
+  }
+  if (state.settings.scenarioId === 'green_transition' && state.greenTransitionEntered && buildingType === 'wasteIncinerator') {
+    return { ok: false, reason: 'Scenariusz Zielona Transformacja: zakaz budowy nowych spalarni odpadów!' };
+  }
   if (player.corporationLevel < def.requiredCorpLevel) {
     const lvlInfo = CORPORATION_LEVELS[def.requiredCorpLevel];
     return {
@@ -104,6 +114,23 @@ export function getBuildingConstructionCost(
 ): number {
   const def = BUILDING_DEFINITIONS[buildingType];
   const mods = getPlayerEntrepreneurModifiers(state, player);
+  const archMods = getArchetypeDefinition(player.archetype).modifiers;
+  let buildMult = 1.0;
+  if (def.category === 'mining' || def.category === 'processing') {
+    buildMult *= archMods.heavyBuildCostMult;
+  }
+  if (buildingType === 'coalPowerPlant' || buildingType === 'coalMine' || buildingType === 'wasteIncinerator' || def.category === 'processing') {
+    buildMult *= archMods.coalHeavyCostMult;
+  }
+  if (buildingType === 'rdLab' || buildingType === 'university' || buildingType === 'dataCenter') {
+    buildMult *= archMods.labPatentCostMult;
+  }
+  if (buildingType === 'busDepot' || buildingType === 'metroStation' || buildingType === 'trainStation' || buildingType === 'passengerTerminal' || buildingType === 'warehouse') {
+    buildMult *= archMods.passengerFleetCostMult;
+  }
+  if (state.government?.currentGov === 'free_market') {
+    buildMult *= 0.92;
+  }
   let materialsCost = 0;
   for (const [res, qty] of Object.entries(def.buildConstructionInputs)) {
     if (!qty) continue;
@@ -111,7 +138,7 @@ export function getBuildingConstructionCost(
     const missing = Math.max(0, qty - stock);
     materialsCost += missing * getResourcePrice(state, res as ResourceType) * (1 - mods.buyPriceDiscount);
   }
-  return Math.round(def.baseCost + materialsCost);
+  return Math.round(def.baseCost * buildMult + materialsCost);
 }
 
 export function constructBuildingOnPlot(
@@ -180,6 +207,10 @@ export function constructBuildingOnPlot(
     damagePercent: 0,
     autoRepairEnabled: player.defaultAutoRepair.enabled,
     autoRepairThreshold: player.defaultAutoRepair.threshold,
+    insured: false,
+    insuranceClaimsCount: 0,
+    strikeTicks: 0,
+    hqVariant: buildingType === 'corporateHQ' ? (player.hqVariant ?? 'classic') : undefined,
     workers: initialWorkers,
     maxWorkers: def.maxWorkers,
     workerSkill: 40,
@@ -239,6 +270,7 @@ export function constructBuildingOnPlot(
   plot.building = building;
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  recalculateSynergiesAndPassengerDemand(state);
   return { ok: true, building };
 }
 
@@ -267,7 +299,169 @@ export function demolishBuildingOnPlot(
   plot.building = null;
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  recalculateSynergiesAndPassengerDemand(state);
   return { ok: true };
+}
+
+// ─── Zaawansowane Klonowanie 1:1 (Blueprint bez żadnych rabatów) i Polisa ────
+
+export function computeCloneBlueprint(
+  state: GameState,
+  player: Player,
+  source: Building,
+  includeUpgrades = true
+): CloneBlueprint {
+  const baseCost = getBuildingConstructionCost(source.type, state, player);
+  const doneNodes = includeUpgrades ? source.techTree.filter((n) => n.status === 'done') : [];
+  const unlockedTechIds = doneNodes.map((n) => n.id);
+  const upgradesCost = doneNodes.reduce((sum, n) => sum + n.cost, 0);
+
+  let fleetCost = 0;
+  const initialDefaultFleet = source.fleetType ? 2 : 0;
+  const copiedFleet = includeUpgrades ? (source.fleetSize ?? initialDefaultFleet) : initialDefaultFleet;
+  const extraVehicles = Math.max(0, copiedFleet - initialDefaultFleet);
+  if (includeUpgrades && source.fleetType && extraVehicles > 0) {
+    const vehicleCost = SERVICE_VEHICLE_COST[source.fleetType] ?? 55_000;
+    fleetCost = extraVehicles * vehicleCost;
+  }
+
+  return {
+    buildingType: source.type,
+    unlockedTechIds,
+    fleetSize: copiedFleet,
+    insured: Boolean(source.insured),
+    stockpileOutput: source.stockpileOutput,
+    autoRepairEnabled: source.autoRepairEnabled,
+    autoRepairThreshold: source.autoRepairThreshold,
+    baseCost,
+    upgradesCost,
+    fleetCost,
+    totalCost: baseCost + upgradesCost + fleetCost,
+    includeUpgrades,
+  };
+}
+
+export function cloneBuildingOnPlot(
+  state: GameState,
+  player: Player,
+  targetPlot: Plot,
+  source: Building,
+  includeUpgrades: boolean
+): { ok: boolean; error?: string; building?: Building; blueprint?: CloneBlueprint } {
+  if (source.type === 'corporateHQ') {
+    return { ok: false, error: 'Siedziby Głównej (HQ) nie można klonować — limit 1 na korporację.' };
+  }
+  if (source.destroyedRuins) {
+    return { ok: false, error: 'Nie można sklonować zawalonych ruin.' };
+  }
+  const check = checkBuildingRequirements(player, targetPlot, source.type, state);
+  if (!check.ok) return { ok: false, error: check.reason };
+
+  const blueprint = computeCloneBlueprint(state, player, source, includeUpgrades);
+  if (player.cash < blueprint.totalCost) {
+    return {
+      ok: false,
+      error: `Klonowanie 1:1 wymaga pełnego budżetu ${blueprint.totalCost.toLocaleString('pl-PL')} zł (baza + ulepszenia + flota).`,
+    };
+  }
+
+  // Odejmij osobno koszt ulepszeń i floty, a baza zostanie pobrana przez constructBuildingOnPlot
+  const extraCost = blueprint.upgradesCost + blueprint.fleetCost;
+  player.cash -= extraCost;
+  const res = constructBuildingOnPlot(state, player, targetPlot, source.type);
+  if (!res.ok || !res.building) {
+    player.cash += extraCost;
+    return { ok: false, error: res.error };
+  }
+
+  const cloned = res.building;
+  cloned.autoRepairEnabled = blueprint.autoRepairEnabled;
+  cloned.autoRepairThreshold = blueprint.autoRepairThreshold;
+  cloned.stockpileOutput = blueprint.stockpileOutput;
+  cloned.insured = blueprint.insured;
+
+  if (includeUpgrades && blueprint.unlockedTechIds.length > 0) {
+    for (const node of cloned.techTree) {
+      if (blueprint.unlockedTechIds.includes(node.id)) {
+        node.status = 'done';
+        node.progress = 100;
+        cloned.level = Math.min(10, cloned.level + 1);
+      }
+    }
+    for (const node of cloned.techTree) {
+      if (
+        node.status === 'locked' &&
+        node.prerequisites.every((pid) => cloned.techTree.find((x) => x.id === pid)?.status === 'done')
+      ) {
+        const excludedByDone = node.exclusiveWith?.some((eid) => cloned.techTree.find((x) => x.id === eid)?.status === 'done');
+        node.status = excludedByDone ? 'excluded' : 'available';
+      }
+    }
+    const bMods = getAggregatedBuildingModifiers(cloned);
+    cloned.storageCapacity = Math.round(BUILDING_DEFINITIONS[cloned.type].storageCapacity * bMods.storageMultiplier);
+    cloned.visualTier = bMods.isApex ? 4 : Math.min(3, cloned.techTree.filter((t) => t.status === 'done').length);
+  }
+
+  if (includeUpgrades && cloned.fleetType && blueprint.fleetSize > (cloned.fleetSize ?? 0)) {
+    cloned.fleetSize = blueprint.fleetSize;
+    cloned.maxFleetSize = Math.max(cloned.maxFleetSize ?? 3, blueprint.fleetSize);
+  }
+
+  recalculateSpatialNetwork(state.plots);
+  recalculateSynergiesAndPassengerDemand(state);
+  return { ok: true, building: cloned, blueprint };
+}
+
+export function getInsurancePremiumPerTick(building: Building): number {
+  const def = BUILDING_DEFINITIONS[building.type];
+  const claims = building.insuranceClaimsCount ?? 0;
+  return Math.max(250, Math.round(def.baseCost * 0.0014 * (1 + claims * 0.45)));
+}
+
+export function toggleBuildingInsurance(
+  building: Building
+): { ok: boolean; insured: boolean; message: string } {
+  if (building.destroyedRuins) {
+    return { ok: false, insured: false, message: 'Nie można ubezpieczyć zawalonych ruin.' };
+  }
+  building.insured = !building.insured;
+  const prem = getInsurancePremiumPerTick(building);
+  return {
+    ok: true,
+    insured: Boolean(building.insured),
+    message: building.insured
+      ? `Polisa ubezpieczeniowa WŁĄCZONA (składka ${prem.toLocaleString('pl-PL')} zł/T, zwrot 65% przy szkodzie).`
+      : 'Polisa ubezpieczeniowa WYŁĄCZONA.',
+  };
+}
+
+export function handleBuildingDestructionInsurance(
+  building: Building,
+  player: Player | undefined,
+  state: GameState
+): number {
+  if (!building.insured || !player || player.isEliminated) return 0;
+  const def = BUILDING_DEFINITIONS[building.type];
+  const payout = Math.round(def.baseCost * 0.65);
+  player.cash += payout;
+  player.totalRevenueEarned += payout;
+  building.insuranceClaimsCount = (building.insuranceClaimsCount ?? 0) + 1;
+  state.news = [
+    {
+      id: `ins_pay_${state.time.tick}_${building.id}`,
+      headline: `🛡️ Wypłata z Polisy: ${player.companyName} otrzymuje ${payout.toLocaleString('pl-PL')} zł`,
+      brief: `Ubezpieczyciel wypłacił 65% wartości zniszczonego obiektu ${building.name}. Składka dla kolejnych ryzyk wzrasta o 45%.`,
+      fullText: `Polisa korporacyjna pokryła 65% wartości odtworzeniowej obiektu ${building.name}.`,
+      analysis: 'Kolejne roszczenia podnoszą koszt składek w koncernie.',
+      hints: [],
+      type: 'positive' as const,
+      dateLabel: formatGameDate(state.time),
+      tick: state.time.tick,
+      read: false,
+    },
+    ...state.news,
+  ].slice(0, 40);
+  return payout;
 }
 
 export function getRepairCost(building: Building): number {
@@ -397,7 +591,7 @@ export function getAggregatedBuildingModifiers(building: Building) {
     if (e.espionageDefenseBonus) espionageDefenseBonus += e.espionageDefenseBonus;
     if (e.crimeReductionBonus) crimeReductionBonus += e.crimeReductionBonus;
     if (e.tacticalMissileUnlocked) tacticalMissileUnlocked = true;
-    if (e.isApex || node.tier === 4) isApex = true;
+    if (e.isApex || node.isFlagship || node.tier === 4) isApex = true;
   }
 
   return {
@@ -503,12 +697,16 @@ export function processBuildingTick(
     : building.type === 'corporateHQ'
       ? Math.min(3, Math.floor((player.corporationLevel - 1) * 0.75 + doneModules * 0.35))
       : Math.min(3, doneModules);
+  if (building.type === 'corporateHQ') {
+    building.hqVariant = player.hqVariant ?? building.hqVariant ?? 'classic';
+  }
 
   // 1. Rozwój wewnętrznego drzewka
   if (building.activeResearchId) {
     const activeNode = building.techTree.find((n) => n.id === building.activeResearchId);
     if (activeNode) {
-      const speedMult = 1 + entMods.researchSpeedBonus + techMods.researchSpeed;
+      const archResearchMult = getArchetypeDefinition(player.archetype).modifiers.researchSpeedMult;
+      const speedMult = (1 + entMods.researchSpeedBonus + techMods.researchSpeed) * archResearchMult;
       activeNode.progress = Math.min(
         100,
         activeNode.progress + (100 / activeNode.researchTicks) * speedMult
@@ -586,8 +784,19 @@ export function processBuildingTick(
     building.status.breakdown = false;
   }
 
-  // 3. Zasilanie, woda, ścieki i śmieci (nieliniowa krzywa kar v4.0)
-  const elecNeeded = def.electricityUsage * (1 + bMods.electricityDelta);
+  // 3. Zasilanie, woda, ścieki i śmieci (nieliniowa krzywa kar v4.0 + Archetyp Inkubator + Poziom Trudności)
+  const archMods = getArchetypeDefinition(player.archetype).modifiers;
+  const preset = DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
+  const isAdvancedElecTarget =
+    building.category === 'processing' ||
+    building.type === 'dataCenter' ||
+    building.type === 'biotechLab' ||
+    building.type === 'semiconductorFab' ||
+    building.type === 'metroStation';
+  const elecNeeded =
+    def.electricityUsage *
+    (1 + bMods.electricityDelta) *
+    (isAdvancedElecTarget ? archMods.advancedPowerUsageMult : 1);
   const waterNeeded = def.waterUsage * (1 + bMods.waterDelta);
   const sewageNeeded = (def.sewageUsage ?? 0) * Math.max(0.2, 1 + bMods.sewageDelta);
   const wasteNeeded = (def.wasteUsage ?? 0) * Math.max(0.2, 1 + bMods.wasteDelta);
@@ -654,9 +863,29 @@ export function processBuildingTick(
     building.condition = Math.max(5, Number((100 - building.damagePercent).toFixed(2)));
   }
 
-  // 4. Susza, katastrofy naturalne i strajki
+  // 4. Susza, katastrofy naturalne i strajki (lokalne + rządowe)
+  if ((building.strikeTicks ?? 0) > 0) {
+    building.strikeTicks = (building.strikeTicks ?? 1) - 1;
+  } else if (
+    building.isActive &&
+    building.workers >= 4 &&
+    building.damagePercent > 52 &&
+    building.category !== 'safety' &&
+    building.type !== 'prAgency'
+  ) {
+    const govStrikeMult = state.government ? GOVERNMENT_CONFIGS[state.government.currentGov].strikeRiskMult : 1;
+    const hasPR = state.plots.some(
+      (p) => p.ownerId === player.id && p.building?.type === 'prAgency' && p.building.isActive && !p.building.destroyedRuins
+    );
+    const strikeChance = 0.012 * govStrikeMult * (hasPR ? 0.35 : 1);
+    if (Math.random() < strikeChance) {
+      building.strikeTicks = 6;
+    }
+  }
+  building.status.onStrike = (building.strikeTicks ?? 0) > 0;
+
   let droughtFactor = 1.0;
-  let strikeFactor = 1.0;
+  let strikeFactor = building.status.onStrike ? 0.35 : 1.0;
   let weatherEnergyFactor = 1.0;
   for (const ev of state.activeEvents) {
     for (const eff of ev.effects) {
@@ -699,8 +928,9 @@ export function processBuildingTick(
       ? 0.15
       : 0.45 * damageFactor
     : damageFactor;
-  const sanitationFactor =
-    (building.status.sewageCrisis ? 0.78 : 1.0) * (building.status.wasteCrisis ? 0.82 : 1.0);
+  const sanitationPenaltyBase =
+    (building.status.sewageCrisis ? 0.22 : 0) + (building.status.wasteCrisis ? 0.18 : 0);
+  const sanitationFactor = Math.max(0.25, 1 - sanitationPenaltyBase * preset.utilityPenaltyMult);
   const utilityFactor = powerFactor * waterFactor * sanitationFactor;
 
   let hazardFactor = 1.0;
@@ -719,15 +949,39 @@ export function processBuildingTick(
   if (building.category === 'processing') categoryBonus += techMods.processingBonus;
   if (building.category === 'energy') categoryBonus += techMods.energyBonus;
 
-  let realEstateFactor = 1.0;
-  if (
+  const isCommercialConsumer =
     building.category === 'real_estate' ||
     building.category === 'attractions' ||
     building.type === 'jewelryWorkshop' ||
-    building.type === 'jewelryLuxury'
-  ) {
+    building.type === 'jewelryLuxury';
+
+  let realEstateFactor = 1.0;
+  if (isCommercialConsumer) {
     const attractionBoost = 1 + plot.attractionBonus * 0.014;
     realEstateFactor = Math.max(0.35, (plot.attractiveness / 65) * attractionBoost * (1 + state.voterMood / 250));
+  }
+
+  const synergyRes = evaluateSynergyForPlotAndType(state.plots, plot, building.type);
+  const synergyFactor = Math.max(0.55, 1 + (plot.synergyPercent ?? synergyRes.netPercent) / 100);
+  const demandFactor = isCommercialConsumer
+    ? Math.max(0.85, (plot.passengerDemandPercent ?? synergyRes.passengerDemandPercent) / 100)
+    : 1.0;
+
+  let archetypeProdMult = 1.0;
+  if (building.category === 'mining') archetypeProdMult *= archMods.miningYieldMult;
+  if (isCommercialConsumer) archetypeProdMult *= 1 + archMods.retailMarginDelta;
+  if (
+    building.type === 'windFarm' ||
+    building.type === 'solarFarm' ||
+    building.type === 'geothermalPlant' ||
+    building.type === 'fusionReactor' ||
+    building.type === 'recyclingPlant' ||
+    building.type === 'renewableFarm'
+  ) {
+    archetypeProdMult *= archMods.renewableRecycleMult;
+    if (state.government?.currentGov === 'ecological') {
+      archetypeProdMult *= GOVERNMENT_CONFIGS.ecological.greenSubsidyMult;
+    }
   }
 
   const boycottFactor = building.boycottedTicks > 0 ? 0.65 : 1.0;
@@ -749,6 +1003,8 @@ export function processBuildingTick(
         weatherEnergyFactor *
         disasterPlotFactor *
         realEstateFactor *
+        synergyFactor *
+        archetypeProdMult *
         (1 + bMods.productionBonus + categoryBonus + entMods.profitBonus);
 
   building.efficiency = Math.round(rawEfficiency * 100);
@@ -811,7 +1067,14 @@ export function processBuildingTick(
     : 1;
 
   let grossRevenue =
-    rawEfficiency <= 0.001 ? 0 : def.baseRevenue * rawEfficiency * econMult * boycottFactor * (Object.keys(def.inputs).length > 0 ? Math.max(0.15, inputFulfillment) : 1);
+    rawEfficiency <= 0.001
+      ? 0
+      : def.baseRevenue *
+        rawEfficiency *
+        demandFactor *
+        econMult *
+        boycottFactor *
+        (Object.keys(def.inputs).length > 0 ? Math.max(0.15, inputFulfillment) : 1);
   const productionPerTick: Partial<Record<ResourceType, number>> = {};
 
   for (const [resKey, baseOut] of Object.entries(def.outputs)) {
@@ -856,27 +1119,45 @@ export function processBuildingTick(
   }
   building.productionPerTick = productionPerTick;
 
-  // 8. Punkty badań, nastroje, reputacja i wpływy
-  if (building.category === 'education' || building.type === 'spaceCenter' || building.type === 'intelligenceCenter') {
+  // 8. Punkty badań (zrebalansowane pod realne placówki + Kampus Innowacji), nastroje i wpływy
+  if (
+    (building.category === 'education' ||
+      building.type === 'spaceCenter' ||
+      building.type === 'intelligenceCenter' ||
+      building.type === 'biotechLab') &&
+    utilityFactor > 0.25
+  ) {
     const baseRP =
       building.type === 'highSchool'
-        ? 2
+        ? 2.2
         : building.type === 'university'
-          ? 6
+          ? 6.5
           : building.type === 'rdLab'
-            ? 9
-            : building.type === 'spaceCenter'
-              ? 4
-              : 2;
+            ? 9.5
+            : building.type === 'dataCenter'
+              ? 7.2
+              : building.type === 'spaceCenter'
+                ? 4.0
+                : building.type === 'biotechLab'
+                  ? 3.0
+                  : 1.8;
     const grantMult = state.activeEvents.some((e) => e.effects.some((ef) => ef.kind === 'researchBoost'))
       ? 1.5
       : 1;
-    player.researchPoints += baseRP * (1 + bMods.researchBonus) * Math.min(1.5, rawEfficiency) * grantMult;
+    player.researchPoints +=
+      baseRP *
+      (1 + bMods.researchBonus + synergyRes.researchClusterBonus) *
+      archMods.researchSpeedMult *
+      Math.min(1.5, rawEfficiency) *
+      grantMult;
   }
 
-  if (building.category === 'attractions' && building.type !== 'casino') {
+  if ((building.category === 'attractions' && building.type !== 'casino') || building.type === 'biotechLab' || building.type === 'verticalFarm') {
     state.voterMood = Math.min(100, state.voterMood + 0.18);
     player.reputation = Math.min(100, player.reputation + 0.15);
+  }
+  if (building.type === 'wasteIncinerator' && archMods.incineratorApprovalPenalty > 0) {
+    player.influence.voterApproval = Math.max(0, player.influence.voterApproval - archMods.incineratorApprovalPenalty);
   }
   if (building.type === 'hospital') {
     state.voterMood = Math.min(100, state.voterMood + 0.22);
@@ -899,7 +1180,8 @@ export function processBuildingTick(
     }
   }
   if (building.type === 'corporateHQ') {
-    player.researchPoints += 1.5;
+    // Drastycznie spowolnione pasywne punkty z centrali — wymagane są prawdziwe szkoły/uczelnie/Data Center!
+    player.researchPoints += 0.45 * archMods.researchSpeedMult;
     player.influence.financial += 0.35;
   }
   if (building.type === 'jewelryWorkshop' || building.type === 'jewelryLuxury') {
@@ -946,7 +1228,7 @@ export function processBuildingTick(
   const effectiveRoadDist = hasAdjacentHighway
     ? Math.max(0.4, plot.distanceToRoad * 0.65)
     : plot.distanceToRoad;
-  const transportCost = calculateTransportCostForBuilding(
+  const rawTransportCost = calculateTransportCostForBuilding(
     effectiveRoadDist,
     totalGoodsVolume,
     fuelPrice,
@@ -954,8 +1236,11 @@ export function processBuildingTick(
     state,
     logiMode
   );
+  const transportCost = rawTransportCost * (1 - synergyRes.internalTransportDiscount);
 
-  const fleetUpkeep = building.fleetSize ? building.fleetSize * 210 : 0;
+  const fleetUpkeep = building.fleetSize
+    ? building.fleetSize * 210 * (building.category === 'logistics' ? archMods.passengerFleetCostMult : 1)
+    : 0;
   const hasHQDiscount = state.plots.some(
     (p) => p.ownerId === player.id && p.building?.type === 'corporateHQ' && p.building.isActive
   )
@@ -963,33 +1248,64 @@ export function processBuildingTick(
     : 1.0;
   const safetyMaintenanceFactor =
     building.category === 'safety' ? Math.max(0.5, 1 - entMods.safetyDiscount) : safetyCov.hasFireStation ? 0.85 : 1.0;
+  const upkeepArchMult =
+    building.category === 'mining' || building.category === 'processing'
+      ? archMods.industrialUpkeepMult
+      : building.category === 'logistics'
+        ? archMods.passengerFleetCostMult
+        : 1.0;
+  const insurancePremium = building.insured ? getInsurancePremiumPerTick(building) : 0;
 
   const maintenance =
     (def.baseMaintenance + fleetUpkeep) *
     (1 - Math.min(0.4, bMods.costReduction)) *
     safetyMaintenanceFactor *
     hasHQDiscount *
-    (building.type === 'warehouse' ? 1 - entMods.warehouseDiscount : 1);
+    upkeepArchMult *
+    preset.maintenanceMult *
+    (building.type === 'warehouse' ? 1 - entMods.warehouseDiscount : 1) +
+    insurancePremium;
 
   const effectivePollution = Math.max(0, def.pollutionLevel + bMods.pollutionDelta);
   const envShield = player.actionCooldowns['env_shield'] ? 0.1 : 1;
   const greenPolicyMult = state.activeEvents.some((e) => e.id === 'green_subsidies') ? 1.5 : 1;
+  const govEcoPenaltyMult =
+    state.government?.currentGov === 'ecological'
+      ? GOVERNMENT_CONFIGS.ecological.coalPenaltyMult
+      : state.government?.currentGov === 'free_market'
+        ? GOVERNMENT_CONFIGS.free_market.coalPenaltyMult
+        : 1.0;
+  const carbonTaxExtra =
+    state.carbonTaxActive &&
+    (building.type === 'coalPowerPlant' || building.type === 'coalMine' || building.type === 'wasteIncinerator')
+      ? 2_600
+      : 0;
   const sanitationFine =
-    (building.status.sewageCrisis ? 420 : 0) + (building.status.wasteCrisis ? 360 : 0);
+    ((building.status.sewageCrisis ? 420 : 0) + (building.status.wasteCrisis ? 360 : 0)) * preset.utilityPenaltyMult;
   const environmentalFine =
     (effectivePollution > 3 && !bMods.cleanFilter
-      ? effectivePollution * 115 * envShield * greenPolicyMult * (1 - techMods.taxReduction)
-      : 0) + sanitationFine;
+      ? effectivePollution * 115 * envShield * greenPolicyMult * govEcoPenaltyMult * archMods.pollutionFineMult * (1 - techMods.taxReduction)
+      : 0) +
+    sanitationFine +
+    carbonTaxExtra;
 
+  const hasLawFirm = state.plots.some(
+    (p) => p.ownerId === player.id && p.building?.type === 'lawFirm' && p.building.isActive && !p.building.destroyedRuins
+  );
   const operatingCosts = inputCost + hr.wages + hr.zus + energyCost + waterCost + transportCost + maintenance + environmentalFine;
   const taxableProfit = Math.max(0, grossRevenue - operatingCosts);
-  const effectiveCIT = Math.max(
-    0.04,
-    state.taxRate *
-      (1 - entMods.taxReduction - techMods.taxReduction) *
-      (player.activeTaxReliefTicks > 0 ? 0.6 : 1)
-  );
-  const taxes = taxableProfit * effectiveCIT + (building.category === 'processing' ? grossRevenue * GAME_CONFIG.vatExciseRate * 0.25 : 0);
+  const effectiveCIT = plot.isSseZone
+    ? 0
+    : Math.max(
+        0.04,
+        state.taxRate *
+          (1 - entMods.taxReduction - techMods.taxReduction - (hasLawFirm ? 0.1 : 0)) *
+          (player.activeTaxReliefTicks > 0 ? 0.6 : 1)
+      );
+  const taxes =
+    plot.isSseZone
+      ? 0
+      : taxableProfit * effectiveCIT + (building.category === 'processing' ? grossRevenue * GAME_CONFIG.vatExciseRate * 0.25 : 0);
 
   const totalCosts = operatingCosts + taxes;
   const netProfit = grossRevenue - totalCosts;

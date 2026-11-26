@@ -290,6 +290,27 @@ export class TerrainRenderer {
       ctx.stroke();
     }
 
+    if (plot.isSseZone && plot.terrain !== 'water') {
+      ctx.beginPath();
+      ctx.moveTo(topX, topY);
+      ctx.lineTo(rightX, rightY);
+      ctx.lineTo(bottomX, bottomY);
+      ctx.lineTo(leftX, leftY);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.14)';
+      ctx.fill();
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.9 * supersample;
+      ctx.stroke();
+      if (!plot.building) {
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.9)';
+        ctx.font = `700 ${Math.round(6.5 * supersample)}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('SSE 0%', cx, cy + 5 * supersample);
+      }
+    }
+
     this.drawTerrainDetails(ctx, plot.terrain, cx, cy, supersample);
 
     if ((plot.irradiatedTicks ?? 0) > 0 && plot.terrain !== 'water') {

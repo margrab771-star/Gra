@@ -137,7 +137,51 @@ export type BuildingType =
   | 'diamondMine'
   | 'lithiumMine'
   | 'batteryFactory'
-  | 'jewelryLuxury';
+  | 'jewelryLuxury'
+  // Transport pasażerski i struktury miejskie/tech v6.0
+  | 'busDepot'
+  | 'metroStation'
+  | 'trainStation'
+  | 'passengerTerminal'
+  | 'apartmentComplex'
+  | 'gastronomyBoulevard'
+  | 'cityPark'
+  | 'arenaStadium'
+  | 'conventionCenter'
+  | 'lawFirm'
+  | 'prAgency'
+  | 'dataCenter'
+  | 'biotechLab'
+  | 'verticalFarm'
+  | 'compositeShipyard';
+
+export type ArchetypeId =
+  | 'standard'
+  | 'investment_fund'
+  | 'industrial_giant'
+  | 'tech_incubator'
+  | 'logistics_cartel'
+  | 'eco_innovator';
+
+export type DifficultyPreset = 'rozruch' | 'standard' | 'kryzysowy' | 'przetrwanie';
+
+export type ScenarioId =
+  | 'sandbox'
+  | 'fallen_giant'
+  | 'green_transition'
+  | 'cold_war'
+  | 'gold_rush';
+
+export type GovernmentKind = 'free_market' | 'ecological' | 'interventionist';
+
+export type HQVariantId = 'classic' | 'golden' | 'eco_dome' | 'cyber_citadel';
+
+export type AchievementCategory =
+  | 'economy'
+  | 'industry'
+  | 'politics'
+  | 'multiplayer'
+  | 'extreme';
 
 export type TechBranch = 'industrial' | 'modern' | 'logistics' | 'safety' | 'military';
 
@@ -200,7 +244,9 @@ export interface Vehicle {
     | 'hazmatTruck'
     | 'ambulance'
     | 'policeCar'
-    | 'helicopter';
+    | 'helicopter'
+    | 'metro'
+    | 'train';
   cargo: ResourceType | null;
   ownerId: string;
 }
@@ -298,6 +344,13 @@ export interface ResourceDeposit {
 
 // ─── Plot, Offers & Spatial Grid ──────────────────────────────────────────────
 
+export interface SynergyBreakdownItem {
+  kind: 'retail_zone' | 'entertainment_district' | 'innovation_campus' | 'industrial_cluster' | 'passenger_hub' | 'smog_penalty' | 'park_mitigation' | 'sse_zone';
+  label: string;
+  percentDelta: number;
+  sourcePlotId?: string;
+}
+
 export interface Plot {
   id: string;
   gridX: number;
@@ -322,6 +375,11 @@ export interface Plot {
   attractiveness: number;
   neighborPenalty: number;
   attractionBonus: number; // synergy from nearby parks/cultural centers/marinas
+  synergyPercent?: number;
+  passengerDemandPercent?: number;
+  activeSynergies?: SynergyBreakdownItem[];
+  isSseZone?: boolean;
+  sseExpiresTick?: number;
   crimeScore: number;
   responseEta?: number;
   purchasable: boolean;
@@ -403,10 +461,11 @@ export interface BuildingTechNode {
   status: NodeStatus;
   prerequisites: string[];
   exclusiveWith?: string[];
-  category: 'efficiency' | 'capacity' | 'green' | 'monopoly' | 'special' | 'apex';
+  category: 'efficiency' | 'capacity' | 'green' | 'monopoly' | 'special' | 'apex' | 'flagship';
   effects: BuildingUpgradeEffect;
   tier: 1 | 2 | 3 | 4;
   isApex?: boolean;
+  isFlagship?: boolean;
   graphPos: Position;
   requirements?: NonFinancialRequirements;
 }
@@ -472,6 +531,7 @@ export interface BuildingStatusFlags {
   sewageCrisis?: boolean;
   wasteCrisis?: boolean;
   disasterStruck?: boolean;
+  onStrike?: boolean;
 }
 
 export interface Building {
@@ -490,6 +550,10 @@ export interface Building {
   destroyedRuins?: boolean;
   autoRepairEnabled: boolean;
   autoRepairThreshold: number;
+  insured?: boolean;
+  insuranceClaimsCount?: number;
+  strikeTicks?: number;
+  hqVariant?: HQVariantId;
   workers: number;
   maxWorkers: number;
   workerSkill: number;
@@ -913,6 +977,179 @@ export interface LastMpSession {
   updatedAt: number;
 }
 
+// ─── v6.0 & v7.0 Expansion Types (Profiles, Archetypes, Secrets, Mutators, Auctions) ───
+
+export interface MutatorFlags {
+  fogOfWar: boolean;
+  noLoans: boolean;
+  volatileMarket: boolean;
+  freeLocalRoads: boolean;
+  extremeClimate: boolean;
+}
+
+export interface SecretGoal {
+  id: string;
+  templateId: string;
+  title: string;
+  description: string;
+  targetValue: number;
+  currentValue: number;
+  unitLabel: string;
+  completed: boolean;
+  completedTick?: number;
+  rewardCash: number;
+  rewardInfluence: number;
+  rewardDominanceBonus: number;
+  rewardXp: number;
+}
+
+export interface LiveAuctionState {
+  id: string;
+  plotId: string;
+  gridX: number;
+  gridY: number;
+  title: string;
+  description: string;
+  startingBid: number;
+  currentBid: number;
+  highestBidderId: string | null;
+  highestBidderName: string | null;
+  minIncrement: number;
+  secondsRemaining: number;
+  startedAtMs: number;
+  expiresAtMs: number;
+  bidsCount: number;
+  sellerPlayerId?: string | null;
+  status: 'active' | 'settled' | 'cancelled';
+}
+
+export interface GovernmentElectionState {
+  currentGov: GovernmentKind;
+  nextElectionTick: number;
+  lastElectionTick: number;
+  lobbyVotes: Record<GovernmentKind, number>;
+  lastWinnerSummary?: string;
+}
+
+export interface CloneBlueprint {
+  buildingType: BuildingType;
+  unlockedTechIds: string[];
+  fleetSize: number;
+  insured: boolean;
+  stockpileOutput: boolean;
+  autoRepairEnabled: boolean;
+  autoRepairThreshold: number;
+  baseCost: number;
+  upgradesCost: number;
+  fleetCost: number;
+  totalCost: number;
+  includeUpgrades: boolean;
+}
+
+export interface MatchStatSample {
+  tick: number;
+  label: string;
+  players: Record<
+    string,
+    {
+      netWorth: number;
+      cash: number;
+      incomePerTick: number;
+      influence: number;
+      approval: number;
+    }
+  >;
+}
+
+export interface MatchFunAward {
+  id: string;
+  emoji: string;
+  title: string;
+  subtitle: string;
+  playerId: string;
+  companyName: string;
+  color: string;
+  valueLabel: string;
+}
+
+export interface PlayerCardProfile {
+  accountId: string;
+  nick: string;
+  level: number;
+  xp: number;
+  avatar: string;
+  frameId: string;
+  titleId: string;
+  pinnedBadgeIds: string[];
+  hqVariant: HQVariantId;
+}
+
+export interface LifetimeRecords {
+  highestNetWorth: number;
+  fastestDominanceTicks: number | null;
+  longestWinStreak: number;
+  currentWinStreak: number;
+  biggestSingleDeal: number;
+  mostOwnedPlots: number;
+  matchesPlayed: number;
+  matchesWon: number;
+  secretGoalsCompleted: number;
+  weeklyBestScore?: {
+    weekKey: string;
+    netWorth: number;
+    ticks: number;
+    date: string;
+  } | null;
+}
+
+export interface MatchRecordEntry {
+  id: string;
+  date: string;
+  mode: GameMode;
+  scenario: ScenarioId;
+  difficulty: string;
+  won: boolean;
+  rank: number;
+  totalPlayers: number;
+  netWorth: number;
+  durationTicks: number;
+  xpEarned: number;
+  isWeekly?: boolean;
+  weekKey?: string;
+}
+
+export interface UserAccountProfile {
+  id: string;
+  nick: string;
+  pinHash: string;
+  isGuest: boolean;
+  createdAt: number;
+  xp: number;
+  level: number;
+  avatar: string;
+  frameId: string;
+  titleId: string;
+  hqVariant: HQVariantId;
+  unlockedAchievements: string[];
+  unlockedCosmetics: string[];
+  pinnedBadgeIds: string[];
+  records: LifetimeRecords;
+  matchHistory: MatchRecordEntry[];
+}
+
+export interface PlayerMatchStatsAccum {
+  maxDebt: number;
+  tollEarned: number;
+  peakMarketTradeProfit: number;
+  totalPollution: number;
+  greenScore: number;
+  bailiffSeizures: number;
+  stockDividendsAndTrades: number;
+  patentsOwnedCount: number;
+  highApprovalTicks: number;
+  ownedPlotsPeak: number;
+}
+
 // ─── Player ───────────────────────────────────────────────────────────────────
 
 export interface Player {
@@ -967,6 +1204,15 @@ export interface Player {
   nuclearWarheadsReady?: number;
   nuclearDetectedByPlayers?: string[];
   pinnedResources?: ResourceType[];
+  // v6.0 & v7.0
+  archetype?: ArchetypeId;
+  hqVariant?: HQVariantId;
+  playerCard?: PlayerCardProfile;
+  secretGoals?: SecretGoal[];
+  secretGoalDominanceBonus?: number;
+  revealedFogPlots?: Record<string, boolean>;
+  skillMilestonesEarned?: string[];
+  statsAccum?: PlayerMatchStatsAccum;
 }
 
 // ─── Game Time & Settings ─────────────────────────────────────────────────────
@@ -989,6 +1235,14 @@ export interface GameSettings {
   economyMultiplier: number;
   disastersEnabled?: boolean;
   victoryMode?: 'solo' | 'coalition';
+  difficultyPreset?: DifficultyPreset;
+  scenarioId?: ScenarioId;
+  mutators?: MutatorFlags;
+  mapSeed?: number;
+  weeklyChallengeId?: string;
+  weeklyTargetNetWorth?: number;
+  weeklyMaxYear?: number;
+  weeklyBannedBuildings?: BuildingType[];
 }
 
 export interface DisconnectAlert {
@@ -1051,6 +1305,12 @@ export interface GameState {
   monopolyThreshold: number;
   disconnectAlert: DisconnectAlert | null;
   notifications: GameNotification[];
+  // v6.0 & v7.0
+  government?: GovernmentElectionState;
+  liveAuction?: LiveAuctionState | null;
+  matchStatsHistory?: MatchStatSample[];
+  greenTransitionEntered?: boolean;
+  carbonTaxActive?: boolean;
 }
 
 export interface GameNotification {
@@ -1075,6 +1335,8 @@ export interface LobbyPlayer {
   aiStrategy?: AIStrategy;
   ready: boolean;
   connected: boolean;
+  archetype?: ArchetypeId;
+  playerCard?: PlayerCardProfile;
 }
 
 export interface LobbyState {
@@ -1087,6 +1349,9 @@ export interface LobbyState {
   gameStarted: boolean;
   disastersEnabled: boolean;
   victoryMode: 'solo' | 'coalition';
+  difficultyPreset?: DifficultyPreset;
+  scenarioId?: ScenarioId;
+  mutators?: MutatorFlags;
 }
 
 export type PlayerAction =
@@ -1185,4 +1450,20 @@ export type PlayerAction =
     }
   | { type: 'setSpeed'; playerId: string; speed: GameSpeed }
   | { type: 'requestSpeedChange'; playerId: string; speed: GameSpeed }
-  | { type: 'dismissSpeedRequest'; playerId: string };
+  | { type: 'dismissSpeedRequest'; playerId: string }
+  // v6.0 & v7.0 batch & meta actions
+  | { type: 'batchBuyPlots'; playerId: string; plotIds: string[] }
+  | { type: 'batchSurveyPlots'; playerId: string; plotIds: string[] }
+  | { type: 'batchBuildRoad'; playerId: string; plotIds: string[]; roadClass: 'local' | 'highway' }
+  | { type: 'applyHighwayPolicyToAll'; playerId: string; tollRate: TollRate; roadBlocked: boolean }
+  | {
+      type: 'cloneBuilding';
+      playerId: string;
+      plotId: string;
+      sourceBuildingId: string;
+      includeUpgrades: boolean;
+    }
+  | { type: 'toggleInsurance'; playerId: string; buildingId: string }
+  | { type: 'placeAuctionBid'; playerId: string; auctionId: string; bidAmount: number }
+  | { type: 'lobbyElection'; playerId: string; govKind: GovernmentKind; useInfluence: boolean }
+  | { type: 'revealFogPlot'; playerId: string; plotId: string };

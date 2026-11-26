@@ -1,5 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { CORPORATION_LEVELS, GAME_CONFIG, SPEED_OPTIONS } from '../../config/gameConfig';
+import {
+  CORPORATION_LEVELS,
+  GAME_CONFIG,
+  GOVERNMENT_CONFIGS,
+  SPEED_OPTIONS,
+} from '../../config/gameConfig';
 import { computePlayerUtilityAndResourceBalance } from '../../engine/BalanceSystem';
 import type {
   GameSpeed,
@@ -12,6 +17,7 @@ import type {
 import {
   formatCompactMoney,
   formatGameDate,
+  formatMoney,
   formatPercent,
   formatTimeRemaining,
 } from '../../utils/formatters';
@@ -30,6 +36,8 @@ interface TopTickerProps {
   onToggleTransportRoutes: () => void;
   onOpenFullBalance: () => void;
   onOpenOffersModal: () => void;
+  onOpenInfluenceModal?: () => void;
+  onPlaceAuctionBid?: (auctionId: string, bidAmount: number) => void;
   onOpenTutorial?: () => void;
   onSetSpeed: (speed: GameSpeed) => void;
   onRequestSpeed: (speed: GameSpeed) => void;
@@ -61,6 +69,8 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     onToggleTransportRoutes,
     onOpenFullBalance,
     onOpenOffersModal,
+    onOpenInfluenceModal,
+    onPlaceAuctionBid,
     onOpenTutorial,
     onSetSpeed,
     onRequestSpeed,
@@ -71,6 +81,12 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     onOpenMenu,
   }) => {
     const [showMarketModal, setShowMarketModal] = useState(false);
+    const [showGoalsPopover, setShowGoalsPopover] = useState(false);
+
+    const secretGoals = currentPlayer.secretGoals ?? [];
+    const doneGoalsCount = secretGoals.filter((g) => g.completed).length;
+    const govCfg = GOVERNMENT_CONFIGS[gameState.government?.currentGov ?? 'free_market'];
+    const liveAuction = gameState.liveAuction;
 
     const showCountdown =
       (gameState.settings.mode === 'challenge1h' || gameState.settings.mode === 'mp_fast') &&
@@ -203,6 +219,40 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 >
                   📩 {pendingOffersCount} Ofert{pendingOffersCount === 1 ? 'a' : 'y'}
                 </button>
+              )}
+
+              {secretGoals.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowGoalsPopover((v) => !v)}
+                  className={`px-2 py-1 rounded border text-[11px] font-semibold shrink-0 transition-colors ${
+                    doneGoalsCount === secretGoals.length
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
+                      : 'bg-[#111827] border-[#243044] hover:border-amber-400/60 text-amber-200'
+                  }`}
+                  title="Tajne Cele Osobiste (ukryte przed konkurencją)"
+                >
+                  🎯 Cele {doneGoalsCount}/{secretGoals.length}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={onOpenInfluenceModal}
+                className="hidden 2xl:flex items-center gap-1 px-2 py-1 rounded bg-[#111827] border border-[#243044] hover:border-amber-400/50 text-[11px] text-slate-200 shrink-0"
+                title={`${govCfg.name}: ${govCfg.summary}`}
+              >
+                <span>{govCfg.badge}</span>
+                <span className="max-w-[115px] truncate">{govCfg.name.replace('Rząd ', '')}</span>
+              </button>
+
+              {gameState.settings.weeklyChallengeId && (
+                <span
+                  className="hidden xl:inline px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[10px] shrink-0"
+                  title={`Wyzwanie Tygodnia ${gameState.settings.weeklyChallengeId} — cel: ${formatCompactMoney(gameState.settings.weeklyTargetNetWorth ?? 0)} do roku ${gameState.settings.weeklyMaxYear ?? 2035}`}
+                >
+                  🏆 {gameState.settings.weeklyChallengeId}
+                </span>
               )}
 
               <div
@@ -353,6 +403,100 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               <strong className="font-mono">{currentPlayer.insolvencyGraceTicks} cykli</strong> komornik
               zlicytuje Twój najcenniejszy majątek! Spłać ujemne saldo lub sprzedaj aktywa.
             </span>
+          </div>
+        )}
+
+        {/* Pasek 30-sekundowej Licytacji Komorniczej Na Żywo */}
+        {liveAuction && (
+          <div className="px-3 py-1.5 bg-gradient-to-r from-amber-950/80 via-[#151c28] to-amber-950/80 border-b border-amber-400/55 text-xs flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-mono text-[10px] font-extrabold uppercase shrink-0">
+                🔨 LICYTACJA NA ŻYWO · {liveAuction.secondsRemaining}s
+              </span>
+              <span className="font-semibold text-white truncate">{liveAuction.title}</span>
+              <span className="text-slate-300 font-mono shrink-0">
+                Najwyższa: <strong className="text-emerald-300">{formatMoney(liveAuction.currentBid)}</strong> (
+                {liveAuction.highestBidderName ?? 'Cena wywoławcza'})
+              </span>
+            </div>
+            {onPlaceAuctionBid && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {[25_000, 100_000, 250_000].map((inc) => {
+                  const bidAmt = liveAuction.currentBid + inc;
+                  return (
+                    <button
+                      key={inc}
+                      type="button"
+                      disabled={currentPlayer.cash < bidAmt}
+                      onClick={() => onPlaceAuctionBid(liveAuction.id, bidAmt)}
+                      className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-mono font-bold text-[11px]"
+                    >
+                      +{formatCompactMoney(inc).replace(' zł', '')}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Popover Tajnych Celów Osobistych */}
+        {showGoalsPopover && secretGoals.length > 0 && (
+          <div className="absolute left-3 md:left-72 top-12 z-40 w-[340px] max-w-[calc(100vw-24px)] rounded-xl bg-[#0e1522] border border-amber-500/50 shadow-2xl p-3.5 space-y-2.5 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#243044] pb-2">
+              <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                🎯 Twoje Tajne Cele Osobiste
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowGoalsPopover(false)}
+                className="text-slate-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2 text-xs">
+              {secretGoals.map((goal) => {
+                const pct = goal.completed
+                  ? 100
+                  : Math.min(100, Math.round((goal.currentValue / Math.max(1, goal.targetValue)) * 100));
+                return (
+                  <div
+                    key={goal.id}
+                    className={`p-2.5 rounded-lg border ${
+                      goal.completed
+                        ? 'bg-emerald-950/35 border-emerald-500/50'
+                        : 'bg-[#131b2b] border-[#243044]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-100">
+                        {goal.completed ? '✅' : '🕵️'} {goal.title}
+                      </span>
+                      <span className="font-mono text-[10px] text-amber-300 shrink-0">
+                        +{formatCompactMoney(goal.rewardCash)}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{goal.description}</div>
+                    <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-slate-300">
+                      <span>
+                        {goal.currentValue}/{goal.targetValue} {goal.unitLabel} ({pct}%)
+                      </span>
+                      {goal.completed && <span className="text-emerald-300">UKOŃCZONO!</span>}
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-[#090d14] overflow-hidden mt-1">
+                      <div
+                        className={`h-full ${goal.completed ? 'bg-emerald-400' : 'bg-amber-400'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              Rywale nie znają Twoich celów aż do momentu ich zrealizowania w Gazecie!
+            </div>
           </div>
         )}
 

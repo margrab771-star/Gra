@@ -1,13 +1,32 @@
-import React, { useEffect, useRef } from 'react';
-import { HEATMAP_MODE_OPTIONS, TERRAIN_NAMES, TOLL_RATE_CONFIG } from '../config/gameConfig';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  GAME_CONFIG,
+  HEATMAP_MODE_OPTIONS,
+  TERRAIN_NAMES,
+  TOLL_RATE_CONFIG,
+} from '../config/gameConfig';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
-import { hasPlayerSurveyedPlot } from '../engine/PlotSystem';
+import { computeCloneBlueprint } from '../engine/BuildingSystem';
+import {
+  getRoadBuildCostForPlot,
+  hasPlayerSurveyedPlot,
+  isPlotBuildingVisibleToViewer,
+} from '../engine/PlotSystem';
 import { stepVehiclePositions } from '../engine/TransportSystem';
 import type { BuildingType, GameState, MapHeatmapMode, Plot } from '../engine/types';
 import { useIsometricCamera } from '../hooks/useIsometricCamera';
 import { IsometricRenderer } from '../renderer/IsometricRenderer';
 import { TILE_HEIGHT, TILE_WIDTH } from '../renderer/utils';
-import { formatCompactMoney } from '../utils/formatters';
+import { formatCompactMoney, formatMoney } from '../utils/formatters';
+import { DarkToggle } from './HUD/DarkControls';
+
+type MapToolMode = 'normal' | 'area_select' | 'road_local' | 'road_highway';
+
+interface CloneBlueprintSource {
+  buildingId: string;
+  buildingType: BuildingType;
+  includeUpgrades: boolean;
+}
 
 interface GameCanvasProps {
   gameState: GameState;
@@ -16,11 +35,58 @@ interface GameCanvasProps {
   heatmapMode?: MapHeatmapMode;
   targetMode?: 'missile' | 'nuke' | null;
   cloneBuildingType?: BuildingType | null;
+  cloneBlueprintSource?: CloneBlueprintSource | null;
+  mapToolMode?: MapToolMode;
+  areaSelectedPlotIds?: string[];
+  hoveredBuildType?: BuildingType | null;
   focusRequest?: { plotId: string; nonce: number } | null;
   onCancelSpecialMode?: () => void;
   onTargetPlot?: (plotId: string) => void;
   onChangeHeatmapMode?: (mode: MapHeatmapMode) => void;
+  onChangeMapToolMode?: (mode: MapToolMode) => void;
+  onAreaSelectionChange?: (plotIds: string[]) => void;
+  onBatchBuyPlots?: (plotIds: string[]) => void;
+  onBatchSurveyPlots?: (plotIds: string[]) => void;
+  onBatchBuildRoad?: (plotIds: string[], roadClass: 'local' | 'highway') => void;
+  onToggleCloneUpgrades?: (includeUpgrades: boolean) => void;
   onSelectPlot: (plotId: string | null) => void;
+}
+
+function buildManhattanRoadPath(
+  plots: Plot[],
+  startPlot: Plot,
+  endPlot: Plot
+): string[] {
+  const mapSize = Math.round(Math.sqrt(plots.length));
+  const byCoord = new Map<string, Plot>();
+  for (const p of plots) {
+    byCoord.set(`${p.gridX},${p.gridY}`, p);
+  }
+  const pathIds: string[] = [];
+  const seen = new Set<string>();
+  const pushCoord = (gx: number, gy: number) => {
+    if (gx < 0 || gy < 0 || gx >= mapSize || gy >= mapSize) return;
+    const p = byCoord.get(`${gx},${gy}`);
+    if (!p || p.terrain === 'water' || p.building || (p.irradiatedTicks ?? 0) > 0) return;
+    if (!seen.has(p.id)) {
+      seen.add(p.id);
+      pathIds.push(p.id);
+    }
+  };
+  let cx = startPlot.gridX;
+  let cy = startPlot.gridY;
+  pushCoord(cx, cy);
+  const dx = endPlot.gridX > cx ? 1 : -1;
+  while (cx !== endPlot.gridX && pathIds.length < 48) {
+    cx += dx;
+    pushCoord(cx, cy);
+  }
+  const dy = endPlot.gridY > cy ? 1 : -1;
+  while (cy !== endPlot.gridY && pathIds.length < 48) {
+    cy += dy;
+    pushCoord(cx, cy);
+  }
+  return pathIds;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
@@ -31,10 +97,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
     heatmapMode = 'standard',
     targetMode = null,
     cloneBuildingType = null,
+    cloneBlueprintSource = null,
+    mapToolMode = 'normal',
+    areaSelectedPlotIds = [],
+    hoveredBuildType = null,
     focusRequest = null,
     onCancelSpecialMode,
     onTargetPlot,
     onChangeHeatmapMode,
+    onChangeMapToolMode,
+    onAreaSelectionChange,
+    onBatchBuyPlots,
+    onBatchSurveyPlots,
+    onBatchBuildRoad,
+    onToggleCloneUpgrades,
     onSelectPlot,
   }) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -49,8 +125,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
     const showRoutesRef = useRef(showTransportRoutes);
     const heatmapRef = useRef<MapHeatmapMode>(heatmapMode);
     const targetModeRef = useRef<'missile' | 'nuke' | null>(targetMode);
+    const mapToolModeRef = useRef<MapToolMode>(mapToolMode);
+    const areaSelectedRef = useRef<string[]>(areaSelectedPlotIds);
+    const hoveredBuildTypeRef = useRef<BuildingType | null>(hoveredBuildType);
+    const cloneBlueprintRef = useRef<CloneBlueprintSource | null>(cloneBlueprintSource);
     const hoveredPlotIdRef = useRef<string | null>(null);
     const containerWidthRef = useRef(800);
+
+    // Interaktywny stan przeciągania obszaru i dróg bez re-renderów Reacta podczas ruchu myszą
+    const specialDragKindRef = useRef<'none' | 'area' | 'road'>('none');
+    const dragStartPlotRef = useRef<Plot | null>(null);
+    const liveAreaIdsRef = useRef<string[]>([]);
+    const liveRoadIdsRef = useRef<string[]>([]);
+    const [roadPreviewInfo, setRoadPreviewInfo] = useState<{ count: number; cost: number } | null>(
+      null
+    );
 
     const { cameraRef, centerOn, zoomBy, stepCameraAnimation, handlers } = useIsometricCamera(
       typeof window !== 'undefined' ? window.innerWidth * 0.45 : 500,
@@ -64,7 +153,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       showRoutesRef.current = showTransportRoutes;
       heatmapRef.current = heatmapMode;
       targetModeRef.current = targetMode;
-    }, [gameState, selectedPlotId, showTransportRoutes, heatmapMode, targetMode]);
+      mapToolModeRef.current = mapToolMode;
+      areaSelectedRef.current = areaSelectedPlotIds;
+      hoveredBuildTypeRef.current = hoveredBuildType;
+      cloneBlueprintRef.current = cloneBlueprintSource;
+    }, [
+      gameState,
+      selectedPlotId,
+      showTransportRoutes,
+      heatmapMode,
+      targetMode,
+      mapToolMode,
+      areaSelectedPlotIds,
+      hoveredBuildType,
+      cloneBlueprintSource,
+    ]);
 
     useEffect(() => {
       if (!focusRequest?.plotId) return;
@@ -124,7 +227,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           st.vehicles,
           showRoutesRef.current,
           heatmapRef.current,
-          targetModeRef.current
+          targetModeRef.current,
+          {
+            areaHighlightIds:
+              liveAreaIdsRef.current.length > 0 ? liveAreaIdsRef.current : areaSelectedRef.current,
+            roadPreviewIds: liveRoadIdsRef.current,
+            roadPreviewClass:
+              mapToolModeRef.current === 'road_highway' ? 'highway' : 'local',
+            previewBuildingType:
+              hoveredBuildTypeRef.current ?? cloneBlueprintRef.current?.buildingType ?? null,
+          }
         );
         animId = requestAnimationFrame(loop);
       };
@@ -165,9 +277,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       titleEl.textContent = `(${plot.gridX}, ${plot.gridY}) · ${TERRAIN_NAMES[plot.terrain]}`;
 
       const curPid = stateRef.current.currentPlayerId;
+      const curPlayer = stateRef.current.players.find((p) => p.id === curPid);
       if (plot.building) {
-        subEl.className = 'text-emerald-400 font-mono mt-0.5';
-        subEl.textContent = `${plot.building.icon} ${plot.building.name} (${Math.round(plot.building.damagePercent)}% zniszcz.)`;
+        const visible = isPlotBuildingVisibleToViewer(plot, curPid, curPlayer, stateRef.current);
+        if (!visible) {
+          subEl.className = 'text-amber-300 font-mono mt-0.5';
+          subEl.textContent = '🌫️ Obiekt Nieznany (Mgła Wojny)';
+        } else {
+          subEl.className = 'text-emerald-400 font-mono mt-0.5';
+          subEl.textContent = `${plot.building.icon} ${plot.building.name} (${Math.round(plot.building.damagePercent)}% zniszcz.)`;
+        }
       } else if (plot.hasRoad) {
         const owner = plot.ownerId
           ? stateRef.current.players.find((p) => p.id === plot.ownerId)?.companyName
@@ -193,17 +312,120 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       }
     };
 
+    const computeAreaIds = (startPlot: Plot, endPlot: Plot): string[] => {
+      const minX = Math.min(startPlot.gridX, endPlot.gridX);
+      const maxX = Math.max(startPlot.gridX, endPlot.gridX);
+      const minY = Math.min(startPlot.gridY, endPlot.gridY);
+      const maxY = Math.max(startPlot.gridY, endPlot.gridY);
+      const ids: string[] = [];
+      for (const p of stateRef.current.plots) {
+        if (
+          p.gridX >= minX &&
+          p.gridX <= maxX &&
+          p.gridY >= minY &&
+          p.gridY <= maxY &&
+          p.terrain !== 'water' &&
+          (p.irradiatedTicks ?? 0) <= 0
+        ) {
+          ids.push(p.id);
+          if (ids.length >= 64) break;
+        }
+      }
+      return ids;
+    };
+
+    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const mode = mapToolModeRef.current;
+      if (e.button === 0 && (e.shiftKey || mode === 'area_select')) {
+        const sp = pickPlot(e.clientX, e.clientY);
+        if (sp) {
+          specialDragKindRef.current = 'area';
+          dragStartPlotRef.current = sp;
+          liveAreaIdsRef.current = computeAreaIds(sp, sp);
+          return;
+        }
+      }
+      if (e.button === 0 && (mode === 'road_local' || mode === 'road_highway')) {
+        const sp = pickPlot(e.clientX, e.clientY);
+        if (sp) {
+          specialDragKindRef.current = 'road';
+          dragStartPlotRef.current = sp;
+          const pathIds = buildManhattanRoadPath(stateRef.current.plots, sp, sp);
+          liveRoadIdsRef.current = pathIds;
+          const st = stateRef.current;
+          const lp = st.players.find((pl) => pl.id === st.currentPlayerId);
+          const cls = mode === 'road_highway' ? 'highway' : 'local';
+          const totalCost = lp
+            ? pathIds.reduce((s, pid) => {
+                const pl = st.plots.find((q) => q.id === pid);
+                return pl ? s + getRoadBuildCostForPlot(st, lp, pl, cls) : s;
+              }, 0)
+            : 0;
+          setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
+          return;
+        }
+      }
+      handlers.onMouseDown(e);
+    };
+
     const handlePointerMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      handlers.onMouseMove(e);
       const rect = e.currentTarget.getBoundingClientRect();
       const lx = e.clientX - rect.left;
       const ly = e.clientY - rect.top;
       const plot = pickPlot(e.clientX, e.clientY);
       hoveredPlotIdRef.current = plot ? plot.id : null;
       updateTooltipDom(plot, lx, ly);
+
+      if (specialDragKindRef.current === 'area' && dragStartPlotRef.current && plot) {
+        liveAreaIdsRef.current = computeAreaIds(dragStartPlotRef.current, plot);
+        return;
+      }
+      if (specialDragKindRef.current === 'road' && dragStartPlotRef.current && plot) {
+        const pathIds = buildManhattanRoadPath(
+          stateRef.current.plots,
+          dragStartPlotRef.current,
+          plot
+        );
+        liveRoadIdsRef.current = pathIds;
+        const st = stateRef.current;
+        const lp = st.players.find((pl) => pl.id === st.currentPlayerId);
+        const cls = mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
+        const totalCost = lp
+          ? pathIds.reduce((s, pid) => {
+              const pl = st.plots.find((q) => q.id === pid);
+              if (!pl) return s;
+              if (pl.hasRoad && (cls === 'local' || pl.roadType === 'highway')) return s;
+              return s + getRoadBuildCostForPlot(st, lp, pl, cls);
+            }, 0)
+          : 0;
+        setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
+        return;
+      }
+
+      handlers.onMouseMove(e);
     };
 
     const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (specialDragKindRef.current === 'area') {
+        const ids = [...liveAreaIdsRef.current];
+        specialDragKindRef.current = 'none';
+        dragStartPlotRef.current = null;
+        liveAreaIdsRef.current = [];
+        onAreaSelectionChange?.(ids);
+        return;
+      }
+      if (specialDragKindRef.current === 'road') {
+        const ids = [...liveRoadIdsRef.current];
+        const cls = mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
+        specialDragKindRef.current = 'none';
+        dragStartPlotRef.current = null;
+        liveRoadIdsRef.current = [];
+        setRoadPreviewInfo(null);
+        if (ids.length > 0) {
+          onBatchBuildRoad?.(ids, cls);
+        }
+        return;
+      }
       const wasClick = handlers.onMouseUp();
       if (wasClick) {
         const plot = pickPlot(e.clientX, e.clientY);
@@ -228,17 +450,65 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       }
     };
 
+    const localPlayer =
+      gameState.players.find((p) => p.id === gameState.currentPlayerId) ?? gameState.players[0];
+    const selectedPlotsObjs =
+      areaSelectedPlotIds.length > 0
+        ? gameState.plots.filter((p) => areaSelectedPlotIds.includes(p.id))
+        : [];
+    const buyableAreaPlots = selectedPlotsObjs.filter(
+      (p) => p.purchasable && p.ownerId === null && (p.irradiatedTicks ?? 0) <= 0
+    );
+    const buyAreaTotalCost = buyableAreaPlots.reduce((s, p) => s + p.price, 0);
+    const surveyableAreaPlots = selectedPlotsObjs.filter(
+      (p) =>
+        p.terrain !== 'water' &&
+        (!p.ownerId || p.ownerId === localPlayer.id) &&
+        !p.hasRoad &&
+        !hasPlayerSurveyedPlot(p, localPlayer.id)
+    );
+    const singleSurveyCost = Math.round(
+      GAME_CONFIG.surveyCost * (localPlayer.globalTech['ind_geology']?.status === 'done' ? 0.7 : 1)
+    );
+    const surveyAreaTotalCost = surveyableAreaPlots.length * singleSurveyCost;
+
+    const cloneSrcPlot = cloneBlueprintSource
+      ? gameState.plots.find((p) => p.building?.id === cloneBlueprintSource.buildingId)
+      : undefined;
+    const cloneBlueprintCost =
+      cloneBlueprintSource && cloneSrcPlot?.building
+        ? computeCloneBlueprint(
+            gameState,
+            localPlayer,
+            cloneSrcPlot.building,
+            cloneBlueprintSource.includeUpgrades
+          )
+        : null;
+
     return (
       <div ref={containerRef} id="game-canvas" className="relative w-full h-full overflow-hidden select-none">
         <canvas
           ref={canvasRef}
           className={`block w-full h-full touch-none ${
-            targetMode || cloneBuildingType ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+            targetMode || cloneBuildingType || cloneBlueprintSource || mapToolMode !== 'normal'
+              ? 'cursor-crosshair'
+              : 'cursor-grab active:cursor-grabbing'
           }`}
-          onMouseDown={handlers.onMouseDown}
+          onMouseDown={handleMouseDown}
           onMouseMove={handlePointerMove}
           onMouseUp={handleMouseUp}
+          onContextMenu={(e) => {
+            if (targetMode || cloneBlueprintSource || cloneBuildingType || mapToolMode !== 'normal') {
+              e.preventDefault();
+              onCancelSpecialMode?.();
+            }
+          }}
           onMouseLeave={() => {
+            specialDragKindRef.current = 'none';
+            dragStartPlotRef.current = null;
+            liveAreaIdsRef.current = [];
+            liveRoadIdsRef.current = [];
+            setRoadPreviewInfo(null);
             handlers.onMouseUp();
             hoveredPlotIdRef.current = null;
             if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
@@ -249,49 +519,127 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           onTouchEnd={handleTouchEnd}
         />
 
-        {/* Aktywny baner celowania / klonowania obiektu */}
-        {(targetMode || cloneBuildingType) && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-3.5 py-2 rounded-xl bg-rose-950/90 border border-rose-500/60 shadow-2xl backdrop-blur-md">
+        {/* Aktywny baner celowania / klonowania 1:1 / rysowania drogi */}
+        {(targetMode || cloneBlueprintSource || cloneBuildingType || roadPreviewInfo) && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#0e1522]/95 border border-rose-500/60 shadow-2xl backdrop-blur-md max-w-[calc(100%-24px)]">
             <span className="text-xs font-semibold text-rose-100">
               {targetMode === 'nuke'
                 ? '☢️ Wskaż działkę na mapie dla ataku jądrowego 5×5'
                 : targetMode === 'missile'
                   ? '🚀 Wskaż cel uderzenia taktycznego 3×3'
-                  : `🧪 Tryb klonowania (Pipeta): Kliknij wolną własną działkę, aby postawić "${BUILDING_DEFINITIONS[cloneBuildingType!]?.name ?? cloneBuildingType}"`}
+                  : roadPreviewInfo
+                    ? `🛣️ Rysowanie odcinka: ${roadPreviewInfo.count} pól · Koszt: ${formatMoney(roadPreviewInfo.cost)}`
+                    : cloneBlueprintSource && cloneBlueprintCost
+                      ? `🧪 Klonowanie 1:1 „${BUILDING_DEFINITIONS[cloneBlueprintSource.buildingType]?.name ?? cloneBlueprintSource.buildingType}” · Koszt: ${formatMoney(cloneBlueprintCost.totalCost)} (baza ${formatCompactMoney(cloneBlueprintCost.baseCost)} + ulepszenia/flota ${formatCompactMoney(cloneBlueprintCost.upgradesCost + cloneBlueprintCost.fleetCost)}) · Klikaj seryjnie puste działki`
+                      : `🧪 Tryb klonowania: Kliknij wolną własną działkę, aby postawić "${BUILDING_DEFINITIONS[cloneBuildingType!]?.name ?? cloneBuildingType}"`}
             </span>
+            {cloneBlueprintSource && onToggleCloneUpgrades && (
+              <div className="text-[11px] bg-[#162033] px-2 py-1 rounded border border-[#2d3b52]">
+                <DarkToggle
+                  checked={cloneBlueprintSource.includeUpgrades}
+                  onChange={onToggleCloneUpgrades}
+                  label="Ulepszenia 1:1"
+                />
+              </div>
+            )}
             {onCancelSpecialMode && (
               <button
                 type="button"
                 onClick={onCancelSpecialMode}
                 className="px-2 py-0.5 rounded bg-[#0f1623] border border-[#243044] text-[11px] text-slate-300 hover:text-white"
               >
-                Anuluj
+                Anuluj (Esc/PPM)
               </button>
             )}
           </div>
         )}
 
-        {/* Pasek dynamicznych nakładek analitycznych mapy (Heatmaps) */}
-        {onChangeHeatmapMode && (
-          <div className="absolute top-2.5 left-2.5 z-10 flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#0b0f17]/90 border border-[#243044] backdrop-blur-md shadow-xl max-w-[calc(100%-20px)]">
-            {HEATMAP_MODE_OPTIONS.map((hm) => (
+        {/* Pasek hurtowego zaznaczania obszaru (Kup wszystkie / Geologia) */}
+        {areaSelectedPlotIds.length > 0 && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0e1522]/95 border border-sky-500/60 shadow-2xl backdrop-blur-md text-xs">
+            <span className="font-semibold text-sky-300">
+              📐 Zaznaczono: {areaSelectedPlotIds.length} pól
+            </span>
+            {onBatchBuyPlots && buyableAreaPlots.length > 0 && (
               <button
-                key={hm.key}
                 type="button"
-                onClick={() => onChangeHeatmapMode(hm.key)}
-                className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
-                  heatmapMode === hm.key
-                    ? 'bg-amber-500/20 border border-amber-400/60 text-amber-200'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#151e2e]'
-                }`}
-                title={`Nakładka mapy: ${hm.label}`}
+                disabled={localPlayer.cash < buyAreaTotalCost}
+                onClick={() => onBatchBuyPlots(buyableAreaPlots.map((p) => p.id))}
+                className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
               >
-                <span>{hm.icon}</span>
-                <span className="hidden sm:inline">{hm.label}</span>
+                💰 Kup wolne ({buyableAreaPlots.length} · {formatCompactMoney(buyAreaTotalCost)})
               </button>
-            ))}
+            )}
+            {onBatchSurveyPlots && surveyableAreaPlots.length > 0 && (
+              <button
+                type="button"
+                disabled={localPlayer.cash < surveyAreaTotalCost}
+                onClick={() => onBatchSurveyPlots(surveyableAreaPlots.map((p) => p.id))}
+                className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold"
+              >
+                🔍 Geologia ({surveyableAreaPlots.length} · {formatCompactMoney(surveyAreaTotalCost)})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onAreaSelectionChange?.([])}
+              className="px-2 py-1 rounded bg-[#182235] border border-[#2d3b52] text-slate-300"
+            >
+              Wyczyść
+            </button>
           </div>
         )}
+
+        {/* Pasek dynamicznych nakładek analitycznych mapy (Heatmaps) i narzędzi QoL */}
+        <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1.5 max-w-[calc(100%-20px)]">
+          {onChangeHeatmapMode && (
+            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#0b0f17]/90 border border-[#243044] backdrop-blur-md shadow-xl">
+              {HEATMAP_MODE_OPTIONS.map((hm) => (
+                <button
+                  key={hm.key}
+                  type="button"
+                  onClick={() => onChangeHeatmapMode(hm.key)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
+                    heatmapMode === hm.key
+                      ? 'bg-amber-500/20 border border-amber-400/60 text-amber-200'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#151e2e]'
+                  }`}
+                  title={`Nakładka mapy: ${hm.label}`}
+                >
+                  <span>{hm.icon}</span>
+                  <span className="hidden sm:inline">{hm.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {onChangeMapToolMode && (
+            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#0b0f17]/90 border border-[#243044] backdrop-blur-md shadow-xl w-fit">
+              {(
+                [
+                  { id: 'normal', icon: '🖱️', label: 'Zwykły' },
+                  { id: 'area_select', icon: '📐', label: 'Obszar (Shift)' },
+                  { id: 'road_local', icon: '🛣️', label: 'Rysuj Drogę (R)' },
+                  { id: 'road_highway', icon: '🟨', label: 'Rysuj Autostradę' },
+                ] as { id: MapToolMode; icon: string; label: string }[]
+              ).map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => onChangeMapToolMode(mapToolMode === tool.id && tool.id !== 'normal' ? 'normal' : tool.id)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
+                    mapToolMode === tool.id
+                      ? 'bg-sky-500/25 border border-sky-400/65 text-sky-200'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#151e2e]'
+                  }`}
+                >
+                  <span>{tool.icon}</span>
+                  <span className="hidden md:inline">{tool.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Szybkie przyciski zoom / wyśrodkowania */}
         <div className="absolute bottom-20 md:bottom-5 right-3 flex flex-col gap-1.5 z-10">

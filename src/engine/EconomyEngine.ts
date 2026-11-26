@@ -1,4 +1,5 @@
-import { GAME_CONFIG } from '../config/gameConfig';
+import { DIFFICULTY_PRESETS, GAME_CONFIG, GOVERNMENT_CONFIGS } from '../config/gameConfig';
+import { getArchetypeDefinition } from '../data/archetypes';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { formatGameDate } from '../utils/formatters';
 import type {
@@ -63,18 +64,23 @@ export function updateMarketCyclesTick(state: GameState): void {
     state.marketCycles = createInitialMarketCycles();
   }
 
+  const isVolatileMutator = Boolean(state.settings.mutators?.volatileMarket);
+  const isGoldRush = state.settings.scenarioId === 'gold_rush';
+  const preset = DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
+  const crashMult = preset.crashFreqMult * (isVolatileMutator ? 1.4 : 1);
+
   for (const cycle of state.marketCycles) {
-    cycle.ticksRemaining -= 1;
+    cycle.ticksRemaining -= isVolatileMutator ? 2 : 1;
     let nextPhase: MarketCyclePhase = cycle.phase;
 
     if (cycle.ticksRemaining <= 0) {
       const r = Math.random();
       if (cycle.phase === 'hossa') {
-        nextPhase = r < 0.34 ? 'banka' : 'korekta';
+        nextPhase = r < 0.34 * (isVolatileMutator || isGoldRush ? 1.25 : 1) ? 'banka' : 'korekta';
         cycle.multiplier = nextPhase === 'banka' ? 1.48 + Math.random() * 0.35 : 0.88 + Math.random() * 0.08;
         cycle.ticksRemaining = nextPhase === 'banka' ? 18 + Math.floor(Math.random() * 10) : 14 + Math.floor(Math.random() * 10);
       } else if (cycle.phase === 'banka') {
-        nextPhase = r < 0.68 ? 'krach' : 'korekta';
+        nextPhase = r < Math.min(0.88, 0.68 * crashMult) ? 'krach' : 'korekta';
         cycle.multiplier = nextPhase === 'krach' ? 0.44 + Math.random() * 0.14 : 0.78 + Math.random() * 0.1;
         cycle.ticksRemaining = nextPhase === 'krach' ? 16 + Math.floor(Math.random() * 10) : 14 + Math.floor(Math.random() * 8);
       } else if (cycle.phase === 'krach') {
@@ -83,7 +89,7 @@ export function updateMarketCyclesTick(state: GameState): void {
         cycle.ticksRemaining = 22 + Math.floor(Math.random() * 16);
       } else {
         // korekta
-        nextPhase = r < 0.65 ? 'hossa' : r < 0.85 ? 'korekta' : 'krach';
+        nextPhase = r < 0.62 ? 'hossa' : r < 0.82 ? 'korekta' : 'krach';
         cycle.multiplier =
           nextPhase === 'hossa'
             ? 1.14 + Math.random() * 0.22
@@ -292,7 +298,10 @@ export function updateMarketPrices(
     }
 
     const targetPrice = def.basePrice * (1 + imbalance * def.elasticity) * eventMult * cycleMult;
-    const volScale = sectorCycle?.phase === 'krach' ? 1.45 : sectorCycle?.phase === 'banka' ? 1.25 : 1.0;
+    const presetVol = (DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard).marketVolatilityMult;
+    const mutVol = state.settings.mutators?.volatileMarket ? 2.0 : 1.0;
+    const goldRushVol = state.settings.scenarioId === 'gold_rush' ? 1.35 : 1.0;
+    const volScale = (sectorCycle?.phase === 'krach' ? 1.45 : sectorCycle?.phase === 'banka' ? 1.25 : 1.0) * presetVol * mutVol * goldRushVol;
     const noise = (Math.random() - 0.5) * 2 * def.volatility * 0.45 * volScale;
     const pullRate = sectorCycle?.phase === 'krach' ? 0.24 : 0.15;
     const meanPull = (targetPrice - rp.price) * pullRate;
@@ -438,8 +447,9 @@ export function getOverallDominanceScore(state: GameState, playerId: string): nu
     (player.influence.financial + player.influence.military + player.influence.social) / 25
   );
   const breadthBonus = activeMarkets.length * 2.0;
+  const secretBonus = player.secretGoalDominanceBonus ?? 0;
 
-  return Math.min(100, Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus));
+  return Math.min(100, Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus + secretBonus));
 }
 
 export function takeBankLoan(
@@ -448,6 +458,12 @@ export function takeBankLoan(
   amount: number,
   months: number
 ): { ok: boolean; error?: string } {
+  if (state.settings.mutators?.noLoans) {
+    return {
+      ok: false,
+      error: 'Mutator "Bez Kredytów": pożyczki bankowe są całkowicie zablokowane w tej rozgrywce.',
+    };
+  }
   const isMp = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
   if (isMp && player.loans.length >= GAME_CONFIG.maxMpLoans) {
     return {
@@ -465,13 +481,16 @@ export function takeBankLoan(
   }
 
   const mods = getPlayerEntrepreneurModifiers(state, player);
+  const archInterestMult = getArchetypeDefinition(player.archetype).modifiers.loanInterestMult;
+  const preset = DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
+  const govInterestDelta = state.government ? GOVERNMENT_CONFIGS[state.government.currentGov].interestDelta : 0;
   const hasBank = state.plots.some(
     (p) => p.ownerId === player.id && p.building?.type === 'investmentBank'
   );
-  const rate = Math.max(
-    0.025,
-    state.baseInterestRate - mods.loanInterestReduction - (hasBank ? 0.012 : 0)
-  );
+  const rawRate =
+    (state.baseInterestRate + preset.interestDelta + govInterestDelta - mods.loanInterestReduction - (hasBank ? 0.012 : 0)) *
+    archInterestMult;
+  const rate = Math.max(0.02, rawRate);
   const ticks = months * GAME_CONFIG.ticksPerGameMonth;
   const totalWithInterest = Math.round(amount * (1 + rate * (months / 12)));
   const paymentPerTick = Math.ceil(totalWithInterest / ticks);
@@ -519,6 +538,7 @@ export function processLoansTick(player: Player): number {
 }
 
 export function processInsolvencyAndBailiffTick(state: GameState): void {
+  const preset = DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
   for (const player of state.players) {
     if (player.isEliminated) continue;
 
@@ -533,16 +553,16 @@ export function processInsolvencyAndBailiffTick(state: GameState): void {
     }
 
     if ((player.insolvencyGraceTicks ?? 0) <= 0) {
-      player.insolvencyGraceTicks = 12;
+      player.insolvencyGraceTicks = preset.bailiffGraceTicks;
       player.insolvencyReason = 'Ujemne saldo gotówkowe i zaległe zobowiązania wobec wierzycieli';
-      const br = `Spółka odnotowała krytyczny deficyt gotówki (${Math.round(player.cash).toLocaleString('pl-PL')} zł). Za 12 cykli komornik rozpocznie przymusową licytację działek i majątku!`;
+      const br = `Spółka odnotowała krytyczny deficyt gotówki (${Math.round(player.cash).toLocaleString('pl-PL')} zł). Za ${preset.bailiffGraceTicks} cykli komornik rozpocznie przymusową licytację działek i majątku!`;
       state.news.unshift({
         id: `bailiff_warn_${state.time.tick}_${player.id}`,
         headline: `⚠️ Ostateczne Wezwanie Komornicze dla ${player.companyName}`,
         brief: br,
         fullText: br,
         analysis: 'Niewypłacalność spółki uruchamia procedurę zajęcia i licytacji majątku.',
-        hints: ['Sprzedaj zapasy, weź kredyt lub spienięż zbędną działkę przed upływem 12 cykli.'],
+        hints: ['Sprzedaj zapasy, weź kredyt lub spienięż zbędną działkę przed upływem ostrzeżenia.'],
         type: 'negative',
         dateLabel: formatGameDate(state.time),
         tick: state.time.tick,
@@ -604,20 +624,52 @@ export function processInsolvencyAndBailiffTick(state: GameState): void {
     );
     const seizedName = targetPlot.building ? `${targetPlot.building.name} + działka` : `działka (${targetPlot.gridX},${targetPlot.gridY})`;
 
-    targetPlot.ownerId = null;
-    targetPlot.building = null;
-    targetPlot.hasRoad = false;
-    targetPlot.roadType = 'none';
-    targetPlot.tollRate = 'free';
-    targetPlot.roadBlocked = false;
-    targetPlot.blockedPlayers = [];
-    targetPlot.isPlayerRoad = false;
-    targetPlot.purchasable = targetPlot.terrain !== 'water' && (targetPlot.irradiatedTicks ?? 0) <= 0;
+    if (player.statsAccum) {
+      player.statsAccum.bailiffSeizures = (player.statsAccum.bailiffSeizures ?? 0) + 1;
+    }
+
+    // Jeśli działka posiada wartościowy budynek i brak innej aktywnej licytacji, otwórz 30-sekundową Licytację na Żywo
+    const seizedBuilding = targetPlot.building && targetPlot.building.type !== 'corporateHQ' && !targetPlot.building.destroyedRuins;
+    if (seizedBuilding && !state.liveAuction) {
+      targetPlot.ownerId = null;
+      targetPlot.purchasable = false; // zablokowana do czasu zakończenia 30s aukcji
+      targetPlot.building!.ownerId = 'auction_escrow';
+      const now = Date.now();
+      state.liveAuction = {
+        id: `auc_${state.time.tick}_${targetPlot.id}`,
+        plotId: targetPlot.id,
+        gridX: targetPlot.gridX,
+        gridY: targetPlot.gridY,
+        title: `Licytacja Komornicza: ${targetPlot.building!.name}`,
+        description: `Zajęty obiekt dłużnika ${player.companyName} na polu (${targetPlot.gridX}, ${targetPlot.gridY}) wraz z wyposażeniem.`,
+        startingBid: auctionValue,
+        currentBid: auctionValue,
+        highestBidderId: null,
+        highestBidderName: null,
+        minIncrement: Math.max(15_000, Math.round(auctionValue * 0.08 / 1000) * 1000),
+        secondsRemaining: 30,
+        startedAtMs: now,
+        expiresAtMs: now + 30_000,
+        bidsCount: 0,
+        sellerPlayerId: player.id,
+        status: 'active',
+      };
+    } else {
+      targetPlot.ownerId = null;
+      targetPlot.building = null;
+      targetPlot.hasRoad = false;
+      targetPlot.roadType = 'none';
+      targetPlot.tollRate = 'free';
+      targetPlot.roadBlocked = false;
+      targetPlot.blockedPlayers = [];
+      targetPlot.isPlayerRoad = false;
+      targetPlot.purchasable = targetPlot.terrain !== 'water' && (targetPlot.irradiatedTicks ?? 0) <= 0;
+    }
+
     state.networkRevision = (state.networkRevision ?? 0) + 1;
 
     player.cash += auctionValue;
-    // Jeśli nadal na minusie, ustaw krótszy termin na kolejną licytację
-    player.insolvencyGraceTicks = player.cash < 0 ? 6 : 0;
+    player.insolvencyGraceTicks = player.cash < 0 ? Math.max(4, Math.round(preset.bailiffGraceTicks * 0.5)) : 0;
     if (player.cash >= 0) player.insolvencyReason = undefined;
 
     const brAuction = `Komornik zlicytował majątek na działce (${targetPlot.gridX}, ${targetPlot.gridY}) za ${auctionValue.toLocaleString('pl-PL')} zł na pokrycie długów.`;

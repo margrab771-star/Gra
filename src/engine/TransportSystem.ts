@@ -1,4 +1,5 @@
 import { TOLL_RATE_CONFIG } from '../config/gameConfig';
+import { getArchetypeDefinition } from '../data/archetypes';
 import { arePlayersAllied, hasActiveEmbargo } from './CoalitionSystem';
 import type {
   Building,
@@ -357,7 +358,8 @@ export function processTollsAndLogisticsTick(state: GameState): void {
         if (!owner || owner.id === player.id) continue;
         if (arePlayersAllied(state, player.id, owner.id)) continue;
         const tollCfg = TOLL_RATE_CONFIG[rp.tollRate ?? 'free'];
-        const fee = tollCfg?.feePerPass ?? 0;
+        const tollArchMult = getArchetypeDefinition(owner.archetype).modifiers.tollRevenueMult;
+        const fee = Math.round((tollCfg?.feePerPass ?? 0) * tollArchMult);
         if (fee <= 0) continue;
 
         const actualFee = Math.min(Math.max(0, player.cash), fee);
@@ -646,12 +648,15 @@ export function syncVehiclesForWorld(state: GameState): void {
     });
   }
 
-  // 4. Samoloty Cargo z Lotnisk Towarowych
-  const airports = activePlots.filter((p) => p.building?.type === 'cargoAirport');
+  // 4. Samoloty Cargo i Pasażerskie VIP z Lotnisk
+  const airports = activePlots.filter(
+    (p) => p.building?.type === 'cargoAirport' || p.building?.type === 'passengerTerminal'
+  );
   for (const ap of airports) {
     const targets = activePlots.filter((p) => p.id !== ap.id && p.ownerId === ap.ownerId);
     const dst = targets[0] ?? activePlots.find((p) => p.id !== ap.id);
     if (!dst) continue;
+    const isPassengerVip = ap.building?.type === 'passengerTerminal';
     vehicles.push({
       id: `plane_${ap.id}`,
       sourcePlotId: ap.id,
@@ -659,9 +664,9 @@ export function syncVehiclesForWorld(state: GameState): void {
       routePlotIds: [ap.id, dst.id],
       routeSegment: 0,
       progress: Math.random() * 0.6,
-      speed: 0.42,
+      speed: isPassengerVip ? 0.5 : 0.42,
       type: 'plane',
-      cargo: 'semiconductors',
+      cargo: isPassengerVip ? null : 'semiconductors',
       ownerId: ap.ownerId ?? 'neutral',
     });
     routeLines.push({
@@ -669,6 +674,67 @@ export function syncVehiclesForWorld(state: GameState): void {
       toPlotId: dst.id,
       mode: 'air',
       ownerId: ap.ownerId ?? 'neutral',
+    });
+  }
+
+  // 4b. Zajezdnie Autobusowe, Stacje Metra i Dworce Kolejowe — gwarantowane animowane kursy pasażerskie
+  const busDepots = activePlots.filter((p) => p.building?.type === 'busDepot');
+  for (const bd of busDepots.slice(0, 6)) {
+    if (roadPlots.length < 2) break;
+    const ownerId = bd.ownerId ?? 'neutral';
+    const commercialTargets = activePlots.filter(
+      (p) =>
+        p.id !== bd.id &&
+        (p.building?.category === 'real_estate' ||
+          p.building?.category === 'attractions' ||
+          p.building?.type === 'officeTower')
+    );
+    const dstPool = commercialTargets.length > 0 ? commercialTargets : roadPlots;
+    const dst = dstPool[state.time.tick % dstPool.length];
+    if (!dst || dst.id === bd.id) continue;
+    const routeRes = computeWeightedRoadRouteWithIndex(bd, dst, ownerId, plotsByCoord, true, state);
+    if (routeRes) {
+      vehicles.push({
+        id: `pax_bus_${bd.id}`,
+        sourcePlotId: bd.id,
+        destinationPlotId: dst.id,
+        routePlotIds: routeRes.path,
+        routeSegment: 0,
+        progress: Math.random() * 0.5,
+        speed: 1.9,
+        type: 'bus',
+        cargo: null,
+        ownerId,
+      });
+    }
+  }
+
+  const railStations = activePlots.filter(
+    (p) => p.building?.type === 'metroStation' || p.building?.type === 'trainStation'
+  );
+  for (const rs of railStations.slice(0, 6)) {
+    const targets = activePlots.filter(
+      (p) =>
+        p.id !== rs.id &&
+        (p.building?.type === 'metroStation' ||
+          p.building?.type === 'trainStation' ||
+          p.building?.category === 'real_estate' ||
+          p.building?.category === 'attractions')
+    );
+    const dst = targets[0] ?? activePlots.find((p) => p.id !== rs.id);
+    if (!dst) continue;
+    const isMetro = rs.building?.type === 'metroStation';
+    vehicles.push({
+      id: `rail_${rs.id}`,
+      sourcePlotId: rs.id,
+      destinationPlotId: dst.id,
+      routePlotIds: [rs.id, dst.id],
+      routeSegment: 0,
+      progress: Math.random() * 0.5,
+      speed: isMetro ? 1.4 : 1.0,
+      type: isMetro ? 'metro' : 'train',
+      cargo: null,
+      ownerId: rs.ownerId ?? 'neutral',
     });
   }
 

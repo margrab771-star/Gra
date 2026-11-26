@@ -1,6 +1,6 @@
 import type { SkillNode } from '../engine/types';
 
-export const DEFAULT_ENTREPRENEUR_SKILLS: SkillNode[] = [
+const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   // ─── 1. Finanse i Giełda (Północ · 8 węzłów) ───────────────────────────────
   {
     id: 'ent_fin_1',
@@ -619,3 +619,12 @@ export const DEFAULT_ENTREPRENEUR_SKILLS: SkillNode[] = [
     modifiers: { influencePowerBonus: 0.75, militaryInfluenceBonus: 60, profitBonus: 0.18 },
   },
 ];
+
+export const DEFAULT_ENTREPRENEUR_SKILLS: SkillNode[] = RAW_ENTREPRENEUR_SKILLS.map((sk) => {
+  const tier = sk.tier ?? 1;
+  const expCost = tier <= 1 ? 1 : tier === 2 ? 2 : tier === 3 ? 3 : tier === 4 ? 5 : tier === 5 ? 7 : 12;
+  return {
+    ...sk,
+    skillPointCost: Math.max(sk.skillPointCost, expCost),
+  };
+});

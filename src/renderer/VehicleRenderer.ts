@@ -80,6 +80,12 @@ export class VehicleRenderer {
         case 'plane':
           this.drawPlane(ctx, camera.zoom, angle);
           break;
+        case 'metro':
+          this.drawMetroTrain(ctx, camera.zoom, angle);
+          break;
+        case 'train':
+          this.drawExpressTrain(ctx, camera.zoom, angle);
+          break;
         default:
           this.drawBus(ctx, camera.zoom, angle);
           break;
@@ -285,5 +291,31 @@ export class VehicleRenderer {
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 0.6;
     ctx.strokeRect(-7 * s, -3 * s, 14 * s, 6 * s);
+  }
+
+  private drawMetroTrain(ctx: CanvasRenderingContext2D, zoom: number, angle: number): void {
+    const s = zoom;
+    ctx.rotate(angle);
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+    ctx.fillRect(-10 * s, -3.5 * s, 20 * s, 7 * s);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(-9 * s, -2.5 * s, 18 * s, 5 * s);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(-9 * s, -0.6 * s, 18 * s, 1.4 * s);
+  }
+
+  private drawExpressTrain(ctx: CanvasRenderingContext2D, zoom: number, angle: number): void {
+    const s = zoom;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2.5 * s, 11 * s, 3 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.rotate(angle);
+    ctx.fillStyle = '#1e3a8a';
+    ctx.fillRect(-10 * s, -2.8 * s, 20 * s, 5.6 * s);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(6 * s, -2 * s, 4 * s, 4 * s);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(-8 * s, -1.5 * s, 12 * s, 3 * s);
   }
 }

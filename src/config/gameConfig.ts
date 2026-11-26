@@ -1,8 +1,12 @@
 import type {
   BuildingCategory,
   CorporationLevel,
+  DifficultyPreset,
   EmergencyServiceKind,
+  GovernmentKind,
   MapHeatmapMode,
+  MutatorFlags,
+  ScenarioId,
   TerrainType,
   TollRate,
 } from '../engine/types';
@@ -12,7 +16,7 @@ import type {
 export const GAME_CONFIG = {
   title: 'Market Dominion',
   subtitle: 'Symulator Imperium Biznesowego & Giełdy Surowców',
-  version: '4.5.0',
+  version: '7.0.0',
   startingCash: 5_000_000,
   challengeDurationSeconds: 3600,
   mpFastDurationSeconds: 3600,
@@ -196,6 +200,200 @@ export const AI_STRATEGY_LABELS: Record<string, string> = {
   shadowBroker: 'Szara Eminencja',
   military: 'Korporacyjny Kondotier',
   supplyChain: 'Architekt Łańcuchów B2B',
+};
+
+export interface DifficultyPresetConfig {
+  id: DifficultyPreset;
+  label: string;
+  badge: string;
+  description: string;
+  startingCashMult: number;
+  taxMult: number;
+  maintenanceMult: number;
+  interestDelta: number;
+  utilityPenaltyMult: number;
+  marketVolatilityMult: number;
+  bailiffGraceTicks: number;
+  crashFreqMult: number;
+}
+
+export const DIFFICULTY_PRESETS: Record<DifficultyPreset, DifficultyPresetConfig> = {
+  rozruch: {
+    id: 'rozruch',
+    label: 'Rozruch (Łatwy)',
+    badge: '🟢',
+    description: '+30% gotówki startowej, niższe podatki i odsetki, łagodniejsze kary za deficyt mediów, rzadsze krachy.',
+    startingCashMult: 1.3,
+    taxMult: 0.85,
+    maintenanceMult: 0.88,
+    interestDelta: -0.015,
+    utilityPenaltyMult: 0.65,
+    marketVolatilityMult: 0.85,
+    bailiffGraceTicks: 16,
+    crashFreqMult: 0.55,
+  },
+  standard: {
+    id: 'standard',
+    label: 'Standardowy (Zbalansowany)',
+    badge: '🔵',
+    description: 'Domyślny, wyważony balans gospodarki, giełdy i służb ratunkowych.',
+    startingCashMult: 1.0,
+    taxMult: 1.0,
+    maintenanceMult: 1.0,
+    interestDelta: 0,
+    utilityPenaltyMult: 1.0,
+    marketVolatilityMult: 1.0,
+    bailiffGraceTicks: 12,
+    crashFreqMult: 1.0,
+  },
+  kryzysowy: {
+    id: 'kryzysowy',
+    label: 'Kryzysowy (Trudny)',
+    badge: '🟠',
+    description: '-15% gotówki startowej, wyższe podatki i koszty utrzymania, ostrzejsze kary mediów, szybszy komornik.',
+    startingCashMult: 0.85,
+    taxMult: 1.15,
+    maintenanceMult: 1.12,
+    interestDelta: 0.018,
+    utilityPenaltyMult: 1.25,
+    marketVolatilityMult: 1.22,
+    bailiffGraceTicks: 9,
+    crashFreqMult: 1.35,
+  },
+  przetrwanie: {
+    id: 'przetrwanie',
+    label: 'Przetrwanie (Hardkor)',
+    badge: '🔴',
+    description: '-30% gotówki na start, drogie kredyty, silna zmienność giełdy i bezlitosne kary za brak służb i mediów.',
+    startingCashMult: 0.7,
+    taxMult: 1.25,
+    maintenanceMult: 1.22,
+    interestDelta: 0.035,
+    utilityPenaltyMult: 1.5,
+    marketVolatilityMult: 1.45,
+    bailiffGraceTicks: 7,
+    crashFreqMult: 1.6,
+  },
+};
+
+export interface ScenarioDefinition {
+  id: ScenarioId;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  recommendedPlayers: string;
+}
+
+export const SCENARIO_DEFINITIONS: ScenarioDefinition[] = [
+  {
+    id: 'sandbox',
+    name: 'Klasyczny Sandbox',
+    icon: '🗺️',
+    tagline: 'Czysta rywalizacja na równych zasadach',
+    description: 'Standardowy start bez narzuconych ograniczeń — wolna gra ekonomiczna, dyplomacja i budowa imperium.',
+    recommendedPlayers: '1–8 graczy',
+  },
+  {
+    id: 'fallen_giant',
+    name: 'Upadek Giganta',
+    icon: '🏛️',
+    tagline: 'Bankrutujący konglomerat w centrum mapy',
+    description: 'Pośrodku mapy dogasa dawny gigant z gotowymi fabrykami, elektrowniami i autostradami — komornik co kilka miesięcy wystawia jego aktywa na licytację.',
+    recommendedPlayers: '2–8 graczy',
+  },
+  {
+    id: 'green_transition',
+    name: 'Zielona Transformacja',
+    icon: '🌿',
+    tagline: 'Surowy podatek CO₂ i zakaz spalarni w połowie gry',
+    description: 'Po ok. 2 latach gry wchodzi ostry podatek węglowy i zakaz nowych spalarni. Wygrywają OZE, recykling, lit, baterie i fuzja.',
+    recommendedPlayers: '1–8 graczy',
+  },
+  {
+    id: 'cold_war',
+    name: 'Zimna Wojna Korporacji',
+    icon: '⚔️',
+    tagline: '2 wrogie koalicje od 1. minuty z embargiem',
+    description: 'Podmioty na mapie startują podzielone między dwa rywalizujące bloki z aktywnym embargiem handlowym i wyścigiem zbrojeń oraz surowców.',
+    recommendedPlayers: '4–8 graczy',
+  },
+  {
+    id: 'gold_rush',
+    name: 'Gorączka Złota i Diamentów',
+    icon: '💎',
+    tagline: 'Bogate ukryte złoża i gwałtowna giełda',
+    description: 'Znacznie więcej ukrytych złóż złota, diamentów i litu pod powierzchnią oraz podkręcona zmienność koniunktury i baniek rynkowych.',
+    recommendedPlayers: '1–8 graczy',
+  },
+];
+
+export const DEFAULT_MUTATORS: MutatorFlags = {
+  fogOfWar: false,
+  noLoans: false,
+  volatileMarket: false,
+  freeLocalRoads: false,
+  extremeClimate: false,
+};
+
+export interface GovernmentConfig {
+  id: GovernmentKind;
+  name: string;
+  badge: string;
+  summary: string;
+  taxDelta: number;
+  zusMult: number;
+  roadDiscount: number;
+  strikeRiskMult: number;
+  greenSubsidyMult: number;
+  coalPenaltyMult: number;
+  interestDelta: number;
+  tenderBonusMult: number;
+}
+
+export const GOVERNMENT_CONFIGS: Record<GovernmentKind, GovernmentConfig> = {
+  free_market: {
+    id: 'free_market',
+    name: 'Rząd Wolnorynkowy',
+    badge: '📈',
+    summary: '-3% CIT, -20% kosztu dróg i inwestycji, ale +45% ryzyka strajków przy niskich płacach.',
+    taxDelta: -0.03,
+    zusMult: 0.9,
+    roadDiscount: 0.2,
+    strikeRiskMult: 1.45,
+    greenSubsidyMult: 1.0,
+    coalPenaltyMult: 0.85,
+    interestDelta: 0.005,
+    tenderBonusMult: 0.85,
+  },
+  ecological: {
+    id: 'ecological',
+    name: 'Rząd Ekologiczny',
+    badge: '🌿',
+    summary: '+25% dotacji dla OZE/recyklingu i parków, ale +55% kar za spaliny, węgiel i spalarnie.',
+    taxDelta: 0.01,
+    zusMult: 1.02,
+    roadDiscount: 0,
+    strikeRiskMult: 0.95,
+    greenSubsidyMult: 1.25,
+    coalPenaltyMult: 1.55,
+    interestDelta: 0,
+    tenderBonusMult: 1.05,
+  },
+  interventionist: {
+    id: 'interventionist',
+    name: 'Rząd Interwencjonistyczny',
+    badge: '🏛️',
+    summary: '-1.5 p.p. stóp kredytów i +35% nagród za przetargi rządowe, ale +12% składek ZUS.',
+    taxDelta: 0.02,
+    zusMult: 1.12,
+    roadDiscount: 0,
+    strikeRiskMult: 0.72,
+    greenSubsidyMult: 1.05,
+    coalPenaltyMult: 1.0,
+    interestDelta: -0.015,
+    tenderBonusMult: 1.35,
+  },
 };
 
 export interface TutorialStep {

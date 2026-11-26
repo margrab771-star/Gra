@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { type AchievementDefinition } from '../data/achievements';
+import { buildWeeklyChallengeGameSettings, type WeeklyChallengeSpec } from '../data/weeklyChallenge';
 import {
   applyPlayerAction,
   getLatestSaveMeta,
@@ -15,12 +17,20 @@ import {
   saveLastMpSession,
   stepGameSimulation,
 } from '../engine/GameEngine';
+import {
+  evaluateLiveAchievements,
+  getActiveProfile,
+  recordCompletedMatchToProfile,
+  toPlayerCard,
+} from '../engine/profileManager';
 import type {
+  ArchetypeId,
   BuildingType,
   GamePhase,
   GameSettings,
   GameSpeed,
   GameState,
+  GovernmentKind,
   LastMpSession,
   LobbyState,
   MapHeatmapMode,
@@ -31,6 +41,7 @@ import type {
   SaveSlotId,
   SaveSlotMeta,
   TollRate,
+  UserAccountProfile,
 } from '../engine/types';
 import { submitLeaderboardResult } from '../network/leaderboardService';
 import { getRoomCodeFromUrl, multiplayerManager } from '../network/multiplayerManager';
@@ -83,6 +94,34 @@ interface GameStoreState {
   showTutorialModal: boolean;
   pinnedResources: ResourceType[];
 
+  // v6.0 & v7.0 UI/Profile/QoL State
+  activeProfile: UserAccountProfile;
+  showAuthModal: boolean;
+  showProfileModal: boolean;
+  showWeeklyModal: boolean;
+  lastMatchRewardSummary: { xpEarned: number; newlyUnlocked: AchievementDefinition[] } | null;
+  recordedMatchEnded: boolean;
+  mapToolMode: 'normal' | 'area_select' | 'road_local' | 'road_highway';
+  areaSelectedPlotIds: string[];
+  hoveredBuildType: BuildingType | null;
+  cloneBlueprintSource: {
+    buildingId: string;
+    buildingType: BuildingType;
+    includeUpgrades: boolean;
+  } | null;
+
+  setShowAuthModal: (show: boolean) => void;
+  setShowProfileModal: (show: boolean) => void;
+  setShowWeeklyModal: (show: boolean) => void;
+  refreshActiveProfile: () => void;
+  applyUpdatedProfile: (profile: UserAccountProfile) => void;
+  setMapToolMode: (mode: 'normal' | 'area_select' | 'road_local' | 'road_highway') => void;
+  setAreaSelectedPlotIds: (ids: string[]) => void;
+  setHoveredBuildType: (bType: BuildingType | null) => void;
+  setCloneBlueprintSource: (
+    src: { buildingId: string; buildingType: BuildingType; includeUpgrades: boolean } | null
+  ) => void;
+
   setTargetMode: (mode: 'missile' | 'nuke' | null) => void;
   setCloneBuildingType: (bType: BuildingType | null) => void;
   focusPlot: (plotId: string) => void;
@@ -97,8 +136,10 @@ interface GameStoreState {
     playerName: string,
     companyName: string,
     color: string,
-    withTutorial: boolean
+    withTutorial: boolean,
+    opts?: { archetype?: ArchetypeId }
   ) => void;
+  startWeeklyChallengeGame: (spec?: WeeklyChallengeSpec) => void;
   continueSavedGame: () => void;
   saveCurrentGame: () => void;
   autosaveNow: () => void;
@@ -111,8 +152,19 @@ interface GameStoreState {
   startQuickTutorialGame: () => void;
 
   initNetworkListeners: () => void;
-  createMultiplayerRoom: (name: string, company: string, color: string) => Promise<void>;
-  joinMultiplayerRoom: (code: string, name: string, company: string, color: string) => Promise<void>;
+  createMultiplayerRoom: (
+    name: string,
+    company: string,
+    color: string,
+    opts?: { archetype?: ArchetypeId }
+  ) => Promise<void>;
+  joinMultiplayerRoom: (
+    code: string,
+    name: string,
+    company: string,
+    color: string,
+    opts?: { archetype?: ArchetypeId }
+  ) => Promise<void>;
   startMultiplayerMatch: () => void;
   requestFullSync: () => void;
   leaveMultiplayer: () => void;
@@ -216,6 +268,16 @@ interface GameStoreState {
     response: 'accept' | 'reject' | 'counter',
     counterPrice?: number
   ) => void;
+  // v6.0 & v7.0 dispatchers
+  batchBuyPlots: (plotIds: string[]) => void;
+  batchSurveyPlots: (plotIds: string[]) => void;
+  batchBuildRoad: (plotIds: string[], roadClass: 'local' | 'highway') => void;
+  applyHighwayPolicyToAll: (tollRate: TollRate, roadBlocked: boolean) => void;
+  cloneBuilding: (plotId: string, sourceBuildingId: string, includeUpgrades: boolean) => void;
+  toggleInsurance: (buildingId: string) => void;
+  placeAuctionBid: (auctionId: string, bidAmount: number) => void;
+  lobbyElection: (govKind: GovernmentKind, useInfluence: boolean) => void;
+  revealFogPlot: (plotId: string) => void;
 }
 
 const urlRoom = getRoomCodeFromUrl();
@@ -251,6 +313,45 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   showTutorialModal: false,
   pinnedResources: ['coal', 'steel', 'oil', 'gold'],
 
+  activeProfile: getActiveProfile(),
+  showAuthModal: false,
+  showProfileModal: false,
+  showWeeklyModal: false,
+  lastMatchRewardSummary: null,
+  recordedMatchEnded: false,
+  mapToolMode: 'normal',
+  areaSelectedPlotIds: [],
+  hoveredBuildType: null,
+  cloneBlueprintSource: null,
+
+  setShowAuthModal: (show) => set({ showAuthModal: show }),
+  setShowProfileModal: (show) => set({ showProfileModal: show }),
+  setShowWeeklyModal: (show) => set({ showWeeklyModal: show }),
+  refreshActiveProfile: () => set({ activeProfile: getActiveProfile() }),
+  applyUpdatedProfile: (profile) => {
+    set({ activeProfile: profile });
+    if (get().isMultiplayer && get().phase === 'Lobby') {
+      multiplayerManager.updateLocalLobbyProfile({ playerCard: toPlayerCard(profile) });
+    }
+  },
+  setMapToolMode: (mode) =>
+    set({
+      mapToolMode: mode,
+      areaSelectedPlotIds: mode === 'area_select' ? get().areaSelectedPlotIds : [],
+      cloneBuildingType: null,
+      cloneBlueprintSource: null,
+      targetMode: null,
+    }),
+  setAreaSelectedPlotIds: (ids) => set({ areaSelectedPlotIds: ids }),
+  setHoveredBuildType: (bType) => set({ hoveredBuildType: bType }),
+  setCloneBlueprintSource: (src) =>
+    set({
+      cloneBlueprintSource: src,
+      cloneBuildingType: src ? src.buildingType : null,
+      mapToolMode: 'normal',
+      targetMode: null,
+    }),
+
   goToMenu: () => {
     multiplayerManager.disconnect();
     set({
@@ -259,10 +360,17 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       isHost: false,
       lobbyState: null,
       activeModal: 'none',
+      mapToolMode: 'normal',
+      areaSelectedPlotIds: [],
+      cloneBlueprintSource: null,
+      cloneBuildingType: null,
+      recordedMatchEnded: false,
+      lastMatchRewardSummary: null,
       savedAvailable: hasSavedGame(),
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
       lastMpSession: loadLastMpSession(),
+      activeProfile: getActiveProfile(),
     });
   },
 
@@ -279,8 +387,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       lastMpSession: loadLastMpSession(),
     }),
 
-  startSinglePlayer: (settings, playerName, companyName, color, withTutorial) => {
-    const gs = initializeSinglePlayerGame(settings, playerName, companyName, color);
+  startSinglePlayer: (settings, playerName, companyName, color, withTutorial, opts) => {
+    const profile = getActiveProfile();
+    const gs = initializeSinglePlayerGame(settings, playerName, companyName, color, {
+      archetype: opts?.archetype ?? 'standard',
+      playerCard: toPlayerCard(profile),
+    });
     saveGameToSlot('autosave', gs);
     set({
       phase: 'Playing',
@@ -294,6 +406,48 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       showTutorial: withTutorial,
       tutorialStep: 0,
       showVictoryModal: false,
+      recordedMatchEnded: false,
+      lastMatchRewardSummary: null,
+      mapToolMode: 'normal',
+      areaSelectedPlotIds: [],
+      cloneBlueprintSource: null,
+      savedAvailable: true,
+      saveSlotsMeta: listSaveSlots(),
+      latestSaveMeta: getLatestSaveMeta(),
+    });
+  },
+
+  startWeeklyChallengeGame: (spec) => {
+    const profile = getActiveProfile();
+    const settings = buildWeeklyChallengeGameSettings(spec);
+    const gs = initializeSinglePlayerGame(
+      settings,
+      profile.nick,
+      `${profile.nick} Capital`,
+      '#f59e0b',
+      {
+        archetype: 'standard',
+        playerCard: toPlayerCard(profile),
+      }
+    );
+    saveGameToSlot('autosave', gs);
+    set({
+      phase: 'Playing',
+      gameState: gs,
+      localPlayerId: 'player_1',
+      isMultiplayer: false,
+      isHost: true,
+      selectedPlotId: null,
+      showBuildSelector: false,
+      showWeeklyModal: false,
+      activeModal: 'none',
+      showTutorial: false,
+      showVictoryModal: false,
+      recordedMatchEnded: false,
+      lastMatchRewardSummary: null,
+      mapToolMode: 'normal',
+      areaSelectedPlotIds: [],
+      cloneBlueprintSource: null,
       savedAvailable: true,
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
@@ -466,6 +620,17 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         const showVic = Boolean(
           synced.winnerId || (synced.challengeCompleted && !get().showVictoryModal)
         );
+        if (showVic && !get().recordedMatchEnded) {
+          const me = synced.players.find((p) => p.id === localId);
+          if (me) {
+            const reward = recordCompletedMatchToProfile(synced, me);
+            set({
+              recordedMatchEnded: true,
+              lastMatchRewardSummary: { xpEarned: reward.xpEarned, newlyUnlocked: reward.newlyUnlocked },
+              activeProfile: reward.profile,
+            });
+          }
+        }
         set((prev) => {
           const forceEnterPlaying = !prev.isHost && synced.phase === 'Playing';
           return {
@@ -533,10 +698,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     });
   },
 
-  createMultiplayerRoom: async (name, company, color) => {
+  createMultiplayerRoom: async (name, company, color, opts) => {
     get().initNetworkListeners();
     set({ gameState: null });
-    const lobby = await multiplayerManager.createRoom(name, company, color);
+    const profile = getActiveProfile();
+    const lobby = await multiplayerManager.createRoom(name, company, color, {
+      archetype: opts?.archetype ?? 'standard',
+      playerCard: toPlayerCard(profile),
+    });
     const session: LastMpSession = {
       roomCode: lobby.roomCode,
       playerName: name,
@@ -556,10 +725,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     });
   },
 
-  joinMultiplayerRoom: async (code, name, company, color) => {
+  joinMultiplayerRoom: async (code, name, company, color, opts) => {
     get().initNetworkListeners();
     set({ gameState: null });
-    const { lobby, playerId } = await multiplayerManager.joinRoom(code, name, company, color);
+    const profile = getActiveProfile();
+    const { lobby, playerId } = await multiplayerManager.joinRoom(code, name, company, color, {
+      archetype: opts?.archetype ?? 'standard',
+      playerCard: toPlayerCard(profile),
+    });
     const session: LastMpSession = {
       roomCode: lobby.roomCode,
       playerName: name,
@@ -593,6 +766,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       selectedPlotId: null,
       activeModal: 'none',
       showVictoryModal: false,
+      recordedMatchEnded: false,
+      lastMatchRewardSummary: null,
+      mapToolMode: 'normal',
+      areaSelectedPlotIds: [],
+      cloneBlueprintSource: null,
     });
     multiplayerManager.broadcastGameStart(gs);
   },
@@ -655,17 +833,32 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     stepGameSimulation(next);
     next.currentPlayerId = localPlayerId;
 
-    const wonNow = Boolean(next.winnerId && !gameState.winnerId);
-    if (wonNow) {
-      const me = next.players.find((p) => p.id === localPlayerId);
-      if (me) {
-        submitLeaderboardResult({
-          playerName: me.name,
-          companyName: me.companyName,
-          netWorth: me.netWorth,
-          strategy: me.dominantStrategy,
-          mode: next.settings.mode,
-        });
+    const wonNow = Boolean(
+      (next.winnerId && !gameState.winnerId) ||
+        (next.challengeCompleted && !gameState.challengeCompleted)
+    );
+    const me = next.players.find((p) => p.id === localPlayerId);
+
+    if (wonNow && me && !get().recordedMatchEnded) {
+      submitLeaderboardResult({
+        playerName: me.name,
+        companyName: me.companyName,
+        netWorth: me.netWorth,
+        strategy: me.dominantStrategy,
+        mode: next.settings.mode,
+      });
+      const reward = recordCompletedMatchToProfile(next, me);
+      set({
+        recordedMatchEnded: true,
+        lastMatchRewardSummary: { xpEarned: reward.xpEarned, newlyUnlocked: reward.newlyUnlocked },
+        activeProfile: reward.profile,
+      });
+    } else if (me && next.time.tick % 4 === 0) {
+      const res = evaluateLiveAchievements(next, me);
+      if (res.newlyUnlocked.length > 0) {
+        set({ activeProfile: res.profile });
+        const first = res.newlyUnlocked[0];
+        get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
       }
     }
 
@@ -694,6 +887,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     next.lastSyncTimestamp = Date.now();
     let justCompleted = false;
 
+    if (next.liveAuction && next.liveAuction.status === 'active') {
+      const rem = Math.max(0, Math.ceil((next.liveAuction.expiresAtMs - Date.now()) / 1000));
+      next.liveAuction.secondsRemaining = rem;
+    }
+
     if (hasTimer) {
       next.challengeTimeRemaining = Math.max(0, next.challengeTimeRemaining - 1);
       if (next.challengeTimeRemaining === 0) {
@@ -709,6 +907,17 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             strategy: me.dominantStrategy,
             mode: next.settings.mode,
           });
+          if (!get().recordedMatchEnded) {
+            const reward = recordCompletedMatchToProfile(next, me);
+            set({
+              recordedMatchEnded: true,
+              lastMatchRewardSummary: {
+                xpEarned: reward.xpEarned,
+                newlyUnlocked: reward.newlyUnlocked,
+              },
+              activeProfile: reward.profile,
+            });
+          }
         }
       }
     }
@@ -785,6 +994,17 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     if (res.message) {
       get().showToast(res.ok, res.message);
     }
+    if (res.ok) {
+      const localP = next.players.find((p) => p.id === get().localPlayerId);
+      if (localP) {
+        const achRes = evaluateLiveAchievements(next, localP);
+        if (achRes.newlyUnlocked.length > 0) {
+          set({ activeProfile: achRes.profile });
+          const first = achRes.newlyUnlocked[0];
+          get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
+        }
+      }
+    }
     set({ gameState: next });
 
     if (isMultiplayer && isHost) {
@@ -798,6 +1018,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         'buildPlayerRoad',
         'setRoadPolicy',
         'surveyArea',
+        'batchBuyPlots',
+        'batchBuildRoad',
+        'cloneBuilding',
         'buyServiceVehicle',
         'tradeStock',
         'issueBond',
@@ -1116,6 +1339,46 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       response,
       counterPrice,
     });
+  },
+  batchBuyPlots: (plotIds) => {
+    get().dispatchAction({ type: 'batchBuyPlots', playerId: get().localPlayerId, plotIds });
+    set({ areaSelectedPlotIds: [] });
+  },
+  batchSurveyPlots: (plotIds) => {
+    get().dispatchAction({ type: 'batchSurveyPlots', playerId: get().localPlayerId, plotIds });
+    set({ areaSelectedPlotIds: [] });
+  },
+  batchBuildRoad: (plotIds, roadClass) => {
+    get().dispatchAction({ type: 'batchBuildRoad', playerId: get().localPlayerId, plotIds, roadClass });
+  },
+  applyHighwayPolicyToAll: (tollRate, roadBlocked) => {
+    get().dispatchAction({
+      type: 'applyHighwayPolicyToAll',
+      playerId: get().localPlayerId,
+      tollRate,
+      roadBlocked,
+    });
+  },
+  cloneBuilding: (plotId, sourceBuildingId, includeUpgrades) => {
+    get().dispatchAction({
+      type: 'cloneBuilding',
+      playerId: get().localPlayerId,
+      plotId,
+      sourceBuildingId,
+      includeUpgrades,
+    });
+  },
+  toggleInsurance: (buildingId) => {
+    get().dispatchAction({ type: 'toggleInsurance', playerId: get().localPlayerId, buildingId });
+  },
+  placeAuctionBid: (auctionId, bidAmount) => {
+    get().dispatchAction({ type: 'placeAuctionBid', playerId: get().localPlayerId, auctionId, bidAmount });
+  },
+  lobbyElection: (govKind, useInfluence) => {
+    get().dispatchAction({ type: 'lobbyElection', playerId: get().localPlayerId, govKind, useInfluence });
+  },
+  revealFogPlot: (plotId) => {
+    get().dispatchAction({ type: 'revealFogPlot', playerId: get().localPlayerId, plotId });
   },
 }));
 

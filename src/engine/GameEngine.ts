@@ -1,18 +1,29 @@
-import { AI_STRATEGY_LABELS, CORPORATION_LEVELS, GAME_CONFIG, PLAYER_COLORS } from '../config/gameConfig';
+import {
+  AI_STRATEGY_LABELS,
+  CORPORATION_LEVELS,
+  DEFAULT_MUTATORS,
+  DIFFICULTY_PRESETS,
+  GAME_CONFIG,
+  PLAYER_COLORS,
+} from '../config/gameConfig';
+import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { DEFAULT_ENTREPRENEUR_SKILLS } from '../data/entrepreneurTree';
 import { RESOURCE_DEFINITIONS, createInitialResourcePrices } from '../data/resources';
+import { assignSecretGoalsForPlayers, evaluateSecretGoalsTick } from '../data/secretGoals';
 import { DEFAULT_GLOBAL_TECH_TREE } from '../data/techTrees';
 import { formatGameDate } from '../utils/formatters';
 import { executeAITurn } from './AIBot';
 import { computePlayerUtilityAndResourceBalance } from './BalanceSystem';
 import {
+  cloneBuildingOnPlot,
   computeCorporationLevel,
   constructBuildingOnPlot,
   demolishBuildingOnPlot,
   processBuildingTick,
   repairBuilding,
   startBuildingTechResearch,
+  toggleBuildingInsurance,
   type UtilityTickSnapshot,
 } from './BuildingSystem';
 import {
@@ -44,6 +55,8 @@ import {
 } from './EconomyEngine';
 import {
   computeDynamicTaxAndZUS,
+  lobbyGovernmentElection,
+  placeLiveAuctionBid,
   processEventsTick,
   processPatentsAndTendersTick,
   submitTenderDelivery,
@@ -62,13 +75,19 @@ import {
   processNuclearProjectTick,
   startSecretNuclearProject,
 } from './InfluenceSystem';
+import { recordMatchStatsSample, updatePlayerMatchStatsAccumTick } from './MatchStatsTracker';
 import {
+  applyHighwayPolicyToAllForPlayer,
+  batchBuildRoadForPlayer,
+  batchBuyPlotsForPlayer,
+  batchSurveyPlotsForPlayer,
   buildPlayerRoadOnPlot,
   buyPlotForPlayer,
   generateMap,
   proposePlotOfferForPlayer,
   recalculateSpatialNetwork,
   respondPlotOfferForPlayer,
+  revealFogPlotForPlayer,
   sellPlotForPlayer,
   setRoadPolicyForPlayer,
   surveyAreaForPlayer,
@@ -81,6 +100,7 @@ import {
   syncCorporateStocks,
   tradeCorporateStock,
 } from './StockMarketSystem';
+import { recalculateSynergiesAndPassengerDemand } from './SynergySystem';
 import {
   computeEmergencyResponseEtaGrid,
   processTollsAndLogisticsTick,
@@ -88,12 +108,16 @@ import {
 } from './TransportSystem';
 import type {
   AIStrategy,
+  ArchetypeId,
+  DifficultyPreset,
   GameSettings,
   GameState,
+  HQVariantId,
   LastMpSession,
   LobbyState,
   Player,
   PlayerAction,
+  PlayerCardProfile,
   ResourceType,
   SaveSlotId,
   SaveSlotMeta,
@@ -119,6 +143,10 @@ export function createPlayerEntity(opts: {
   aiDifficulty?: number;
   peerId?: string;
   connectionStatus?: Player['connectionStatus'];
+  archetype?: ArchetypeId;
+  hqVariant?: HQVariantId;
+  playerCard?: PlayerCardProfile;
+  difficultyPreset?: DifficultyPreset;
 }): Player {
   const globalTech: Player['globalTech'] = {};
   for (const node of DEFAULT_GLOBAL_TECH_TREE) {
@@ -128,6 +156,12 @@ export function createPlayerEntity(opts: {
   for (const sk of DEFAULT_ENTREPRENEUR_SKILLS) {
     entrepreneurSkills[sk.id] = sk.prerequisites.length === 0 ? 'available' : 'locked';
   }
+
+  const arch = opts.archetype ?? 'standard';
+  const archMods = getArchetypeDefinition(arch).modifiers;
+  const preset = DIFFICULTY_PRESETS[opts.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
+  const startCash = Math.round(GAME_CONFIG.startingCash * preset.startingCashMult * archMods.startingCashMult);
+  const startApproval = Math.max(10, Math.min(95, 50 + archMods.baseApprovalDelta));
 
   return {
     id: opts.id,
@@ -140,8 +174,8 @@ export function createPlayerEntity(opts: {
     peerId: opts.peerId,
     connectionStatus: opts.connectionStatus ?? (opts.isAI ? 'local' : 'connected'),
     corporationLevel: 1,
-    cash: GAME_CONFIG.startingCash,
-    netWorth: GAME_CONFIG.startingCash,
+    cash: startCash,
+    netWorth: startCash,
     incomePerMin: 0,
     expensesPerMin: 0,
     cashFlowPerMin: 0,
@@ -149,8 +183,8 @@ export function createPlayerEntity(opts: {
     waterBalance: 0,
     sewageBalance: 0,
     wasteBalance: 0,
-    researchPoints: 35,
-    skillPoints: 2,
+    researchPoints: 15,
+    skillPoints: 1,
     reputation: 50,
     militaryPower: 10,
     influence: {
@@ -159,7 +193,7 @@ export function createPlayerEntity(opts: {
       social: 15,
       churchSupport: 15,
       mediaControl: 10,
-      voterApproval: 50,
+      voterApproval: startApproval,
     },
     globalTech,
     entrepreneurSkills,
@@ -178,7 +212,7 @@ export function createPlayerEntity(opts: {
         revenue: 0,
         costs: 0,
         netIncome: 0,
-        netWorth: GAME_CONFIG.startingCash,
+        netWorth: startCash,
       },
     ],
     lastTickRevenueByCategory: {},
@@ -196,6 +230,25 @@ export function createPlayerEntity(opts: {
     nuclearWarheadsReady: 0,
     nuclearDetectedByPlayers: [],
     pinnedResources: ['coal', 'steel', 'oil', 'gold'],
+    archetype: arch,
+    hqVariant: opts.playerCard?.hqVariant ?? opts.hqVariant ?? 'classic',
+    playerCard: opts.playerCard,
+    secretGoals: [],
+    secretGoalDominanceBonus: 0,
+    revealedFogPlots: {},
+    skillMilestonesEarned: [],
+    statsAccum: {
+      maxDebt: 0,
+      tollEarned: 0,
+      peakMarketTradeProfit: 0,
+      totalPollution: 0,
+      greenScore: 0,
+      bailiffSeizures: 0,
+      stockDividendsAndTrades: 0,
+      patentsOwnedCount: 0,
+      highApprovalTicks: 0,
+      ownedPlotsPeak: 0,
+    },
   };
 }
 
@@ -203,8 +256,11 @@ export function initializeSinglePlayerGame(
   settings: GameSettings,
   playerName: string,
   companyName: string,
-  playerColor: string
+  playerColor: string,
+  opts?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
 ): GameState {
+  const diffPreset = settings.difficultyPreset ?? 'standard';
+  const aiArchetypes: ArchetypeId[] = ['industrial_giant', 'tech_incubator', 'investment_fund', 'logistics_cartel', 'eco_innovator'];
   const players: Player[] = [
     createPlayerEntity({
       id: 'player_1',
@@ -213,6 +269,10 @@ export function initializeSinglePlayerGame(
       color: playerColor || PLAYER_COLORS[0],
       isAI: false,
       connectionStatus: 'local',
+      archetype: opts?.archetype ?? 'standard',
+      hqVariant: opts?.playerCard?.hqVariant ?? 'classic',
+      playerCard: opts?.playerCard,
+      difficultyPreset: diffPreset,
     }),
   ];
 
@@ -230,6 +290,8 @@ export function initializeSinglePlayerGame(
         isAI: true,
         aiStrategy: template.strategy,
         aiDifficulty: settings.aiDifficulty,
+        archetype: aiArchetypes[(i - 1) % aiArchetypes.length],
+        difficultyPreset: diffPreset,
       })
     );
   }
@@ -239,6 +301,7 @@ export function initializeSinglePlayerGame(
 
 export function initializeMultiplayerGame(lobby: LobbyState, localPlayerId: string): GameState {
   const isFast = lobby.mode === 'mp_fast';
+  const diffPreset = lobby.difficultyPreset ?? 'standard';
   const settings: GameSettings = {
     mode: lobby.mode,
     playerCount: lobby.players.length,
@@ -248,6 +311,9 @@ export function initializeMultiplayerGame(lobby: LobbyState, localPlayerId: stri
     economyMultiplier: isFast ? 2.4 : 1.0,
     disastersEnabled: lobby.disastersEnabled ?? true,
     victoryMode: lobby.victoryMode ?? 'solo',
+    difficultyPreset: diffPreset,
+    scenarioId: lobby.scenarioId ?? 'sandbox',
+    mutators: lobby.mutators ? { ...lobby.mutators } : { ...DEFAULT_MUTATORS },
   };
 
   const players: Player[] = lobby.players.map((lp, idx) =>
@@ -261,14 +327,190 @@ export function initializeMultiplayerGame(lobby: LobbyState, localPlayerId: stri
       aiDifficulty: lobby.aiDifficulty,
       peerId: lp.peerId,
       connectionStatus: lp.isAI ? 'local' : lp.connected ? 'connected' : 'disconnected',
+      archetype: lp.archetype ?? 'standard',
+      hqVariant: lp.playerCard?.hqVariant ?? 'classic',
+      playerCard: lp.playerCard,
+      difficultyPreset: diffPreset,
     })
   );
 
   return createBaseGameState(settings, players, localPlayerId);
 }
 
+function applyScenarioSetup(state: GameState): void {
+  const scenario = state.settings.scenarioId ?? 'sandbox';
+  const size = state.settings.mapSize;
+  const center = Math.floor(size / 2);
+
+  if (scenario === 'fallen_giant') {
+    const assetTypes: Array<'steelMill' | 'coalPowerPlant' | 'solarFarm' | 'shoppingMall'> = [
+      'steelMill',
+      'coalPowerPlant',
+      'solarFarm',
+      'shoppingMall',
+    ];
+    let placed = 0;
+    const centerCandidates = state.plots
+      .filter((p) => p.terrain !== 'water' && !p.building && Math.hypot(p.gridX - center, p.gridY - center) <= 4)
+      .slice(0, 8);
+    for (const plot of centerCandidates) {
+      if (placed < assetTypes.length) {
+        const bType = assetTypes[placed];
+        const bDef = BUILDING_DEFINITIONS[bType];
+        plot.building = {
+          id: `fg_bld_${placed}`,
+          type: bType,
+          plotId: plot.id,
+          ownerId: 'fallen_giant_pool',
+          name: bDef.name,
+          category: bDef.category,
+          icon: bDef.icon,
+          level: 2,
+          visualTier: 1,
+          condition: 75,
+          damagePercent: 25,
+          autoRepairEnabled: false,
+          autoRepairThreshold: 40,
+          workers: bDef.maxWorkers,
+          maxWorkers: bDef.maxWorkers,
+          workerSkill: 60,
+          efficiency: 0,
+          isActive: false,
+          selected: false,
+          stockpileOutput: false,
+          storage: {},
+          storageCapacity: bDef.storageCapacity,
+          techTree: bDef.internalTechTree.map((n) => ({ ...n, progress: 0, status: n.prerequisites.length === 0 ? 'available' : 'locked' })),
+          activeResearchId: null,
+          revenue: 0,
+          costs: { inputs: 0, wages: 0, zus: 0, energy: 0, water: 0, transport: 0, maintenance: 0, environmentalFine: 0, taxes: 0, total: 0 },
+          netProfit: 0,
+          productionPerTick: {},
+          consumptionPerTick: {},
+          status: {
+            noPower: false,
+            noWater: false,
+            breakdown: false,
+            storageFull: false,
+            upgradeActive: false,
+            understaffed: false,
+            droughtHit: false,
+            boycotted: false,
+            onFire: false,
+            hazmatIncident: false,
+            noRoadLink: false,
+          },
+          activeHazard: null,
+          hasRoadConnection: true,
+          logisticsMode: 'road',
+          sabotagedTicks: 0,
+          boycottedTicks: 0,
+        };
+        placed++;
+      } else if (!plot.hasRoad) {
+        plot.hasRoad = true;
+        plot.roadType = 'highway';
+        plot.tollRate = 'free';
+      }
+    }
+    state.news.unshift({
+      id: 'scn_fg_intro',
+      headline: '🏛️ Scenariusz: Upadek Giganta w centrum mapy!',
+      brief: 'W sercu metropolii stoją zamrożone obiekty dawnego konglomeratu. Komornik co kilka miesięcy wystawia je na 30-sekundową aukcję!',
+      fullText: 'Zbierz kapitał na start i licytuj gotowe fabryki, elektrownie i galerie podczas transmisji na żywo.',
+      analysis: 'Aukcje startują cyklicznie od 12. cyklu gry.',
+      hints: [],
+      type: 'opportunity',
+      dateLabel: '01 Sty 2026',
+      tick: 0,
+      read: false,
+    });
+  } else if (scenario === 'cold_war' && state.players.length >= 2) {
+    state.settings.victoryMode = 'coalition';
+    const half = Math.ceil(state.players.length / 2);
+    const northMembers = state.players.slice(0, half).map((p) => p.id);
+    const southMembers = state.players.slice(half).map((p) => p.id);
+    const northColId = 'col_cw_north';
+    const southColId = 'col_cw_south';
+    state.coalitions = [
+      {
+        id: northColId,
+        name: 'Blok Północny',
+        tag: 'NORD',
+        color: '#38bdf8',
+        leaderId: northMembers[0],
+        memberIds: northMembers,
+        invitedPlayerIds: [],
+        shareGeology: true,
+        createdTick: 0,
+      },
+      {
+        id: southColId,
+        name: 'Blok Południowy',
+        tag: 'SUD',
+        color: '#f43f5e',
+        leaderId: southMembers[0],
+        memberIds: southMembers,
+        invitedPlayerIds: [],
+        shareGeology: true,
+        createdTick: 0,
+      },
+    ];
+    for (const p of state.players) {
+      p.coalitionId = northMembers.includes(p.id) ? northColId : southColId;
+    }
+    state.embargoes = state.embargoes ?? [];
+    for (const nId of northMembers) {
+      for (const sId of southMembers) {
+        state.embargoes.push({ issuerId: nId, targetId: sId, expiresTick: 9999 });
+        state.embargoes.push({ issuerId: sId, targetId: nId, expiresTick: 9999 });
+      }
+    }
+    state.news.unshift({
+      id: 'scn_cw_intro',
+      headline: '⚔️ Scenariusz: Zimna Wojna Korporacji (NORD vs SUD)!',
+      brief: 'Wszystkie firmy zostały podzielone na dwa bloki objęte wzajemnym embargiem handlowym. Wspólne drogi koalicji i zbrojenia są kluczowe!',
+      fullText: 'Członkowie Twojego bloku dzielą badania geologiczne i korzystają z darmowego przejazdu po sojuszniczych autostradach.',
+      analysis: 'W trybie koalicyjnym walczycie razem o dominację sojuszu.',
+      hints: [],
+      type: 'negative',
+      dateLabel: '01 Sty 2026',
+      tick: 0,
+      read: false,
+    });
+  } else if (scenario === 'green_transition') {
+    state.news.unshift({
+      id: 'scn_gt_intro',
+      headline: '🌿 Scenariusz: Zapowiedź Zielonej Transformacji',
+      brief: 'Za ok. 2 lata wejdzie w życie ustawa CO₂ podwajająca kary za węgiel i zakazująca nowych spalarni. Inwestuj w OZE, lit i recykling!',
+      fullText: 'Wczesna transformacja energetyczna uchroni spółkę przed gigantycznym podatkiem emisyjnym.',
+      analysis: 'Farmy wiatrowe, słoneczne, baterie EV i recykling otrzymają wsparcie rządowe.',
+      hints: [],
+      type: 'forecast',
+      dateLabel: '01 Sty 2026',
+      tick: 0,
+      read: false,
+    });
+  } else if (scenario === 'gold_rush') {
+    state.news.unshift({
+      id: 'scn_gr_intro',
+      headline: '💎 Scenariusz: Gorączka Złota i Diamentów!',
+      brief: 'Geolodzy zgłaszają niezwykle bogate anomalie złota, diamentów i litu pod powierzchnią mapy przy podkręconej zmienności giełdy!',
+      fullText: 'Wyślij geologów i Georadar 3×3 zanim konkurencja wykupi najbogatsze grunty.',
+      analysis: 'Wysoka zmienność cen premiuje szybkie kontrakty i arbitraż w trakcie baniek.',
+      hints: [],
+      type: 'opportunity',
+      dateLabel: '01 Sty 2026',
+      tick: 0,
+      read: false,
+    });
+  }
+}
+
 function createBaseGameState(settings: GameSettings, players: Player[], currentPlayerId: string): GameState {
-  const plots = generateMap(settings.mapSize);
+  const plots = generateMap(settings.mapSize, settings.mapSeed, {
+    goldRush: settings.scenarioId === 'gold_rush',
+  });
   const resourcePrices = createInitialResourcePrices();
 
   const state: GameState = {
@@ -337,11 +579,26 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     monopolyThreshold: GAME_CONFIG.monopolyVictoryShare,
     disconnectAlert: null,
     notifications: [],
+    government: {
+      currentGov: 'free_market',
+      nextElectionTick: 72,
+      lastElectionTick: 0,
+      lobbyVotes: { free_market: 2, ecological: 1, interventionist: 2 },
+    },
+    liveAuction: null,
+    matchStatsHistory: [],
+    greenTransitionEntered: false,
+    carbonTaxActive: false,
   };
 
+  applyScenarioSetup(state);
+  assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
+  recalculateSpatialNetwork(state.plots);
+  recalculateSynergiesAndPassengerDemand(state);
   computeEmergencyResponseEtaGrid(state, currentPlayerId);
   syncVehiclesForWorld(state);
+  recordMatchStatsSample(state, true);
   return state;
 }
 
@@ -398,15 +655,32 @@ export function stepGameSimulation(state: GameState): void {
       if (player.actionCooldowns[k] <= 0) delete player.actionCooldowns[k];
     }
 
-    if (state.time.tick % 25 === 0) {
+    // Spowolniony pasywny przyrost pkt Prezesa (-65%) — główne punkty płyną z kamieni milowych
+    if (state.time.tick % 75 === 0) {
       player.skillPoints += 1;
     }
 
+    const milestones = player.skillMilestonesEarned ?? [];
+    if (!milestones.includes('nw_10m') && player.netWorth >= 10_000_000) {
+      milestones.push('nw_10m');
+      player.skillPoints += 2;
+    }
+    if (!milestones.includes('nw_25m') && player.netWorth >= 25_000_000) {
+      milestones.push('nw_25m');
+      player.skillPoints += 3;
+    }
+    if (!milestones.includes('rev_500k') && player.totalRevenueEarned >= 1_500_000) {
+      milestones.push('rev_500k');
+      player.skillPoints += 1;
+    }
+    player.skillMilestonesEarned = milestones;
+
     const entMods = getPlayerEntrepreneurModifiers(state, player);
+    const archResMult = getArchetypeDefinition(player.archetype).modifiers.researchSpeedMult;
     for (const def of state.globalTechDefs) {
       const gt = player.globalTech[def.id];
       if (!gt || gt.status !== 'researching') continue;
-      gt.progress = Math.min(100, gt.progress + (100 / def.researchTicks) * (1 + entMods.researchSpeedBonus));
+      gt.progress = Math.min(100, gt.progress + (100 / def.researchTicks) * (1 + entMods.researchSpeedBonus) * archResMult);
       if (gt.progress >= 100) {
         gt.status = 'done';
         if (def.modifiers.militaryPower) {
@@ -514,11 +788,17 @@ export function stepGameSimulation(state: GameState): void {
     const nextLevel = computeCorporationLevel(state, player);
     if (nextLevel > prevLevel) {
       player.corporationLevel = nextLevel;
+      const msKey = `corp_${nextLevel}`;
+      player.skillMilestonesEarned = player.skillMilestonesEarned ?? [];
+      if (!player.skillMilestonesEarned.includes(msKey)) {
+        player.skillMilestonesEarned.push(msKey);
+        player.skillPoints += 2;
+      }
       if (player.id === state.currentPlayerId) {
         pushNotification(
           state,
           `Awans Korporacji: Poziom ${nextLevel}!`,
-          `Twoja firma osiągnęła status "${CORPORATION_LEVELS[nextLevel].name}" i odblokowała nowe sektory!`,
+          `Twoja firma osiągnęła status "${CORPORATION_LEVELS[nextLevel].name}", zdobyła +2 pkt Prezesa i odblokowała nowe sektory!`,
           'success'
         );
       }
@@ -546,11 +826,16 @@ export function stepGameSimulation(state: GameState): void {
     }
   }
 
+  evaluateSecretGoalsTick(state);
+  updatePlayerMatchStatsAccumTick(state);
+
   if (state.time.tick % 5 === 0) {
     recalculateSpatialNetwork(state.plots);
+    recalculateSynergiesAndPassengerDemand(state);
     computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
     syncVehiclesForWorld(state);
   }
+  recordMatchStatsSample(state);
 
   checkVictoryConditions(state);
 }
@@ -587,7 +872,23 @@ function detectDominantStrategy(state: GameState, player: Player): string {
 }
 
 function checkVictoryConditions(state: GameState): void {
-  if (state.winnerId) return;
+  if (state.winnerId || state.challengeCompleted) return;
+  if (state.settings.weeklyChallengeId && state.settings.weeklyTargetNetWorth) {
+    const human = state.players.find((p) => !p.isAI && !p.isEliminated);
+    if (human && human.netWorth >= state.settings.weeklyTargetNetWorth) {
+      state.winnerId = human.id;
+      state.challengeCompleted = true;
+      state.speed = 0;
+      state.victoryReason = `Ukończono Wyzwanie Tygodnia (${state.settings.weeklyChallengeId}) osiągając ${human.netWorth.toLocaleString('pl-PL')} zł w ${state.time.tick} cykli!`;
+      return;
+    }
+    if (state.time.year >= (state.settings.weeklyMaxYear ?? 2034)) {
+      state.challengeCompleted = true;
+      state.speed = 0;
+      state.victoryReason = `Czas Wyzwania Tygodnia (${state.settings.weeklyChallengeId}) upłynął przed osiągnięciem celu wyceny.`;
+      return;
+    }
+  }
   const activePlayers = state.players.filter((p) => !p.isEliminated);
   if (state.players.length > 1 && activePlayers.length === 1) {
     const survivor = activePlayers[0];
@@ -879,14 +1180,18 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         return { ok: false, message: 'Technologia niedostępna.' };
       }
       const entMods = getPlayerEntrepreneurModifiers(state, player);
-      const moneyCost = Math.round(def.moneyCost * (1 - entMods.researchDiscount));
-      if (player.researchPoints < def.cost) {
-        return { ok: false, message: `Wymaga ${def.cost} pkt badań.` };
+      const archPatentCostMult = getArchetypeDefinition(player.archetype).modifiers.labPatentCostMult;
+      const doneTechs = Object.values(player.globalTech).filter((t) => t.status === 'done').length;
+      const expScale = Math.pow(1.06, doneTechs);
+      const rpCost = Math.round(def.cost * expScale * archPatentCostMult);
+      const moneyCost = Math.round(def.moneyCost * (1 - entMods.researchDiscount) * archPatentCostMult);
+      if (player.researchPoints < rpCost) {
+        return { ok: false, message: `Wymaga ${rpCost} pkt badań (masz ${Math.floor(player.researchPoints)}).` };
       }
       if (player.cash < moneyCost) {
         return { ok: false, message: `Wymaga ${moneyCost.toLocaleString('pl-PL')} zł.` };
       }
-      player.researchPoints -= def.cost;
+      player.researchPoints -= rpCost;
       player.cash -= moneyCost;
       gt.status = 'researching';
       gt.progress = 0;
@@ -1087,6 +1392,86 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       state.speedRequest = null;
       return { ok: true };
     }
+    case 'batchBuyPlots': {
+      const r = batchBuyPlotsForPlayer(state, player, action.plotIds);
+      if (r.ok) {
+        computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
+        recalculateSynergiesAndPassengerDemand(state);
+      }
+      return {
+        ok: r.ok,
+        message: r.error ?? `Kupiono hurtem ${r.boughtCount} działek za ${r.totalSpent.toLocaleString('pl-PL')} zł.`,
+      };
+    }
+    case 'batchSurveyPlots': {
+      const r = batchSurveyPlotsForPlayer(state, player, action.plotIds);
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          `Zbadano ${r.scannedCount} działek (wykryto ${r.foundCount} złóż) za ${r.totalCost.toLocaleString('pl-PL')} zł.`,
+      };
+    }
+    case 'batchBuildRoad': {
+      const r = batchBuildRoadForPlayer(state, player, action.plotIds, action.roadClass);
+      if (r.ok) {
+        computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
+        syncVehiclesForWorld(state);
+      }
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          `Wybudowano ${r.builtCount} odc. ${action.roadClass === 'highway' ? 'Autostrady' : 'Drogi'} (${r.totalCost.toLocaleString('pl-PL')} zł).`,
+      };
+    }
+    case 'applyHighwayPolicyToAll': {
+      const r = applyHighwayPolicyToAllForPlayer(state, player, action.tollRate, action.roadBlocked);
+      if (r.ok) {
+        computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
+        syncVehiclesForWorld(state);
+      }
+      return { ok: r.ok, message: r.message };
+    }
+    case 'cloneBuilding': {
+      const targetPlot = state.plots.find((p) => p.id === action.plotId);
+      const sourceBuilding = state.plots.find((p) => p.building?.id === action.sourceBuildingId)?.building;
+      if (!targetPlot || !sourceBuilding || sourceBuilding.ownerId !== player.id) {
+        return { ok: false, message: 'Nie znaleziono docelowej działki lub wzorca budynku.' };
+      }
+      const r = cloneBuildingOnPlot(state, player, targetPlot, sourceBuilding, action.includeUpgrades);
+      if (r.ok) {
+        computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
+        syncVehiclesForWorld(state);
+      }
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          `Sklonowano "${sourceBuilding.name}" (${action.includeUpgrades ? '1:1 z ulepszeniami' : 'wersja bazowa'}) za ${r.blueprint?.totalCost.toLocaleString('pl-PL')} zł.`,
+      };
+    }
+    case 'toggleInsurance': {
+      const b = findPlayerBuilding(state, player.id, action.buildingId);
+      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      const r = toggleBuildingInsurance(b);
+      return { ok: r.ok, message: r.message };
+    }
+    case 'placeAuctionBid': {
+      return placeLiveAuctionBid(state, player, action.auctionId, action.bidAmount);
+    }
+    case 'lobbyElection': {
+      return lobbyGovernmentElection(state, player, action.govKind, action.useInfluence);
+    }
+    case 'revealFogPlot': {
+      const plot = state.plots.find((p) => p.id === action.plotId);
+      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      const r = revealFogPlotForPlayer(state, player, plot);
+      return {
+        ok: r.ok,
+        message: r.error ?? `Raport wywiadu ujawnił sektor (${plot.gridX}, ${plot.gridY}) i sąsiednie pola.`,
+      };
+    }
   }
 }
 
@@ -1182,6 +1567,19 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.networkRevision = state.networkRevision ?? 1;
   state.settings.disastersEnabled = state.settings.disastersEnabled ?? true;
   state.settings.victoryMode = state.settings.victoryMode ?? 'solo';
+  state.settings.difficultyPreset = state.settings.difficultyPreset ?? 'standard';
+  state.settings.scenarioId = state.settings.scenarioId ?? 'sandbox';
+  state.settings.mutators = state.settings.mutators ?? { ...DEFAULT_MUTATORS };
+  state.government = state.government ?? {
+    currentGov: 'free_market',
+    nextElectionTick: state.time.tick + 72,
+    lastElectionTick: state.time.tick,
+    lobbyVotes: { free_market: 2, ecological: 1, interventionist: 2 },
+  };
+  state.liveAuction = state.liveAuction ?? null;
+  state.matchStatsHistory = state.matchStatsHistory ?? [];
+  state.greenTransitionEntered = state.greenTransitionEntered ?? false;
+  state.carbonTaxActive = state.carbonTaxActive ?? false;
 
   // Zaktualizuj definicje drzewek globalnych i prezesa dla starszych zapisów
   state.globalTechDefs = DEFAULT_GLOBAL_TECH_TREE.map((t) => ({ ...t }));
@@ -1214,6 +1612,24 @@ export function migrateGameStateInPlace(state: GameState): void {
     p.nuclearWarheadsReady = p.nuclearWarheadsReady ?? 0;
     p.nuclearDetectedByPlayers = p.nuclearDetectedByPlayers ?? [];
     p.pinnedResources = p.pinnedResources ?? ['coal', 'steel', 'oil', 'gold'];
+    p.archetype = p.archetype ?? 'standard';
+    p.hqVariant = p.hqVariant ?? 'classic';
+    p.secretGoals = p.secretGoals ?? [];
+    p.secretGoalDominanceBonus = p.secretGoalDominanceBonus ?? 0;
+    p.revealedFogPlots = p.revealedFogPlots ?? {};
+    p.skillMilestonesEarned = p.skillMilestonesEarned ?? [];
+    p.statsAccum = p.statsAccum ?? {
+      maxDebt: 0,
+      tollEarned: 0,
+      peakMarketTradeProfit: 0,
+      totalPollution: 0,
+      greenScore: 0,
+      bailiffSeizures: 0,
+      stockDividendsAndTrades: 0,
+      patentsOwnedCount: 0,
+      highApprovalTicks: 0,
+      ownedPlotsPeak: 0,
+    };
 
     for (const tDef of state.globalTechDefs) {
       if (!p.globalTech[tDef.id]) {
@@ -1263,6 +1679,9 @@ export function migrateGameStateInPlace(state: GameState): void {
       pl.building.logisticsMode = pl.building.logisticsMode ?? 'road';
       pl.building.visualTier = pl.building.visualTier ?? 0;
       pl.building.upgradeFlashTicks = pl.building.upgradeFlashTicks ?? 0;
+      pl.building.insured = pl.building.insured ?? false;
+      pl.building.insuranceClaimsCount = pl.building.insuranceClaimsCount ?? 0;
+      pl.building.strikeTicks = pl.building.strikeTicks ?? 0;
       pl.building.status.onFire = pl.building.status.onFire ?? false;
       pl.building.status.hazmatIncident = pl.building.status.hazmatIncident ?? false;
       pl.building.status.noRoadLink = pl.building.status.noRoadLink ?? false;
@@ -1271,9 +1690,15 @@ export function migrateGameStateInPlace(state: GameState): void {
       pl.building.status.sewageCrisis = pl.building.status.sewageCrisis ?? false;
       pl.building.status.wasteCrisis = pl.building.status.wasteCrisis ?? false;
       pl.building.status.disasterStruck = pl.building.status.disasterStruck ?? false;
+      pl.building.status.onStrike = pl.building.status.onStrike ?? false;
     }
+    pl.synergyPercent = pl.synergyPercent ?? 0;
+    pl.passengerDemandPercent = pl.passengerDemandPercent ?? 100;
+    pl.activeSynergies = pl.activeSynergies ?? [];
   }
+  assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
+  recalculateSynergiesAndPassengerDemand(state);
 }
 
 export function listSaveSlots(): SaveSlotMeta[] {

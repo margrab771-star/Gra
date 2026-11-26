@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PLAYER_COLORS } from '../../config/gameConfig';
+import { GOVERNMENT_CONFIGS, PLAYER_COLORS } from '../../config/gameConfig';
 import { INFLUENCE_ACTIONS } from '../../data/influenceActions';
 import {
   arePlayersAllied,
@@ -8,7 +8,8 @@ import {
   hasActiveEmbargo,
   hasActiveNAP,
 } from '../../engine/CoalitionSystem';
-import type { GameState, InfluencePillar, Player } from '../../engine/types';
+import { isPlotBuildingVisibleToViewer } from '../../engine/PlotSystem';
+import type { GameState, GovernmentKind, InfluencePillar, Player } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
 
 interface InfluencePanelProps {
@@ -20,6 +21,7 @@ interface InfluencePanelProps {
     targetPlotId?: string,
     targetBuildingId?: string
   ) => void;
+  onLobbyElection?: (govKind: GovernmentKind, useInfluence: boolean) => void;
   onStartMissileTarget?: () => void;
   onStartNuclearProject?: () => void;
   onStartNuclearStrikeTarget?: () => void;
@@ -63,6 +65,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
   gameState,
   currentPlayer,
   onExecuteAction,
+  onLobbyElection,
   onStartMissileTarget,
   onStartNuclearProject,
   onStartNuclearStrikeTarget,
@@ -193,6 +196,92 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
           <div className="text-xs text-slate-300">
             {PILLAR_TABS.find((t) => t.key === pillar)?.desc}
           </div>
+
+          {/* Karta Rządu, Wyborów i Specjalnej Strefy Ekonomicznej (SSE) */}
+          {pillar === 'financial' && (() => {
+            const ssePlots = gameState.plots.filter((p) => p.isSseZone);
+            const sseMinX = ssePlots.reduce((m, p) => Math.min(m, p.gridX), 999);
+            const sseMaxX = ssePlots.reduce((m, p) => Math.max(m, p.gridX), -1);
+            const sseMinY = ssePlots.reduce((m, p) => Math.min(m, p.gridY), 999);
+            const sseMaxY = ssePlots.reduce((m, p) => Math.max(m, p.gridY), -1);
+            const currentGov = gameState.government?.currentGov ?? 'free_market';
+
+            return (
+              <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-amber-500/35 space-y-2.5 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="font-bold text-amber-300 text-sm">
+                      {GOVERNMENT_CONFIGS[currentGov].badge} Aktualny Rząd:{' '}
+                      {GOVERNMENT_CONFIGS[currentGov].name}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {GOVERNMENT_CONFIGS[currentGov].summary}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[11px] text-slate-300 shrink-0">
+                    <div>
+                      Wybory za:{' '}
+                      <span className="text-sky-300 font-bold">
+                        {Math.max(0, (gameState.government?.nextElectionTick ?? 90) - gameState.time.tick)}T
+                      </span>
+                    </div>
+                    {ssePlots.length > 0 && (
+                      <div className="text-amber-300">
+                        ⭐ SSE ({sseMinX}..{sseMaxX}, {sseMinY}..{sseMaxY})
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {onLobbyElection && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {(['free_market', 'ecological', 'interventionist'] as GovernmentKind[]).map((gk) => {
+                      const gcfg = GOVERNMENT_CONFIGS[gk];
+                      const isCurrent = currentGov === gk;
+                      return (
+                        <div
+                          key={gk}
+                          className={`p-2 rounded-lg border ${
+                            isCurrent
+                              ? 'bg-amber-500/15 border-amber-400/60'
+                              : 'bg-[#131b2b] border-[#243044]'
+                          }`}
+                        >
+                          <div className="font-semibold text-slate-100 flex items-center justify-between gap-1">
+                            <span>
+                              {gcfg.badge} {gcfg.name}
+                            </span>
+                            <span className="font-mono text-[10px] text-amber-300">
+                              Głosy: {gameState.government?.lobbyVotes?.[gk] ?? 1}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">{gcfg.summary}</div>
+                          <div className="flex gap-1.5 mt-2">
+                            <button
+                              type="button"
+                              disabled={currentPlayer.cash < 220_000}
+                              onClick={() => onLobbyElection(gk, false)}
+                              className="flex-1 py-1 px-1.5 rounded bg-amber-500/20 hover:bg-amber-500/35 disabled:opacity-40 border border-amber-400/40 text-amber-200 text-[10px] font-semibold"
+                            >
+                              {isCurrent ? 'Umocnij (220k)' : 'Lobbuj (220k)'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={currentPlayer.influence.financial + currentPlayer.influence.social < 18}
+                              onClick={() => onLobbyElection(gk, true)}
+                              className="flex-1 py-1 px-1.5 rounded bg-sky-500/20 hover:bg-sky-500/35 disabled:opacity-40 border border-sky-400/40 text-sky-200 text-[10px] font-semibold"
+                            >
+                              Wpływ (18 pkt)
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── ZAKŁADKA KOALICJE & DYPLOMACJA ── */}
           {pillar === 'diplomacy' && (
@@ -542,11 +631,17 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                   {targetPlots.length === 0 ? (
                     <option value="">Brak działek rywala</option>
                   ) : (
-                    targetPlots.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        ({p.gridX},{p.gridY}) {p.building ? `· ${p.building.name}` : '· Wolny grunt'}
-                      </option>
-                    ))
+                    targetPlots.map((p) => {
+                      const vis =
+                        !p.building ||
+                        isPlotBuildingVisibleToViewer(p, currentPlayer.id, currentPlayer, gameState);
+                      return (
+                        <option key={p.id} value={p.id}>
+                          ({p.gridX},{p.gridY}){' '}
+                          {p.building ? (vis ? `· ${p.building.name}` : '· 🌫️ Obiekt Nieznany') : '· Wolny grunt'}
+                        </option>
+                      );
+                    })
                   )}
                 </select>
               </div>
@@ -561,11 +656,22 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                   {targetBuildings.length === 0 ? (
                     <option value="">Brak budynków rywala</option>
                   ) : (
-                    targetBuildings.map((p) => (
-                      <option key={p.building!.id} value={p.building!.id}>
-                        {p.building!.icon} {p.building!.name} ({p.gridX},{p.gridY})
-                      </option>
-                    ))
+                    targetBuildings.map((p) => {
+                      const vis = isPlotBuildingVisibleToViewer(
+                        p,
+                        currentPlayer.id,
+                        currentPlayer,
+                        gameState
+                      );
+                      return (
+                        <option key={p.building!.id} value={p.building!.id}>
+                          {vis
+                            ? `${p.building!.icon} ${p.building!.name}`
+                            : '🌫️ Obiekt Nieznany'}{' '}
+                          ({p.gridX},{p.gridY})
+                        </option>
+                      );
+                    })
                   )}
                 </select>
               </div>

@@ -249,30 +249,36 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                 <div className="font-semibold text-amber-300 text-sm">
                   📜 Emisja Obligacji Korporacyjnych (Etap 2+, niższy kupon niż bank)
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {[500_000, 1_500_000, 3_000_000].map((amt) => (
+                {gameState.settings.mutators?.noLoans ? (
+                  <div className="p-2.5 rounded bg-rose-950/40 border border-rose-500/40 text-xs text-rose-200">
+                    🚫 Aktywny mutator <strong>„Bez Kredytów”</strong> blokuje emisję obligacji korporacyjnych w tej partii.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[500_000, 1_500_000, 3_000_000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setBondAmount(amt)}
+                        className={`px-3 py-1.5 rounded border font-mono ${
+                          bondAmount === amt
+                            ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                            : 'bg-[#151c28] border-[#243044] text-slate-300'
+                        }`}
+                      >
+                        {formatCompactMoney(amt)}
+                      </button>
+                    ))}
                     <button
-                      key={amt}
                       type="button"
-                      onClick={() => setBondAmount(amt)}
-                      className={`px-3 py-1.5 rounded border font-mono ${
-                        bondAmount === amt
-                          ? 'bg-amber-500/25 border-amber-400 text-amber-200'
-                          : 'bg-[#151c28] border-[#243044] text-slate-300'
-                      }`}
+                      disabled={currentPlayer.corporationLevel < 2}
+                      onClick={() => onIssueBond(bondAmount)}
+                      className="ml-auto px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
                     >
-                      {formatCompactMoney(amt)}
+                      Wyemituj Obligacje
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    disabled={currentPlayer.corporationLevel < 2}
-                    onClick={() => onIssueBond(bondAmount)}
-                    className="ml-auto px-4 py-1.5 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
-                  >
-                    Wyemituj Obligacje
-                  </button>
-                </div>
+                  </div>
+                )}
 
                 {(currentPlayer.bonds ?? []).length > 0 && (
                   <div className="space-y-1.5 pt-1">
@@ -991,7 +997,12 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                       </span>
                     )}
                   </div>
-                  {mpLoanLimitReached && (
+                  {gameState.settings.mutators?.noLoans && (
+                    <div className="p-2.5 rounded bg-rose-950/45 border border-rose-500/50 text-xs text-rose-200">
+                      🚫 Aktywny mutator <strong>„Bez Kredytów Bankowych”</strong> — zaciąganie nowych pożyczek i emisja obligacji są wyłączone.
+                    </div>
+                  )}
+                  {mpLoanLimitReached && !gameState.settings.mutators?.noLoans && (
                     <div className="p-2 rounded bg-rose-950/40 border border-rose-500/40 text-xs text-rose-200">
                       🔒 Osiągnięto maksymalny limit 3 aktywnych kredytów w Multiplayerze. Spłać
                       jeden z istniejących poniżej, aby odblokować finansowanie.
@@ -1026,11 +1037,15 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
                     <div className="flex items-end">
                       <button
                         type="button"
-                        disabled={mpLoanLimitReached}
+                        disabled={mpLoanLimitReached || Boolean(gameState.settings.mutators?.noLoans)}
                         onClick={() => onTakeLoan(loanAmount, loanMonths)}
                         className="w-full py-2 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
                       >
-                        {mpLoanLimitReached ? 'Limit 3/3 Osiągnięty' : 'Zaciągnij Kredyt'}
+                        {gameState.settings.mutators?.noLoans
+                          ? 'Wyłączone (Mutator)'
+                          : mpLoanLimitReached
+                            ? 'Limit 3/3 Osiągnięty'
+                            : 'Zaciągnij Kredyt'}
                       </button>
                     </div>
                   </div>

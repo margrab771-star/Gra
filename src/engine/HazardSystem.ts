@@ -1,5 +1,6 @@
 import { SERVICE_VEHICLE_COST } from '../config/gameConfig';
 import { formatGameDate } from '../utils/formatters';
+import { handleBuildingDestructionInsurance } from './BuildingSystem';
 import { getPlayerGlobalTechModifiers } from './EconomyEngine';
 import { recalculateSpatialNetwork } from './PlotSystem';
 import { computeWeightedRoadRouteWithIndex } from './TransportSystem';
@@ -415,6 +416,7 @@ export function processHazardsTick(state: GameState): void {
       }
 
       if ((b.activeHazard.destructionProgress ?? 0) >= 100) {
+        handleBuildingDestructionInsurance(b, owner, state);
         b.destroyedRuins = true;
         b.isActive = false;
         b.damagePercent = 100;

@@ -6,9 +6,11 @@ import {
 } from '../../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import {
+  getRoadBuildCostForPlot,
   getSuggestedPlotBuyoutValuation,
   hasPlayerDiscoveredPlot,
   hasPlayerSurveyedPlot,
+  isPlotBuildingVisibleToViewer,
 } from '../../engine/PlotSystem';
 import type { GameState, Player, Plot, TollRate } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
@@ -27,6 +29,8 @@ interface PlotPanelProps {
     plotId: string,
     opts: { tollRate?: TollRate; roadBlocked?: boolean; toggleBlockedPlayerId?: string }
   ) => void;
+  onApplyHighwayPolicyToAll?: (tollRate: TollRate, roadBlocked: boolean) => void;
+  onRevealFogPlot?: (plotId: string) => void;
   onProposePlotOffer: (
     plotId: string,
     offeredPrice: number,
@@ -49,6 +53,8 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
     onSurveyArea,
     onBuildRoad,
     onSetRoadPolicy,
+    onApplyHighwayPolicyToAll,
+    onRevealFogPlot,
     onProposePlotOffer,
     onOpenBuildSelector,
     onClose,
@@ -56,6 +62,8 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
     const owner = plot.ownerId ? gameState.players.find((p) => p.id === plot.ownerId) : null;
     const isMine = plot.ownerId === currentPlayer.id;
     const hasGeoTech = currentPlayer.globalTech['ind_geology']?.status === 'done';
+    const localRoadCost = getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'local');
+    const highwayRoadCost = getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'highway');
     const surveyCost = Math.round(GAME_CONFIG.surveyCost * (hasGeoTech ? 0.7 : 1));
     const areaScanCost = Math.round(
       GAME_CONFIG.surveyCost * 0.7 * GAME_CONFIG.areaSurveyMultiplier
@@ -64,6 +72,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
     const playerSurveyed = hasPlayerSurveyedPlot(plot, currentPlayer.id);
     const playerDiscovered = hasPlayerDiscoveredPlot(plot, currentPlayer.id, currentPlayer, gameState);
     const visibleDeposits = playerDiscovered ? plot.deposits : [];
+    const buildingVisible = !plot.building || isPlotBuildingVisibleToViewer(plot, currentPlayer.id, currentPlayer, gameState);
 
     const suggestedOffer = getSuggestedPlotBuyoutValuation(plot, false);
     const [offerPrice, setOfferPrice] = useState<number>(suggestedOffer);
@@ -84,8 +93,13 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                 ☢️ STREFA SKAŻENIA NUKLEARNEGO ({plot.irradiatedTicks} tur) — zakaz kupna, dróg i budowy!
               </div>
             )}
-            <h3 className="text-base font-semibold text-slate-100">
-              Działka · {TERRAIN_NAMES[plot.terrain]}
+            <h3 className="text-base font-semibold text-slate-100 flex items-center gap-2 flex-wrap">
+              <span>Działka · {TERRAIN_NAMES[plot.terrain]}</span>
+              {plot.isSseZone && (
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono text-[10px]">
+                  ⭐ SSE 0% CIT
+                </span>
+              )}
             </h3>
           </div>
           <button
@@ -131,6 +145,12 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
             <span className="text-slate-400">Właściciel</span>
             <span className="font-medium text-slate-200 text-right" style={{ color: owner?.color }}>
               {owner ? owner.companyName : 'Skarb Państwa (Wolna)'}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-400">Lokalny Popyt Pasażerski</span>
+            <span className="font-mono font-semibold text-sky-300">
+              🚶 {Math.round(plot.passengerDemandPercent ?? 100)}%
             </span>
           </div>
           <div className="flex justify-between gap-2">
@@ -265,18 +285,18 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                   <button
                     type="button"
                     onClick={() => onBuildRoad(plot.id, 'local')}
-                    disabled={currentPlayer.cash < GAME_CONFIG.playerRoadCost}
+                    disabled={currentPlayer.cash < localRoadCost}
                     className="w-full py-2 px-3 rounded-lg bg-[#151e2e] hover:bg-[#1c283d] border border-slate-500/40 text-slate-200 text-xs font-semibold disabled:opacity-40 transition-colors"
                   >
-                    🛣️ Droga Zwykła ({formatMoney(GAME_CONFIG.playerRoadCost)})
+                    🛣️ Droga Zwykła ({formatMoney(localRoadCost)})
                   </button>
                   <button
                     type="button"
                     onClick={() => onBuildRoad(plot.id, 'highway')}
-                    disabled={currentPlayer.cash < GAME_CONFIG.highwayCost}
+                    disabled={currentPlayer.cash < highwayRoadCost}
                     className="w-full py-2 px-3 rounded-lg bg-[#1c1a10] hover:bg-[#2a2515] border border-amber-500/45 text-amber-200 text-xs font-semibold disabled:opacity-40 transition-colors"
                   >
-                    🚧 Autostrada Płatna ({formatMoney(GAME_CONFIG.highwayCost)} · 2.4× prędkość)
+                    🚧 Autostrada Płatna ({formatMoney(highwayRoadCost)} · 2.4× prędkość)
                   </button>
                 </div>
               )}
@@ -296,9 +316,10 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                     <button
                       type="button"
                       onClick={() => onBuildRoad(plot.id, 'highway')}
-                      className="w-full py-1.5 px-3 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-semibold"
+                      disabled={currentPlayer.cash < highwayRoadCost}
+                      className="w-full py-1.5 px-3 rounded bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-40 border border-amber-400/50 text-amber-200 font-semibold"
                     >
-                      ⬆️ Rozbuduj do Autostrady Płatnej
+                      ⬆️ Rozbuduj do Autostrady Płatnej ({formatMoney(highwayRoadCost)})
                     </button>
                   )}
 
@@ -334,6 +355,16 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                       sublabel="Odcięci rywale nie mogą przejechać ciężarówkami"
                     />
                   </div>
+
+                  {onApplyHighwayPolicyToAll && (
+                    <button
+                      type="button"
+                      onClick={() => onApplyHighwayPolicyToAll(plot.tollRate, plot.roadBlocked)}
+                      className="w-full py-1.5 px-2.5 rounded bg-sky-600/20 hover:bg-sky-600/30 border border-sky-400/40 text-sky-200 text-[11px] font-semibold"
+                    >
+                      🌍 Zastosuj tę stawkę myta i blokadę do wszystkich moich dróg
+                    </button>
+                  )}
 
                   {rivals.length > 0 && !plot.roadBlocked && (
                     <div className="space-y-1">
@@ -378,6 +409,19 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
 
           {owner && !isMine && (
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2.5 text-xs">
+              {plot.building && !buildingVisible && onRevealFogPlot && (
+                <div className="p-2.5 rounded-lg bg-sky-950/35 border border-sky-500/40 space-y-1.5">
+                  <div className="font-semibold text-sky-300">🌫️ Obiekt Nieznany (Mgła Wojny)</div>
+                  <button
+                    type="button"
+                    disabled={currentPlayer.cash < 280_000 && currentPlayer.influence.military < 25}
+                    onClick={() => onRevealFogPlot(plot.id)}
+                    className="w-full py-1.5 px-2.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold"
+                  >
+                    🕵️ Ujawnij Obiekt Wywiadem (280k zł lub 25 pkt mil.)
+                  </button>
+                </div>
+              )}
               <div className="font-semibold text-amber-300">
                 💰 Złóż Ofertę Wykupu Działki ({owner.companyName})
               </div>

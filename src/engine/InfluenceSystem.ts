@@ -1,6 +1,7 @@
 import { INFLUENCE_ACTIONS } from '../data/influenceActions';
 import { formatGameDate } from '../utils/formatters';
 import { arePlayersAllied, hasActiveNAP } from './CoalitionSystem';
+import { handleBuildingDestructionInsurance } from './BuildingSystem';
 import { getPlayerEntrepreneurModifiers, getPlayerGlobalTechModifiers } from './EconomyEngine';
 import { recalculateSpatialNetwork } from './PlotSystem';
 import type { GameState, Player } from './types';
@@ -193,6 +194,8 @@ export function executeTacticalMissileStrike(
         p.building.damagePercent = Math.min(95, p.building.damagePercent + 55);
         p.building.condition = Math.max(5, 100 - p.building.damagePercent);
       } else {
+        const tgtOwner = state.players.find((pl) => pl.id === p.building!.ownerId);
+        handleBuildingDestructionInsurance(p.building, tgtOwner, state);
         p.building.destroyedRuins = true;
         p.building.isActive = false;
         p.building.damagePercent = 100;
@@ -275,6 +278,8 @@ export function executeNuclearStrike(
   let wipedCount = 0;
   for (const p of zone5x5) {
     if (p.building && !p.building.destroyedRuins) {
+      const tgtOwner = state.players.find((pl) => pl.id === p.building!.ownerId);
+      handleBuildingDestructionInsurance(p.building, tgtOwner, state);
       p.building.destroyedRuins = true;
       p.building.isActive = false;
       p.building.damagePercent = 100;
@@ -443,13 +448,14 @@ export function executeInfluenceAction(
         };
       }
 
-      // Obrona prawna i kontrwywiadowcza celu!
+      // Obrona prawna i kontrwywiadowcza celu (Lobby, Policja Cyber lub Kancelaria Prawna)!
       const targetHasLegalShield = state.plots.some(
         (p) =>
           p.ownerId === targetPlayer.id &&
           p.building?.isActive &&
           !p.building.destroyedRuins &&
-          ((p.building.type === 'lobbyOffice' && p.building.techTree.some((t) => t.status === 'done' && (t.id === 'lobby_legal' || t.id === 'lobby_apex'))) ||
+          (p.building.type === 'lawFirm' ||
+            (p.building.type === 'lobbyOffice' && p.building.techTree.some((t) => t.status === 'done' && (t.id === 'lobby_legal' || t.id === 'lobby_apex'))) ||
             (p.building.type === 'policeStation' && p.building.techTree.some((t) => t.status === 'done' && t.id === 'police_cyber')))
       );
       const defenseChance = Math.min(0.68, (targetHasLegalShield ? 0.38 : 0.08) + getPlayerGlobalTechModifiers(state, targetPlayer).sabotageDefense * 0.4);

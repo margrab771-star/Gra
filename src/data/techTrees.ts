@@ -1,6 +1,6 @@
 import type { TechNode } from '../engine/types';
 
-export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
+const RAW_GLOBAL_TECH_TREE: TechNode[] = [
   // ─── Nauka Przemysłowa i Metalurgia ────────────────────────────────────────
   {
     id: 'ind_geology',
@@ -66,7 +66,7 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
   {
     id: 'ind_clean_heavy',
     name: 'Czyste Technologie Przemysłowe',
-    description: 'Zaawansowane płuczki i filtry chroniące przed karami środowiskowymi.',
+    description: 'Zaawansowane płuczki i filtry chroniące przed karami środowiskowymi oraz hydroponika.',
     branch: 'industrial',
     cost: 95,
     moneyCost: 210_000,
@@ -74,7 +74,8 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     progress: 0,
     status: 'locked',
     prerequisites: ['ind_metallurgy', 'ind_gold_jewelry'],
-    effects: ['-50% kar środowiskowych', 'Mniejszy spadek nastrojów wyborców'],
+    unlocksBuildings: ['verticalFarm'],
+    effects: ['-50% kar środowiskowych', 'Mniejszy spadek nastrojów wyborców', 'Odblokowuje Farmę Wertykalną'],
     position: { x: 460, y: 185 },
     modifiers: { taxReduction: 0.04 },
   },
@@ -191,11 +192,11 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     progress: 0,
     status: 'locked',
     prerequisites: ['mod_semiconductors'],
-    unlocksBuildings: ['batteryFactory'],
+    unlocksBuildings: ['batteryFactory', 'dataCenter'],
     effects: [
       '+30% tempa badań',
       '+15% wydajności całej korporacji',
-      'Odblokowuje Fabrykę Baterii Litowych / EV',
+      'Odblokowuje Fabrykę Baterii Litowych oraz Centrum Danych',
     ],
     position: { x: 470, y: 55 },
     modifiers: { researchSpeed: 0.3, processingBonus: 0.15 },
@@ -279,8 +280,8 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     progress: 0,
     status: 'locked',
     prerequisites: ['ind_logistics'],
-    unlocksBuildings: ['cargoPort'],
-    effects: ['Odblokowuje Port Towarowy', 'Tani fracht morski dla węgla, żelaza, miedzi, ropy'],
+    unlocksBuildings: ['cargoPort', 'compositeShipyard'],
+    effects: ['Odblokowuje Port Towarowy i Stocznię Kompozytów', 'Tani fracht morski dla węgla, żelaza, miedzi, ropy'],
     position: { x: 260, y: 55 },
     modifiers: { logisticsReduction: 0.15 },
   },
@@ -310,8 +311,8 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     progress: 0,
     status: 'locked',
     prerequisites: ['log_maritime', 'log_copper_grid'],
-    unlocksBuildings: ['cargoAirport'],
-    effects: ['Odblokowuje Lotnisko Towarowe Cargo', 'Niezależny transport lotniczy high-tech'],
+    unlocksBuildings: ['cargoAirport', 'passengerTerminal'],
+    effects: ['Odblokowuje Lotnisko Cargo oraz Terminal Lotniczy VIP', 'Niezależny transport lotniczy'],
     position: { x: 470, y: 115 },
     modifiers: { logisticsReduction: 0.2 },
   },
@@ -343,8 +344,8 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     progress: 0,
     status: 'available',
     prerequisites: [],
-    unlocksBuildings: ['hospital'],
-    effects: ['Odblokowuje Szpital Pracowniczy', 'Ogranicza absencje i wypadki w kopalniach'],
+    unlocksBuildings: ['hospital', 'biotechLab'],
+    effects: ['Odblokowuje Szpital Pracowniczy i Zakład Biotechnologiczny', 'Ogranicza absencje i wypadki w kopalniach'],
     position: { x: 50, y: 185 },
     modifiers: { safetyBonus: 0.2 },
   },
@@ -459,3 +460,27 @@ export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = [
     modifiers: { militaryPower: 75 },
   },
 ];
+
+function computeNodeDepth(id: string, memo = new Map<string, number>()): number {
+  if (memo.has(id)) return memo.get(id)!;
+  const node = RAW_GLOBAL_TECH_TREE.find((n) => n.id === id);
+  if (!node || node.prerequisites.length === 0) {
+    memo.set(id, 0);
+    return 0;
+  }
+  const d = 1 + Math.max(...node.prerequisites.map((pid) => computeNodeDepth(pid, memo)));
+  memo.set(id, d);
+  return d;
+}
+
+const depthCache = new Map<string, number>();
+
+export const DEFAULT_GLOBAL_TECH_TREE: TechNode[] = RAW_GLOBAL_TECH_TREE.map((t) => {
+  const depth = computeNodeDepth(t.id, depthCache);
+  const expMult = Math.pow(1.28, depth);
+  return {
+    ...t,
+    cost: Math.round((t.cost * expMult) / 5) * 5,
+    researchTicks: Math.round(t.researchTicks * (1 + depth * 0.14)),
+  };
+});

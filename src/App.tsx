@@ -3,14 +3,17 @@ import { GameCanvas } from './components/GameCanvas';
 import { MultiplayerChatWidget } from './components/HUD/MultiplayerChatWidget';
 import { PriceChartModal } from './components/HUD/PriceChartModal';
 import { TopTicker } from './components/HUD/TopTicker';
+import { AuthModal } from './components/Menu/AuthModal';
 import { DisconnectModal } from './components/Menu/DisconnectModal';
 import { GameSetup } from './components/Menu/GameSetup';
 import { MainMenu } from './components/Menu/MainMenu';
 import { MultiplayerLobby } from './components/Menu/MultiplayerLobby';
 import { PauseSaveModal } from './components/Menu/PauseSaveModal';
+import { ProfileModal } from './components/Menu/ProfileModal';
 import { QuickStart } from './components/Menu/QuickStart';
 import { TutorialModal } from './components/Menu/TutorialModal';
 import { VictoryModal } from './components/Menu/VictoryModal';
+import { WeeklyChallengeModal } from './components/Menu/WeeklyChallengeModal';
 import { BottomSheet } from './components/Mobile/BottomSheet';
 import { BuildSelector } from './components/Panels/BuildSelector';
 import { BuildingPanel } from './components/Panels/BuildingPanel';
@@ -56,6 +59,16 @@ export function App() {
   const showTutorialModal = useGameStore((s) => s.showTutorialModal);
   const pinnedResources = useGameStore((s) => s.pinnedResources);
 
+  const activeProfile = useGameStore((s) => s.activeProfile);
+  const showAuthModal = useGameStore((s) => s.showAuthModal);
+  const showProfileModal = useGameStore((s) => s.showProfileModal);
+  const showWeeklyModal = useGameStore((s) => s.showWeeklyModal);
+  const lastMatchRewardSummary = useGameStore((s) => s.lastMatchRewardSummary);
+  const mapToolMode = useGameStore((s) => s.mapToolMode);
+  const areaSelectedPlotIds = useGameStore((s) => s.areaSelectedPlotIds);
+  const hoveredBuildType = useGameStore((s) => s.hoveredBuildType);
+  const cloneBlueprintSource = useGameStore((s) => s.cloneBlueprintSource);
+
   const [financeInitialTab, setFinanceInitialTab] = useState<
     'pnl' | 'balance' | 'stocks' | 'grey'
   >('pnl');
@@ -96,7 +109,7 @@ export function App() {
     };
   }, [phase, isMultiplayer]);
 
-  // Skróty klawiszowe (Spacja = pauza, 1-4 = prędkość, Esc = zamknij)
+  // Skróty klawiszowe (Spacja = pauza, 1-4 = prędkość, B = buduj, R = droga, C = klonuj, Esc = anuluj/zamknij)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const st = useGameStore.getState();
@@ -107,22 +120,49 @@ export function App() {
         e.preventDefault();
         st.setSpeed(st.gameState.speed === 0 ? 1 : 0);
       } else if (e.key === '1') {
-        st.setSpeed(1);
+        st.setSpeed(0.5);
       } else if (e.key === '2') {
-        st.setSpeed(2);
+        st.setSpeed(1);
       } else if (e.key === '3') {
-        st.setSpeed(5);
+        st.setSpeed(2);
       } else if (e.key === '4') {
-        st.setSpeed(10);
+        st.setSpeed(5);
+      } else if (e.code === 'KeyB') {
+        const sp = st.selectedPlotId
+          ? st.gameState.plots.find((p) => p.id === st.selectedPlotId)
+          : null;
+        if (sp && sp.ownerId === st.localPlayerId && !sp.building && !sp.hasRoad) {
+          st.setShowBuildSelector(true);
+        }
+      } else if (e.code === 'KeyR') {
+        st.setMapToolMode(st.mapToolMode === 'road_local' ? 'normal' : 'road_local');
+      } else if (e.code === 'KeyC') {
+        const sp = st.selectedPlotId
+          ? st.gameState.plots.find((p) => p.id === st.selectedPlotId)
+          : null;
+        if (sp?.building && sp.ownerId === st.localPlayerId && !sp.building.destroyedRuins) {
+          st.setCloneBlueprintSource({
+            buildingId: sp.building.id,
+            buildingType: sp.building.type,
+            includeUpgrades: true,
+          });
+        }
       } else if (e.key === 'Escape') {
         if (st.targetMode) st.setTargetMode(null);
+        else if (st.cloneBlueprintSource) st.setCloneBlueprintSource(null);
         else if (st.cloneBuildingType) st.setCloneBuildingType(null);
+        else if (st.mapToolMode !== 'normal') st.setMapToolMode('normal');
+        else if (st.areaSelectedPlotIds.length > 0) st.setAreaSelectedPlotIds([]);
+        else if (st.showProfileModal) st.setShowProfileModal(false);
+        else if (st.showAuthModal) st.setShowAuthModal(false);
         else if (st.showTutorialModal) st.setShowTutorialModal(false);
         else if (st.showUtilityPopover) st.setShowUtilityPopover(false);
         else if (st.inspectedResource) st.setInspectedResource(null);
         else if (st.activeModal !== 'none') st.setActiveModal('none');
-        else if (st.showBuildSelector) st.setShowBuildSelector(false);
-        else st.selectPlot(null);
+        else if (st.showBuildSelector) {
+          st.setHoveredBuildType(null);
+          st.setShowBuildSelector(false);
+        } else st.selectPlot(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -142,6 +182,7 @@ export function App() {
     return (
       <>
         <MainMenu
+          activeProfile={activeProfile}
           hasSavedGame={savedAvailable}
           latestSaveMeta={latestSaveMeta}
           saveSlots={saveSlotsMeta}
@@ -151,6 +192,9 @@ export function App() {
             setQuickJoinRoomCode(null);
             actions.goToMultiplayer();
           }}
+          onOpenWeeklyChallenge={() => actions.setShowWeeklyModal(true)}
+          onOpenProfile={() => actions.setShowProfileModal(true)}
+          onOpenAuth={() => actions.setShowAuthModal(true)}
           onContinueGame={actions.continueSavedGame}
           onLoadSlot={actions.loadFromSlot}
           onQuickRejoinMp={(code) => {
@@ -172,12 +216,46 @@ export function App() {
             }}
           />
         )}
+        {showAuthModal && (
+          <AuthModal
+            currentProfile={activeProfile}
+            onAuthenticated={(prof) => {
+              actions.applyUpdatedProfile(prof);
+              actions.setShowAuthModal(false);
+            }}
+            onClose={() => actions.setShowAuthModal(false)}
+          />
+        )}
+        {showProfileModal && (
+          <ProfileModal
+            profile={activeProfile}
+            onUpdateProfile={actions.applyUpdatedProfile}
+            onOpenAuth={() => {
+              actions.setShowProfileModal(false);
+              actions.setShowAuthModal(true);
+            }}
+            onClose={() => actions.setShowProfileModal(false)}
+          />
+        )}
+        {showWeeklyModal && (
+          <WeeklyChallengeModal
+            profile={activeProfile}
+            onStartChallenge={() => actions.startWeeklyChallengeGame()}
+            onClose={() => actions.setShowWeeklyModal(false)}
+          />
+        )}
       </>
     );
   }
 
   if (phase === 'Setup') {
-    return <GameSetup onStart={actions.startSinglePlayer} onBack={actions.goToMenu} />;
+    return (
+      <GameSetup
+        defaultPlayerName={!activeProfile.isGuest ? activeProfile.nick : undefined}
+        onStart={actions.startSinglePlayer}
+        onBack={actions.goToMenu}
+      />
+    );
   }
 
   if (phase === 'Lobby' && !lobbyState?.gameStarted) {
@@ -186,6 +264,7 @@ export function App() {
       <>
         <MultiplayerLobby
           key={resolvedRoom ?? 'lobby'}
+          activeProfile={activeProfile}
           initialRoomCode={resolvedRoom}
           lastMpSession={lastMpSession}
           lobbyState={lobbyState}
@@ -256,6 +335,14 @@ export function App() {
   ).length;
 
   const handleCanvasSelectPlot = (plotId: string | null) => {
+    if (cloneBlueprintSource && plotId) {
+      actions.cloneBuilding(
+        plotId,
+        cloneBlueprintSource.buildingId,
+        cloneBlueprintSource.includeUpgrades
+      );
+      return;
+    }
     if (cloneBuildingType && plotId) {
       const target = gameState.plots.find((p) => p.id === plotId);
       if (target && target.ownerId === currentPlayer.id && !target.building) {
@@ -296,6 +383,15 @@ export function App() {
           actions.setCloneBuildingType(bType);
           actions.showToast(true, 'Kliknij wolną własną działkę, aby postawić ten sam obiekt.');
         }}
+        onStartCloneBlueprint={(buildingId, buildingType) => {
+          actions.setCloneBlueprintSource({ buildingId, buildingType, includeUpgrades: true });
+          actions.showToast(
+            true,
+            'Klonowanie 1:1 aktywne — klikaj puste własne działki seryjnie (Esc lub PPM kończy).'
+          );
+        }}
+        onToggleInsurance={actions.toggleInsurance}
+        onRevealFogPlot={actions.revealFogPlot}
         onOpenB2BMarket={() => actions.setActiveModal('contracts')}
         onProposePlotOffer={actions.proposePlotOffer}
         onProposeContract={actions.proposeContract}
@@ -308,7 +404,11 @@ export function App() {
         currentPlayer={currentPlayer}
         onBuild={actions.buildOnPlot}
         onBuyMissingResource={actions.buyWarehouseStock}
-        onBack={() => actions.setShowBuildSelector(false)}
+        onHoverBuildingType={actions.setHoveredBuildType}
+        onBack={() => {
+          actions.setHoveredBuildType(null);
+          actions.setShowBuildSelector(false);
+        }}
       />
     ) : (
       <PlotPanel
@@ -321,6 +421,8 @@ export function App() {
         onSurveyArea={actions.surveyArea}
         onBuildRoad={actions.buildPlayerRoad}
         onSetRoadPolicy={actions.setRoadPolicy}
+        onApplyHighwayPolicyToAll={actions.applyHighwayPolicyToAll}
+        onRevealFogPlot={actions.revealFogPlot}
         onProposePlotOffer={actions.proposePlotOffer}
         onOpenBuildSelector={() => actions.setShowBuildSelector(true)}
         onClose={() => actions.selectPlot(null)}
@@ -367,6 +469,8 @@ export function App() {
           actions.setActiveModal('finance');
         }}
         onOpenOffersModal={() => actions.setActiveModal('contracts')}
+        onOpenInfluenceModal={() => actions.setActiveModal('influence')}
+        onPlaceAuctionBid={actions.placeAuctionBid}
         onOpenTutorial={() => actions.setShowTutorialModal(true)}
         onSetSpeed={actions.setSpeed}
         onRequestSpeed={actions.requestSpeedChange}
@@ -393,13 +497,33 @@ export function App() {
             heatmapMode={heatmapMode}
             targetMode={targetMode}
             cloneBuildingType={cloneBuildingType}
+            cloneBlueprintSource={cloneBlueprintSource}
+            mapToolMode={mapToolMode}
+            areaSelectedPlotIds={areaSelectedPlotIds}
+            hoveredBuildType={hoveredBuildType}
             focusRequest={focusRequest}
             onCancelSpecialMode={() => {
               actions.setTargetMode(null);
+              actions.setCloneBlueprintSource(null);
               actions.setCloneBuildingType(null);
+              actions.setMapToolMode('normal');
+              actions.setAreaSelectedPlotIds([]);
             }}
             onTargetPlot={handleCanvasTargetPlot}
             onChangeHeatmapMode={actions.setHeatmapMode}
+            onChangeMapToolMode={actions.setMapToolMode}
+            onAreaSelectionChange={actions.setAreaSelectedPlotIds}
+            onBatchBuyPlots={actions.batchBuyPlots}
+            onBatchSurveyPlots={actions.batchSurveyPlots}
+            onBatchBuildRoad={actions.batchBuildRoad}
+            onToggleCloneUpgrades={(inc) => {
+              if (cloneBlueprintSource) {
+                actions.setCloneBlueprintSource({
+                  ...cloneBlueprintSource,
+                  includeUpgrades: inc,
+                });
+              }
+            }}
             onSelectPlot={handleCanvasSelectPlot}
           />
 
@@ -513,6 +637,7 @@ export function App() {
           gameState={gameState}
           currentPlayer={currentPlayer}
           onExecuteAction={actions.executeInfluence}
+          onLobbyElection={actions.lobbyElection}
           onStartMissileTarget={() => actions.setTargetMode('missile')}
           onStartNuclearProject={actions.startNuclearProject}
           onStartNuclearStrikeTarget={() => actions.setTargetMode('nuke')}
@@ -624,11 +749,36 @@ export function App() {
         <VictoryModal
           gameState={gameState}
           currentPlayer={currentPlayer}
+          rewardSummary={lastMatchRewardSummary}
           onContinueEndless={actions.continueEndlessAfterVictory}
           onOpenLeaderboard={() => {
             actions.setActiveModal('leaderboard');
           }}
+          onOpenProfile={() => actions.setShowProfileModal(true)}
           onExitToMenu={actions.goToMenu}
+        />
+      )}
+
+      {showAuthModal && (
+        <AuthModal
+          currentProfile={activeProfile}
+          onAuthenticated={(prof) => {
+            actions.applyUpdatedProfile(prof);
+            actions.setShowAuthModal(false);
+          }}
+          onClose={() => actions.setShowAuthModal(false)}
+        />
+      )}
+
+      {showProfileModal && (
+        <ProfileModal
+          profile={activeProfile}
+          onUpdateProfile={actions.applyUpdatedProfile}
+          onOpenAuth={() => {
+            actions.setShowProfileModal(false);
+            actions.setShowAuthModal(true);
+          }}
+          onClose={() => actions.setShowProfileModal(false)}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BUILDING_CATEGORIES,
   CORPORATION_LEVELS,
@@ -9,6 +9,7 @@ import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import { checkBuildingRequirements, getBuildingConstructionCost } from '../../engine/BuildingSystem';
 import { hasPlayerDiscoveredPlot } from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
+import { previewBuildingSynergyAtPlot } from '../../engine/SynergySystem';
 import type {
   BuildingCategory,
   BuildingType,
@@ -27,6 +28,7 @@ interface BuildSelectorProps {
   currentPlayer: Player;
   onBuild: (plotId: string, buildingType: BuildingType) => void;
   onBuyMissingResource: (resource: ResourceType, amount: number) => void;
+  onHoverBuildingType?: (buildingType: BuildingType | null) => void;
   onBack: () => void;
 }
 
@@ -39,9 +41,23 @@ const TECH_BRANCH_LABELS: Record<TechBranch, string> = {
 };
 
 export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
-  ({ plot, gameState, currentPlayer, onBuild, onBuyMissingResource, onBack }) => {
+  ({
+    plot,
+    gameState,
+    currentPlayer,
+    onBuild,
+    onBuyMissingResource,
+    onHoverBuildingType,
+    onBack,
+  }) => {
     const [selectedCategory, setSelectedCategory] = useState<BuildingCategory | 'all'>('all');
     const [showLockedTiers, setShowLockedTiers] = useState<boolean>(false);
+
+    useEffect(() => {
+      return () => {
+        onHoverBuildingType?.(null);
+      };
+    }, [onHoverBuildingType]);
 
     const corpTier = CORPORATION_LEVELS[currentPlayer.corporationLevel];
     const nextTier =
@@ -79,7 +95,10 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
           </div>
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => {
+              onHoverBuildingType?.(null);
+              onBack();
+            }}
             className="px-2.5 py-1.5 rounded bg-[#1c2434] hover:bg-[#263146] text-xs text-slate-200 shrink-0 transition-colors"
           >
             ← Wróć
@@ -191,10 +210,13 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
 
               const showFullChecklist =
                 !check.ok || showLockedTiers || !corpMet || !unlockTechMet;
+              const synPreview = previewBuildingSynergyAtPlot(gameState, plot, def.type);
 
               return (
                 <div
                   key={def.type}
+                  onMouseEnter={() => onHoverBuildingType?.(def.type)}
+                  onMouseLeave={() => onHoverBuildingType?.(null)}
                   className={`p-3 rounded-lg border transition-all ${
                     check.ok
                       ? 'bg-[#0b0f17] border-[#243044] hover:border-amber-400/60'
@@ -217,6 +239,17 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                           {def.type === 'corporateHQ' && (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] font-semibold text-sky-300">
                               Maks. 1 / firma
+                            </span>
+                          )}
+                          {synPreview.netPercent !== 0 && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
+                                synPreview.netPercent > 0
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                              }`}
+                            >
+                              Synergia: {synPreview.netPercent > 0 ? `+${synPreview.netPercent}%` : `${synPreview.netPercent}%`}
                             </span>
                           )}
                         </div>

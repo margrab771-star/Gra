@@ -1,3 +1,4 @@
+import { DIFFICULTY_PRESETS, GOVERNMENT_CONFIGS } from '../config/gameConfig';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { EVENT_TEMPLATES } from '../data/events';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
@@ -6,6 +7,7 @@ import { recalculateSpatialNetwork } from './PlotSystem';
 import type {
   GameEvent,
   GameState,
+  GovernmentKind,
   GovernmentTender,
   NewsArticle,
   Player,
@@ -100,10 +102,17 @@ export function processEventsTick(state: GameState): void {
     }
   }
 
-  // 3. Generuj nowe prognozy lub zdarzenia cyklicznie (co ~20 ticków)
-  if (state.time.tick > 4 && state.time.tick % 20 === 0 && state.activeEvents.length + state.pendingForecasts.length < 3) {
+  // 3. Generuj nowe prognozy lub zdarzenia cyklicznie (co ~20 ticków, częściej w Extreme Climate / Szalonej Giełdzie)
+  const evInterval = state.settings.mutators?.extremeClimate ? 14 : 20;
+  if (state.time.tick > 4 && state.time.tick % evInterval === 0 && state.activeEvents.length + state.pendingForecasts.length < 3) {
     triggerNewEventOrForecast(state);
   }
+
+  // 4. Wybory rządowe, Specjalne Strefy Ekonomiczne (4x4), Zielona Transformacja & Licytacje na Żywo
+  processGovernmentElectionsTick(state);
+  processSseZonesTick(state);
+  processGreenTransitionScenarioTick(state);
+  processLiveAuctionTick(state);
 }
 
 export function triggerNewEventOrForecast(state: GameState): void {
@@ -112,11 +121,13 @@ export function triggerNewEventOrForecast(state: GameState): void {
     ...state.pendingForecasts.map((e) => e.templateId),
   ]);
   const disastersOn = Boolean(state.settings.disastersEnabled);
+  const extremeClimate = Boolean(state.settings.mutators?.extremeClimate);
   const recentDisaster = state.activeEvents.some((e) => e.category === 'disaster') ||
     state.pendingForecasts.some((e) => e.category === 'disaster');
 
-  // Katastrofy wyłączone -> zero katastrof; włączone -> rzadsze zdarzenia losowe
-  const allowDisasterRoll = disastersOn && !recentDisaster && state.time.tick >= 16 && Math.random() < 0.28;
+  // Katastrofy wyłączone -> zero katastrof; Ekstremalny Klimat podwaja częstość i siłę
+  const disasterChance = extremeClimate ? 0.56 : 0.28;
+  const allowDisasterRoll = disastersOn && (!recentDisaster || extremeClimate) && state.time.tick >= 16 && Math.random() < disasterChance;
   const pool = EVENT_TEMPLATES.filter((t) => {
     if (activeIds.has(t.id)) return false;
     if (t.category === 'disaster' && !allowDisasterRoll) return false;
@@ -216,11 +227,12 @@ function applyImmediateEventSideEffects(state: GameState, ev: GameEvent): string
       }
 
       if (targets.length > 0) focusPlotId = targets[0].id;
+      const climatePowerMult = state.settings.mutators?.extremeClimate ? 1.45 : 1.0;
       for (const p of targets) {
         if (!p.building) continue;
         p.disasterDamagedTicks = ev.durationTicks;
         p.building.status.disasterStruck = true;
-        p.building.damagePercent = Math.min(100, Number((p.building.damagePercent + eff.value).toFixed(1)));
+        p.building.damagePercent = Math.min(100, Number((p.building.damagePercent + eff.value * climatePowerMult).toFixed(1)));
         p.building.condition = Math.max(0, Number((100 - p.building.damagePercent).toFixed(1)));
         if (p.building.damagePercent >= 100) {
           p.building.destroyedRuins = true;
@@ -257,10 +269,14 @@ export function computeDynamicTaxAndZUS(state: GameState): { effectiveTaxRate: n
       if (eff.kind === 'zusDelta') zusDelta += eff.value;
     }
   }
+  const preset = DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard;
+  const govCfg = state.government ? GOVERNMENT_CONFIGS[state.government.currentGov] : undefined;
+  const govTax = govCfg?.taxDelta ?? 0;
+  const govZus = govCfg ? govCfg.zusMult - 1 : 0;
   const lawTaxCut = state.activeLaws.includes('corporate_deregulation') ? -0.02 : 0;
   return {
-    effectiveTaxRate: Math.max(0.08, Math.min(0.35, state.taxRate + taxDelta + lawTaxCut)),
-    effectiveZusMult: Math.max(0.75, Math.min(1.65, 1.0 + zusDelta)),
+    effectiveTaxRate: Math.max(0.06, Math.min(0.42, state.taxRate * preset.taxMult + taxDelta + govTax + lawTaxCut)),
+    effectiveZusMult: Math.max(0.7, Math.min(1.75, 1.0 + zusDelta + govZus)),
   };
 }
 
@@ -433,6 +449,7 @@ function buildRandomGovernmentTender(state: GameState): GovernmentTender {
   ];
 
   const chosen = specs[Math.floor(Math.random() * specs.length)];
+  const tenderMult = state.government ? GOVERNMENT_CONFIGS[state.government.currentGov].tenderBonusMult : 1;
   return {
     id: `tnd_${state.time.tick}_${Math.random().toString(36).slice(2, 6)}`,
     title: chosen.title,
@@ -441,7 +458,7 @@ function buildRandomGovernmentTender(state: GameState): GovernmentTender {
     requirements: chosen.requirements,
     requiredCleanMW: chosen.requiredCleanMW,
     deliveredByPlayer: {},
-    cashReward: chosen.cashReward,
+    cashReward: Math.round(chosen.cashReward * tenderMult),
     influenceReward: chosen.influenceReward,
     voterMoodReward: chosen.voterMoodReward,
     deadlineTick: state.time.tick + 34,
@@ -528,4 +545,326 @@ export function submitTenderDelivery(
   }
 
   return { ok: true, completed: false };
+}
+
+// ─── Wybory Rządowe, Specjalne Strefy Ekonomiczne (SSE) i Aukcje na Żywo ────
+
+export function processGovernmentElectionsTick(state: GameState): void {
+  if (!state.government) {
+    state.government = {
+      currentGov: 'free_market',
+      nextElectionTick: 72,
+      lastElectionTick: 0,
+      lobbyVotes: { free_market: 2, ecological: 1, interventionist: 2 },
+    };
+  }
+  if (state.time.tick < state.government.nextElectionTick) return;
+
+  const votes: Record<GovernmentKind, number> = {
+    free_market: state.government.lobbyVotes.free_market + Math.random() * 2.5,
+    ecological:
+      state.government.lobbyVotes.ecological +
+      (state.settings.scenarioId === 'green_transition' ? 3.5 : 0) +
+      Math.random() * 2.5,
+    interventionist:
+      state.government.lobbyVotes.interventionist +
+      (state.voterMood < 0 ? 1.8 : 0.4) +
+      Math.random() * 2.5,
+  };
+
+  const ordered = (Object.entries(votes) as [GovernmentKind, number][]).sort((a, b) => b[1] - a[1]);
+  const winner = ordered[0][0];
+  const cfg = GOVERNMENT_CONFIGS[winner];
+
+  state.government = {
+    currentGov: winner,
+    lastElectionTick: state.time.tick,
+    nextElectionTick: state.time.tick + 72,
+    lobbyVotes: { free_market: 1, ecological: 1, interventionist: 1 },
+    lastWinnerSummary: `${cfg.badge} ${cfg.name}`,
+  };
+
+  state.news = [
+    {
+      id: `gov_elec_${state.time.tick}`,
+      headline: `🗳️ Wyniki Wyborów Parlamentarnych: Władzę obejmuje ${cfg.name}`,
+      brief: cfg.summary,
+      fullText: `Wybory zakończone! Nowy gabinet (${cfg.name}) zmienia warunki podatkowe, dotacje oraz klimat pracowniczy na najbliższe lata.`,
+      analysis: 'Kolejne wybory odbędą się za ~2.4 roku gry. Możesz wpływać na wynik w panelu Wpływy.',
+      hints: ['Dostosuj miks energetyczny i politykę kadrową do programu rządu.'],
+      type: 'neutral' as const,
+      dateLabel: formatGameDate(state.time),
+      tick: state.time.tick,
+      read: false,
+    },
+    ...state.news,
+  ].slice(0, 40);
+}
+
+export function lobbyGovernmentElection(
+  state: GameState,
+  player: Player,
+  govKind: GovernmentKind,
+  useInfluence: boolean
+): { ok: boolean; message: string } {
+  if (!state.government) {
+    state.government = {
+      currentGov: 'free_market',
+      nextElectionTick: state.time.tick + 72,
+      lastElectionTick: 0,
+      lobbyVotes: { free_market: 1, ecological: 1, interventionist: 1 },
+    };
+  }
+  const cashCost = 220_000;
+  const infCost = 18;
+  if (useInfluence) {
+    const totalInf = player.influence.financial + player.influence.social;
+    if (totalInf < infCost) {
+      return { ok: false, message: `Lobbing polityczny wymaga min. ${infCost} pkt wpływów.` };
+    }
+    player.influence.financial = Math.max(0, player.influence.financial - Math.ceil(infCost * 0.5));
+    player.influence.social = Math.max(0, player.influence.social - Math.floor(infCost * 0.5));
+  } else {
+    if (player.cash < cashCost) {
+      return { ok: false, message: `Kampania lobbingowa wymaga ${cashCost.toLocaleString('pl-PL')} zł.` };
+    }
+    player.cash -= cashCost;
+  }
+
+  state.government.lobbyVotes[govKind] = (state.government.lobbyVotes[govKind] ?? 0) + 3;
+  const cfg = GOVERNMENT_CONFIGS[govKind];
+  return {
+    ok: true,
+    message: `Zasilono kampanię ugrupowania ${cfg.name} (+3 głosy poparcia do najbliższych wyborów)!`,
+  };
+}
+
+export function processSseZonesTick(state: GameState): void {
+  let changed = false;
+  for (const p of state.plots) {
+    if (p.isSseZone && (p.sseExpiresTick ?? 0) <= state.time.tick) {
+      p.isSseZone = false;
+      p.sseExpiresTick = undefined;
+      changed = true;
+    }
+  }
+
+  const anyActive = state.plots.some((p) => p.isSseZone);
+  if (!anyActive && state.time.tick >= 6 && state.time.tick % 50 === 6) {
+    const size = Math.max(8, state.settings.mapSize || Math.round(Math.sqrt(state.plots.length)));
+    if (size >= 8) {
+      const startX = Math.floor(Math.random() * Math.max(1, size - 4));
+      const startY = Math.floor(Math.random() * Math.max(1, size - 4));
+      let focusId: string | undefined;
+      let count = 0;
+      for (const p of state.plots) {
+        if (
+          p.terrain !== 'water' &&
+          p.gridX >= startX &&
+          p.gridX < startX + 4 &&
+          p.gridY >= startY &&
+          p.gridY < startY + 4
+        ) {
+          p.isSseZone = true;
+          p.sseExpiresTick = state.time.tick + 60;
+          if (!focusId) focusId = p.id;
+          count++;
+        }
+      }
+      if (count > 0) {
+        changed = true;
+        state.news = [
+          {
+            id: `sse_${state.time.tick}`,
+            headline: `✨ Ogłoszono Specjalną Strefę Ekonomiczną 4×4 (${startX},${startY})!`,
+            brief: `Rząd ustanowił strefę 0% podatku CIT i 0% podatku gruntowego na sektorze (${startX}..${startX + 3}, ${startY}..${startY + 3}) na 2 lata gry!`,
+            fullText: `Budynki postawione w złotej strefie SSE nie płacą CIT ani podatku gruntowego przez 60 cykli.`,
+            analysis: 'Kliknij newsa, aby wyśrodkować mapę na nowej strefie inwestycyjnej SSE.',
+            hints: ['Przenieś nowe fabryki lub biurowce w obszar złotej ramki SSE!'],
+            type: 'opportunity' as const,
+            dateLabel: formatGameDate(state.time),
+            tick: state.time.tick,
+            read: false,
+            focusPlotId: focusId,
+          },
+          ...state.news,
+        ].slice(0, 40);
+      }
+    }
+  }
+
+  if (changed) {
+    state.networkRevision = (state.networkRevision ?? 0) + 1;
+  }
+}
+
+export function processGreenTransitionScenarioTick(state: GameState): void {
+  if (state.settings.scenarioId !== 'green_transition') return;
+  if (!state.greenTransitionEntered && state.time.tick >= 65) {
+    state.greenTransitionEntered = true;
+    state.carbonTaxActive = true;
+    if (state.government) {
+      state.government.currentGov = 'ecological';
+    }
+    state.news = [
+      {
+        id: `scn_green_${state.time.tick}`,
+        headline: '🌿 SCENARIUSZ: Pakiet Zielonej Transformacji wszedł w życie!',
+        brief: 'Wprowadzono surowy podatek CO₂ na energetykę węglową i zakaz nowych spalarni odpadów. Wygrywają OZE, recykling, lit, baterie i fuzja!',
+        fullText: 'Od tej tury zakłady węglowe i spalarnie ponoszą ogromne opłaty emisyjne, a Rząd Ekologiczny wspiera zielone inwestycje.',
+        analysis: 'Przestaw gospodarkę na farmy wiatrowe/słoneczne, fuzję oraz zakłady recyklingu.',
+        hints: ['Wyłącz lub wyburz stare kotły węglowe zanim kary CO₂ pochłoną gotówkę.'],
+        type: 'negative' as const,
+        dateLabel: formatGameDate(state.time),
+        tick: state.time.tick,
+        read: false,
+      },
+      ...state.news,
+    ].slice(0, 40);
+  }
+}
+
+export function processLiveAuctionTick(state: GameState): void {
+  // Scenariusz Upadek Giganta: okresowo wyprzedaje porzucone/upadające aktywa centralne na aukcji na żywo
+  if (
+    state.settings.scenarioId === 'fallen_giant' &&
+    !state.liveAuction &&
+    state.time.tick >= 12 &&
+    state.time.tick % 32 === 12
+  ) {
+    const giantAsset = state.plots.find(
+      (p) => p.ownerId === null && p.building?.ownerId === 'fallen_giant_pool'
+    );
+    if (giantAsset && giantAsset.building) {
+      const startBid = Math.max(85_000, Math.round((giantAsset.price + 180_000) * 0.55));
+      const now = Date.now();
+      state.liveAuction = {
+        id: `fg_auc_${state.time.tick}_${giantAsset.id}`,
+        plotId: giantAsset.id,
+        gridX: giantAsset.gridX,
+        gridY: giantAsset.gridY,
+        title: `Upadek Giganta · Licytacja: ${giantAsset.building.name}`,
+        description: `Komornik wystawia gotowy majątek po dawnym monopolu w centrum (${giantAsset.gridX}, ${giantAsset.gridY})!`,
+        startingBid: startBid,
+        currentBid: startBid,
+        highestBidderId: null,
+        highestBidderName: null,
+        minIncrement: 25_000,
+        secondsRemaining: 30,
+        startedAtMs: now,
+        expiresAtMs: now + 30_000,
+        bidsCount: 0,
+        sellerPlayerId: null,
+        status: 'active',
+      };
+    }
+  }
+
+  const auc = state.liveAuction;
+  if (!auc || auc.status !== 'active') return;
+
+  const wallRemaining = Math.ceil((auc.expiresAtMs - Date.now()) / 1000);
+  auc.secondsRemaining = Math.max(0, Math.min(auc.secondsRemaining - 3, wallRemaining));
+
+  // Proste przebijanie przez AI, jeśli cena atrakcyjna
+  if (auc.secondsRemaining > 4 && Math.random() < 0.38) {
+    const aiBidders = state.players.filter(
+      (p) =>
+        p.isAI &&
+        !p.isEliminated &&
+        p.id !== auc.highestBidderId &&
+        p.cash > auc.currentBid + auc.minIncrement * 2 &&
+        auc.currentBid < auc.startingBid * 1.65
+    );
+    if (aiBidders.length > 0) {
+      const bidder = aiBidders[Math.floor(Math.random() * aiBidders.length)];
+      auc.currentBid += auc.minIncrement;
+      auc.highestBidderId = bidder.id;
+      auc.highestBidderName = bidder.companyName;
+      auc.bidsCount += 1;
+      auc.expiresAtMs = Math.max(auc.expiresAtMs, Date.now() + 6_000);
+      auc.secondsRemaining = Math.max(auc.secondsRemaining, 6);
+    }
+  }
+
+  if (auc.secondsRemaining <= 0) {
+    const plot = state.plots.find((p) => p.id === auc.plotId);
+    const winner = auc.highestBidderId
+      ? state.players.find((p) => p.id === auc.highestBidderId && !p.isEliminated)
+      : undefined;
+
+    if (plot) {
+      if (winner && winner.cash >= auc.currentBid) {
+        winner.cash -= auc.currentBid;
+        plot.ownerId = winner.id;
+        plot.purchasable = false;
+        if (plot.building) {
+          plot.building.ownerId = winner.id;
+          plot.building.damagePercent = Math.min(plot.building.damagePercent, 25);
+          plot.building.condition = 100 - plot.building.damagePercent;
+        }
+        state.news = [
+          {
+            id: `auc_win_${auc.id}`,
+            headline: `🔨 Licytacja Zakończona: ${winner.companyName} przejmuje (${plot.gridX}, ${plot.gridY})!`,
+            brief: `Wygrana aukcja na żywo za ${auc.currentBid.toLocaleString('pl-PL')} zł (${auc.bidsCount} ofert).`,
+            fullText: `Obiekt przeszedł na własność ${winner.companyName}.`,
+            analysis: 'Przejmowanie gotowych zakładów na licytacjach pozwala błyskawicznie zdobyć przewagę.',
+            hints: [],
+            type: 'positive' as const,
+            dateLabel: formatGameDate(state.time),
+            tick: state.time.tick,
+            read: false,
+            focusPlotId: plot.id,
+          },
+          ...state.news,
+        ].slice(0, 40);
+      } else {
+        plot.ownerId = null;
+        plot.building = null;
+        plot.purchasable = plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0;
+      }
+      state.networkRevision = (state.networkRevision ?? 0) + 1;
+      recalculateSpatialNetwork(state.plots);
+    }
+    state.liveAuction = null;
+  }
+}
+
+export function placeLiveAuctionBid(
+  state: GameState,
+  player: Player,
+  auctionId: string,
+  bidAmount: number
+): { ok: boolean; message: string } {
+  const auc = state.liveAuction;
+  if (!auc || auc.id !== auctionId || auc.status !== 'active') {
+    return { ok: false, message: 'Licytacja wygasła lub nie jest już aktywna.' };
+  }
+  if (auc.highestBidderId === player.id) {
+    return { ok: false, message: 'Twoja oferta jest obecnie najwyższa!' };
+  }
+  const minRequired = auc.bidsCount === 0 ? auc.startingBid : auc.currentBid + auc.minIncrement;
+  const cleanBid = Math.round(Math.max(bidAmount, minRequired));
+  if (cleanBid < minRequired) {
+    return {
+      ok: false,
+      message: `Minimalne przebicie wynosi ${minRequired.toLocaleString('pl-PL')} zł.`,
+    };
+  }
+  if (player.cash < cleanBid) {
+    return { ok: false, message: `Brak środków w gotówce (${cleanBid.toLocaleString('pl-PL')} zł).` };
+  }
+
+  auc.currentBid = cleanBid;
+  auc.highestBidderId = player.id;
+  auc.highestBidderName = player.companyName;
+  auc.bidsCount += 1;
+  // Anty-sniping: dorzuć do min. 8 sekund po każdym przebiciu
+  auc.expiresAtMs = Math.max(auc.expiresAtMs, Date.now() + 8_000);
+  auc.secondsRemaining = Math.max(auc.secondsRemaining, 8);
+  return {
+    ok: true,
+    message: `Prowadzisz w licytacji ofertą ${cleanBid.toLocaleString('pl-PL')} zł!`,
+  };
 }

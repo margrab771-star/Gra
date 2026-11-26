@@ -1,12 +1,14 @@
 import Peer from 'peerjs';
 import type { DataConnection, PeerOptions } from 'peerjs';
-import { AI_STRATEGY_LABELS, PLAYER_COLORS } from '../config/gameConfig';
+import { AI_STRATEGY_LABELS, DEFAULT_MUTATORS, PLAYER_COLORS } from '../config/gameConfig';
 import type {
   AIStrategy,
+  ArchetypeId,
   GameState,
   LobbyPlayer,
   LobbyState,
   PlayerAction,
+  PlayerCardProfile,
   Plot,
 } from '../engine/types';
 
@@ -28,7 +30,14 @@ export type ConnectionStage =
   | 'error';
 
 export type NetworkMessage =
-  | { kind: 'join_request'; name: string; companyName: string; color: string }
+  | {
+      kind: 'join_request';
+      name: string;
+      companyName: string;
+      color: string;
+      archetype?: ArchetypeId;
+      playerCard?: PlayerCardProfile;
+    }
   | { kind: 'join_accepted'; assignedPlayerId: string; lobby: LobbyState }
   | { kind: 'join_rejected'; reason: string }
   | { kind: 'lobby_update'; lobby: LobbyState }
@@ -39,6 +48,8 @@ export type NetworkMessage =
       name?: string;
       companyName?: string;
       color?: string;
+      archetype?: ArchetypeId;
+      playerCard?: PlayerCardProfile;
     }
   | {
       kind: 'GAME_START';
@@ -361,6 +372,7 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     stocks: compactStocks,
     plotOffers: state.plotOffers.slice(-30),
     transportLines: state.transportLines.slice(0, 40),
+    matchStatsHistory: (state.matchStatsHistory ?? []).slice(-48),
     lastSyncTimestamp: Date.now(),
   };
 
@@ -394,6 +406,9 @@ export function buildStateDelta(prev: GameState, next: GameState): GameStateDelt
       pp.hasWater === np.hasWater &&
       (pp.irradiatedTicks ?? 0) === (np.irradiatedTicks ?? 0) &&
       (pp.disasterDamagedTicks ?? 0) === (np.disasterDamagedTicks ?? 0) &&
+      Boolean(pp.isSseZone) === Boolean(np.isSseZone) &&
+      (pp.synergyPercent ?? 0) === (np.synergyPercent ?? 0) &&
+      (pp.passengerDemandPercent ?? 100) === (np.passengerDemandPercent ?? 100) &&
       pp.building === null &&
       np.building === null &&
       Object.keys(pp.surveyedBy ?? {}).length === Object.keys(np.surveyedBy ?? {}).length &&
@@ -734,7 +749,8 @@ export class MultiplayerManager {
   async createRoom(
     hostName: string,
     companyName: string,
-    color: string
+    color: string,
+    opts?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
   ): Promise<LobbyState> {
     this.disconnect();
     const roomCode = generateRoomCode();
@@ -751,6 +767,9 @@ export class MultiplayerManager {
       maxPlayers: 8,
       disastersEnabled: true,
       victoryMode: 'solo',
+      difficultyPreset: 'standard',
+      scenarioId: 'sandbox',
+      mutators: { ...DEFAULT_MUTATORS },
       gameStarted: false,
       players: [
         {
@@ -763,6 +782,8 @@ export class MultiplayerManager {
           isAI: false,
           ready: true,
           connected: true,
+          archetype: opts?.archetype ?? 'standard',
+          playerCard: opts?.playerCard,
         },
       ],
     };
@@ -934,7 +955,7 @@ export class MultiplayerManager {
       if (humanCount >= this.lobby.maxPlayers) {
         conn.send({
           kind: 'join_rejected',
-          reason: 'Pokój jest już pełny (maks. 4 graczy).',
+          reason: `Pokój jest już pełny (maks. ${this.lobby.maxPlayers} graczy).`,
         } satisfies NetworkMessage);
         return;
       }
@@ -963,6 +984,8 @@ export class MultiplayerManager {
         isAI: false,
         ready: false,
         connected: true,
+        archetype: msg.archetype ?? 'standard',
+        playerCard: msg.playerCard,
       };
 
       this.lobby.players.push(lp);
@@ -983,6 +1006,8 @@ export class MultiplayerManager {
         if (msg.name) lp.name = msg.name;
         if (msg.companyName) lp.companyName = msg.companyName;
         if (msg.color) lp.color = msg.color;
+        if (msg.archetype) lp.archetype = msg.archetype;
+        if (msg.playerCard) lp.playerCard = msg.playerCard;
         this.broadcastLobby();
       }
     } else if (msg.kind === 'player_action') {
@@ -1011,7 +1036,8 @@ export class MultiplayerManager {
     roomCode: string,
     playerName: string,
     companyName: string,
-    color: string
+    color: string,
+    opts?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
   ): Promise<{ lobby: LobbyState; playerId: string }> {
     const normalizedCode = normalizeRoomCode(roomCode);
     if (!normalizedCode || normalizedCode.length < 5) {
@@ -1058,6 +1084,8 @@ export class MultiplayerManager {
             name: playerName,
             companyName,
             color,
+            archetype: opts?.archetype ?? 'standard',
+            playerCard: opts?.playerCard,
           } satisfies NetworkMessage);
         });
 
@@ -1219,11 +1247,44 @@ export class MultiplayerManager {
   }
 
   updateLobbySettings(
-    partial: Partial<Pick<LobbyState, 'mode' | 'mapSize' | 'aiDifficulty' | 'disastersEnabled' | 'victoryMode'>>
+    partial: Partial<
+      Pick<
+        LobbyState,
+        | 'mode'
+        | 'mapSize'
+        | 'aiDifficulty'
+        | 'disastersEnabled'
+        | 'victoryMode'
+        | 'difficultyPreset'
+        | 'scenarioId'
+        | 'mutators'
+      >
+    >
   ): void {
     if (!this.isHostFlag || !this.lobby) return;
     this.lobby = { ...this.lobby, ...partial };
     this.broadcastLobby();
+  }
+
+  updateLocalLobbyProfile(opts: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }): void {
+    if (!this.lobby) return;
+    if (this.isHostFlag) {
+      const me = this.lobby.players.find((p) => p.id === this.localPlayerId);
+      if (me) {
+        if (opts.archetype) me.archetype = opts.archetype;
+        if (opts.playerCard) me.playerCard = opts.playerCard;
+        this.broadcastLobby();
+      }
+    } else if (this.hostConn?.open) {
+      const me = this.lobby.players.find((p) => p.id === this.localPlayerId);
+      this.hostConn.send({
+        kind: 'player_ready',
+        playerId: this.localPlayerId,
+        ready: Boolean(me?.ready),
+        archetype: opts.archetype,
+        playerCard: opts.playerCard,
+      } satisfies NetworkMessage);
+    }
   }
 
   toggleAISlot(addBot: boolean): void {
@@ -1241,6 +1302,7 @@ export class MultiplayerManager {
       const usedColors = new Set(this.lobby.players.map((p) => p.color));
       const idx = this.lobby.players.length;
       const strat = strategies[idx % strategies.length];
+      const aiArchs: ArchetypeId[] = ['industrialist' === strat ? 'industrial_giant' : strat === 'energyMagnate' ? 'tech_incubator' : strat === 'realEstate' ? 'investment_fund' : strat === 'supplyChain' ? 'logistics_cartel' : 'eco_innovator'];
       this.lobby.players.push({
         id: `ai_${Date.now().toString(36).slice(-4)}_${idx}`,
         peerId: '',
@@ -1252,6 +1314,7 @@ export class MultiplayerManager {
         isHost: false,
         isAI: true,
         aiStrategy: strat,
+        archetype: aiArchs[0],
         ready: true,
         connected: true,
       });
@@ -1266,7 +1329,8 @@ export class MultiplayerManager {
     ready: boolean,
     name?: string,
     companyName?: string,
-    color?: string
+    color?: string,
+    opts?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
   ): void {
     if (this.isHostFlag || !this.hostConn?.open) return;
     this.hostConn.send({
@@ -1276,6 +1340,8 @@ export class MultiplayerManager {
       name,
       companyName,
       color,
+      archetype: opts?.archetype,
+      playerCard: opts?.playerCard,
     } satisfies NetworkMessage);
   }
 

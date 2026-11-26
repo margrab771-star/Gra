@@ -1,4 +1,5 @@
-import { GAME_CONFIG, TOLL_RATE_CONFIG } from '../config/gameConfig';
+import { GAME_CONFIG, GOVERNMENT_CONFIGS, TOLL_RATE_CONFIG } from '../config/gameConfig';
+import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { getPlayerCoalition } from './CoalitionSystem';
 import { getPlayerEntrepreneurModifiers } from './EconomyEngine';
@@ -34,7 +35,12 @@ function smoothNoise(x: number, y: number, seed: number): number {
   return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }
 
-export function generateMap(size: number, seed = Math.floor(Math.random() * 10000)): Plot[] {
+export function generateMap(
+  size: number,
+  seed = Math.floor(Math.random() * 10000),
+  opts?: { goldRush?: boolean }
+): Plot[] {
+  const goldRush = Boolean(opts?.goldRush);
   const plots: Plot[] = [];
   const center = size / 2;
 
@@ -80,11 +86,11 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
-        if (rRoll2 > 0.8) {
+        if (rRoll2 > (goldRush ? 0.56 : 0.8)) {
           deposits.push({
-            type: rRoll2 > 0.9 ? 'uranium' : 'gold',
-            amount: 2600,
-            richness: 1.25,
+            type: rRoll2 > (goldRush ? 0.82 : 0.9) ? 'uranium' : 'gold',
+            amount: goldRush ? 3800 : 2600,
+            richness: goldRush ? 1.45 : 1.25,
             discovered: false,
           });
         }
@@ -96,11 +102,11 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 241) > 0.87) {
+        if (hash2D(x, y, seed + 241) > (goldRush ? 0.68 : 0.87)) {
           deposits.push({
             type: 'diamonds',
-            amount: Math.round(900 + rRoll2 * 1100),
-            richness: 1.15,
+            amount: Math.round((goldRush ? 1500 : 900) + rRoll2 * 1100),
+            richness: goldRush ? 1.4 : 1.15,
             discovered: false,
           });
         }
@@ -113,15 +119,15 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 205) > 0.82) {
+        if (hash2D(x, y, seed + 205) > (goldRush ? 0.62 : 0.82)) {
           deposits.push({
-            type: rRoll2 > 0.5 ? 'gold' : 'uranium',
-            amount: 2300,
-            richness: 1.18,
+            type: rRoll2 > (goldRush ? 0.35 : 0.5) ? 'gold' : 'uranium',
+            amount: goldRush ? 3200 : 2300,
+            richness: goldRush ? 1.38 : 1.18,
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 263) > 0.77) {
+        if (hash2D(x, y, seed + 263) > (goldRush ? 0.68 : 0.77)) {
           deposits.push({
             type: 'lithium',
             amount: Math.round(2400 + rRoll * 2600),
@@ -140,11 +146,11 @@ export function generateMap(size: number, seed = Math.floor(Math.random() * 1000
             discovered: false,
           });
         }
-        if (terrain === 'forest' && hash2D(x, y, seed + 319) > 0.91) {
+        if (terrain === 'forest' && hash2D(x, y, seed + 319) > (goldRush ? 0.76 : 0.91)) {
           deposits.push({
             type: 'diamonds',
-            amount: 1050,
-            richness: 1.1,
+            amount: goldRush ? 1550 : 1050,
+            richness: goldRush ? 1.32 : 1.1,
             discovered: false,
           });
         }
@@ -233,6 +239,59 @@ export function hasPlayerSurveyedPlot(plot: Plot, playerId: string): boolean {
   return Boolean(plot.surveyedBy?.[playerId]);
 }
 
+export function isPlotBuildingVisibleToViewer(
+  plot: Plot,
+  viewerId: string,
+  viewerPlayer?: Player,
+  state?: GameState
+): boolean {
+  if (!plot.building) return true;
+  if (!state?.settings.mutators?.fogOfWar) return true;
+  if (plot.building.ownerId === viewerId) return true;
+  if (viewerPlayer?.revealedFogPlots?.[plot.id]) return true;
+  if (viewerPlayer?.spiedPlayers?.[plot.building.ownerId]) return true;
+  if (state) {
+    const col = getPlayerCoalition(state, viewerId);
+    if (col && col.memberIds.includes(plot.building.ownerId)) return true;
+  }
+  return false;
+}
+
+export function revealFogPlotForPlayer(
+  state: GameState,
+  player: Player,
+  plot: Plot
+): { ok: boolean; error?: string; revealedCount: number } {
+  const hasIntel = state.plots.some(
+    (p) =>
+      p.ownerId === player.id &&
+      p.building?.type === 'intelligenceCenter' &&
+      p.building.isActive &&
+      !p.building.destroyedRuins
+  );
+  const cost = hasIntel ? 15_000 : 35_000;
+  if (player.cash < cost) {
+    return {
+      ok: false,
+      revealedCount: 0,
+      error: `Raport wywiadowczy kosztuje ${cost.toLocaleString('pl-PL')} zł.`,
+    };
+  }
+  player.cash -= cost;
+  player.revealedFogPlots = player.revealedFogPlots ?? {};
+  let revealedCount = 0;
+  for (const p of state.plots) {
+    if (Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 1.5) {
+      if (!player.revealedFogPlots[p.id]) {
+        player.revealedFogPlots[p.id] = true;
+        revealedCount++;
+      }
+    }
+  }
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
+  return { ok: true, revealedCount };
+}
+
 export function hasPlayerDiscoveredPlot(
   plot: Plot,
   viewerId: string,
@@ -294,7 +353,13 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
       (p.building.type === 'amusementPark' ||
         p.building.type === 'culturalCenter' ||
         p.building.type === 'marinaPromenade' ||
-        p.building.type === 'casino')
+        p.building.type === 'casino' ||
+        p.building.type === 'cityPark' ||
+        p.building.type === 'arenaStadium' ||
+        p.building.type === 'gastronomyBoulevard')
+  );
+  const parks = plots.filter(
+    (p) => p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'cityPark'
   );
   const casinos = plots.filter(
     (p) => p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'casino'
@@ -373,7 +438,12 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
         penalty += Math.round((4.0 - d) * 10 * factor);
       }
     }
-    plot.neighborPenalty = Math.min(75, penalty);
+    let parkMitigation = 0;
+    for (const pk of parks) {
+      const d = Math.hypot(pk.gridX - plot.gridX, pk.gridY - plot.gridY);
+      if (d <= 2.6) parkMitigation += 0.35;
+    }
+    plot.neighborPenalty = Math.min(75, Math.round(penalty * Math.max(0.35, 1 - parkMitigation)));
 
     let attrBonus = 0;
     for (const ap of attractions) {
@@ -517,6 +587,41 @@ export function sellPlotForPlayer(
   return { ok: true };
 }
 
+export function getRoadBuildCostForPlot(
+  state: GameState,
+  player: Player,
+  plot: Plot,
+  roadClass: 'local' | 'highway' = 'local'
+): number {
+  if (roadClass === 'local' && state.settings.mutators?.freeLocalRoads) {
+    return 0;
+  }
+  const archMult = getArchetypeDefinition(player.archetype).modifiers.roadBuildCostMult;
+  const govKind = state.government?.currentGov;
+  const govDisc = govKind ? GOVERNMENT_CONFIGS[govKind].roadDiscount : 0;
+  const baseCash =
+    roadClass === 'highway'
+      ? plot.hasRoad
+        ? GAME_CONFIG.highwayCost - Math.round(GAME_CONFIG.playerRoadCost * 0.6)
+        : GAME_CONFIG.highwayCost
+      : GAME_CONFIG.playerRoadCost;
+
+  let cashCost = Math.round(baseCash * archMult * (1 - govDisc));
+  if (roadClass === 'highway') {
+    for (const [resKey, needed] of Object.entries(GAME_CONFIG.highwayInputs)) {
+      const res = resKey as ResourceType;
+      const stock = player.warehouseStockpile[res] ?? 0;
+      const missing = Math.max(0, needed - stock);
+      if (missing > 0) {
+        const mktPrice =
+          state.resourcePrices.find((p) => p.type === res)?.price ?? 120;
+        cashCost += Math.round(missing * mktPrice);
+      }
+    }
+  }
+  return Math.max(0, cashCost);
+}
+
 export function buildPlayerRoadOnPlot(
   state: GameState,
   player: Player,
@@ -545,25 +650,7 @@ export function buildPlayerRoadOnPlot(
     return { ok: false, error: 'Na tej działce istnieje już Droga Zwykła. Możesz rozbudować ją do Autostrady.' };
   }
 
-  let cashCost =
-    roadClass === 'highway'
-      ? plot.hasRoad
-        ? GAME_CONFIG.highwayCost - Math.round(GAME_CONFIG.playerRoadCost * 0.6)
-        : GAME_CONFIG.highwayCost
-      : GAME_CONFIG.playerRoadCost;
-
-  if (roadClass === 'highway') {
-    for (const [resKey, needed] of Object.entries(GAME_CONFIG.highwayInputs)) {
-      const res = resKey as ResourceType;
-      const stock = player.warehouseStockpile[res] ?? 0;
-      const missing = Math.max(0, needed - stock);
-      if (missing > 0) {
-        const mktPrice =
-          state.resourcePrices.find((p) => p.type === res)?.price ?? 120;
-        cashCost += Math.round(missing * mktPrice);
-      }
-    }
-  }
+  const cashCost = getRoadBuildCostForPlot(state, player, plot, roadClass);
 
   if (player.cash < cashCost) {
     return {
@@ -639,7 +726,8 @@ export function surveyPlotForPlayer(
   }
 
   const hasGeoTech = player.globalTech['ind_geology']?.status === 'done';
-  const cost = Math.round(GAME_CONFIG.surveyCost * (hasGeoTech ? 0.7 : 1));
+  const archGeoMult = getArchetypeDefinition(player.archetype).modifiers.surveyCostMult;
+  const cost = Math.round(GAME_CONFIG.surveyCost * (hasGeoTech ? 0.7 : 1) * archGeoMult);
   if (player.cash < cost) {
     return { ok: false, foundCount: 0, error: 'Brak środków na badanie geologiczne.' };
   }
@@ -686,8 +774,9 @@ export function surveyAreaForPlayer(
     };
   }
 
+  const archGeoMult = getArchetypeDefinition(player.archetype).modifiers.surveyCostMult;
   const totalCost = Math.round(
-    GAME_CONFIG.surveyCost * 0.7 * GAME_CONFIG.areaSurveyMultiplier
+    GAME_CONFIG.surveyCost * 0.7 * GAME_CONFIG.areaSurveyMultiplier * archGeoMult
   );
   if (player.cash < totalCost) {
     return {
@@ -908,4 +997,187 @@ function executePlotOwnershipTransfer(
     }
   }
   recalculateSpatialNetwork(state.plots);
+}
+
+// ─── Zbiorcze akcje QoL (v6.0 · Atomowe pakiety pod PeerJS/TURN) ──────────────
+
+export function batchBuyPlotsForPlayer(
+  state: GameState,
+  player: Player,
+  plotIds: string[]
+): { ok: boolean; boughtCount: number; totalSpent: number; error?: string } {
+  const uniqueIds = Array.from(new Set(plotIds));
+  const candidates = uniqueIds
+    .map((id) => state.plots.find((p) => p.id === id))
+    .filter(
+      (p): p is Plot =>
+        Boolean(p && p.purchasable && p.ownerId === null && p.terrain !== 'water' && (p.irradiatedTicks ?? 0) <= 0)
+    );
+
+  if (candidates.length === 0) {
+    return { ok: false, boughtCount: 0, totalSpent: 0, error: 'Brak wolnych działek do zakupu w zaznaczeniu.' };
+  }
+
+  let boughtCount = 0;
+  let totalSpent = 0;
+  for (const plot of candidates) {
+    if (player.cash < plot.price) break;
+    player.cash -= plot.price;
+    totalSpent += plot.price;
+    plot.ownerId = player.id;
+    plot.purchasable = false;
+    boughtCount++;
+  }
+
+  if (boughtCount === 0) {
+    return { ok: false, boughtCount: 0, totalSpent: 0, error: 'Niewystarczająca gotówka na zakup zaznaczonych działek.' };
+  }
+
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
+  recalculateSpatialNetwork(state.plots);
+  return { ok: true, boughtCount, totalSpent };
+}
+
+export function batchSurveyPlotsForPlayer(
+  state: GameState,
+  player: Player,
+  plotIds: string[]
+): { ok: boolean; scannedCount: number; foundCount: number; totalCost: number; error?: string } {
+  const uniqueIds = Array.from(new Set(plotIds));
+  const candidates = uniqueIds
+    .map((id) => state.plots.find((p) => p.id === id))
+    .filter(
+      (p): p is Plot =>
+        Boolean(
+          p &&
+            p.terrain !== 'water' &&
+            (p.ownerId === null || p.ownerId === player.id) &&
+            !hasPlayerSurveyedPlot(p, player.id)
+        )
+    );
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      scannedCount: 0,
+      foundCount: 0,
+      totalCost: 0,
+      error: 'Wszystkie dostępne działki w zaznaczeniu zostały już zbadane.',
+    };
+  }
+
+  const hasGeoTech = player.globalTech['ind_geology']?.status === 'done';
+  const archGeoMult = getArchetypeDefinition(player.archetype).modifiers.surveyCostMult;
+  const perPlotCost = Math.round(GAME_CONFIG.surveyCost * (hasGeoTech ? 0.7 : 1) * archGeoMult * 0.88);
+  const fullCost = perPlotCost * candidates.length;
+
+  let scannedCount = 0;
+  let foundCount = 0;
+  let totalCost = 0;
+
+  for (const p of candidates) {
+    if (player.cash < perPlotCost) break;
+    player.cash -= perPlotCost;
+    totalCost += perPlotCost;
+    if (!p.surveyedBy) p.surveyedBy = {};
+    p.surveyedBy[player.id] = true;
+    if (player.id === state.currentPlayerId) {
+      p.surveyed = true;
+    }
+    foundCount += p.deposits.length;
+    scannedCount++;
+  }
+
+  if (scannedCount === 0) {
+    return {
+      ok: false,
+      scannedCount: 0,
+      foundCount: 0,
+      totalCost: 0,
+      error: `Brak środków na hurtową geologię (${fullCost.toLocaleString('pl-PL')} zł).`,
+    };
+  }
+
+  return { ok: true, scannedCount, foundCount, totalCost };
+}
+
+export function batchBuildRoadForPlayer(
+  state: GameState,
+  player: Player,
+  plotIds: string[],
+  roadClass: 'local' | 'highway'
+): { ok: boolean; builtCount: number; totalCost: number; error?: string } {
+  const uniqueIds = Array.from(new Set(plotIds));
+  let builtCount = 0;
+  let totalCost = 0;
+
+  for (const id of uniqueIds) {
+    const plot = state.plots.find((p) => p.id === id);
+    if (!plot) continue;
+    // W trybie Drag-to-Build pozwalamy najpierw automatycznie kupić wolną działkę, jeśli nie ma właściciela,
+    // LUB budować bezpośrednio na własnych działkach bez budynku
+    if (plot.ownerId === null && plot.purchasable && plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0) {
+      const roadCost = getRoadBuildCostForPlot(state, player, plot, roadClass);
+      if (player.cash < plot.price + roadCost) break;
+      player.cash -= plot.price;
+      totalCost += plot.price;
+      plot.ownerId = player.id;
+      plot.purchasable = false;
+    }
+    if (plot.ownerId !== player.id || plot.building || plot.terrain === 'water' || (plot.irradiatedTicks ?? 0) > 0) {
+      continue;
+    }
+    if (plot.hasRoad && (roadClass === 'local' || plot.roadType === 'highway')) {
+      continue;
+    }
+    const cost = getRoadBuildCostForPlot(state, player, plot, roadClass);
+    if (player.cash < cost) break;
+    player.cash -= cost;
+    totalCost += cost;
+    plot.hasRoad = true;
+    plot.isPlayerRoad = true;
+    plot.roadType = roadClass;
+    if (roadClass === 'highway' && plot.tollRate === 'free') {
+      plot.tollRate = 'standard';
+    }
+    builtCount++;
+  }
+
+  if (builtCount === 0) {
+    return {
+      ok: false,
+      builtCount: 0,
+      totalCost: 0,
+      error: 'Nie wybudowano żadnego odcinka (brak środków lub zajęte działki).',
+    };
+  }
+
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
+  recalculateSpatialNetwork(state.plots);
+  return { ok: true, builtCount, totalCost };
+}
+
+export function applyHighwayPolicyToAllForPlayer(
+  state: GameState,
+  player: Player,
+  tollRate: TollRate,
+  roadBlocked: boolean
+): { ok: boolean; updatedCount: number; message: string } {
+  let updatedCount = 0;
+  for (const p of state.plots) {
+    if (p.ownerId === player.id && p.hasRoad && p.roadType === 'highway') {
+      p.tollRate = tollRate;
+      p.roadBlocked = roadBlocked;
+      updatedCount++;
+    }
+  }
+  if (updatedCount === 0) {
+    return { ok: false, updatedCount: 0, message: 'Nie posiadasz jeszcze żadnych autostrad płatnych.' };
+  }
+  state.networkRevision = (state.networkRevision ?? 0) + 1;
+  return {
+    ok: true,
+    updatedCount,
+    message: `Zastosowano stawkę "${TOLL_RATE_CONFIG[tollRate].label}" i blokadę (${roadBlocked ? 'WŁ' : 'WYŁ'}) do ${updatedCount} odcinków autostrad.`,
+  };
 }
