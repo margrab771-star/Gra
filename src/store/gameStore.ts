@@ -101,7 +101,7 @@ interface GameStoreState {
   showWeeklyModal: boolean;
   lastMatchRewardSummary: { xpEarned: number; newlyUnlocked: AchievementDefinition[] } | null;
   recordedMatchEnded: boolean;
-  mapToolMode: 'normal' | 'area_select' | 'road_local' | 'road_highway';
+  mapToolMode: 'normal' | 'area_select' | 'road_local' | 'road_highway' | 'road_bridge';
   areaSelectedPlotIds: string[];
   hoveredBuildType: BuildingType | null;
   cloneBlueprintSource: {
@@ -115,7 +115,7 @@ interface GameStoreState {
   setShowWeeklyModal: (show: boolean) => void;
   refreshActiveProfile: () => void;
   applyUpdatedProfile: (profile: UserAccountProfile) => void;
-  setMapToolMode: (mode: 'normal' | 'area_select' | 'road_local' | 'road_highway') => void;
+  setMapToolMode: (mode: 'normal' | 'area_select' | 'road_local' | 'road_highway' | 'road_bridge') => void;
   setAreaSelectedPlotIds: (ids: string[]) => void;
   setHoveredBuildType: (bType: BuildingType | null) => void;
   setCloneBlueprintSource: (
@@ -246,7 +246,7 @@ interface GameStoreState {
     text: string,
     pingPlot?: { plotId: string; gridX: number; gridY: number; label: string }
   ) => void;
-  buildPlayerRoad: (plotId: string, roadClass?: 'local' | 'highway') => void;
+  buildPlayerRoad: (plotId: string, roadClass?: 'local' | 'highway' | 'bridge') => void;
   setRoadPolicy: (
     plotId: string,
     opts: { tollRate?: TollRate; roadBlocked?: boolean; toggleBlockedPlayerId?: string }
@@ -271,10 +271,11 @@ interface GameStoreState {
   // v6.0 & v7.0 dispatchers
   batchBuyPlots: (plotIds: string[]) => void;
   batchSurveyPlots: (plotIds: string[]) => void;
-  batchBuildRoad: (plotIds: string[], roadClass: 'local' | 'highway') => void;
+  batchBuildRoad: (plotIds: string[], roadClass: 'local' | 'highway' | 'bridge') => void;
   applyHighwayPolicyToAll: (tollRate: TollRate, roadBlocked: boolean) => void;
   cloneBuilding: (plotId: string, sourceBuildingId: string, includeUpgrades: boolean) => void;
   toggleInsurance: (buildingId: string) => void;
+  toggleEmergencyFuelImport: (buildingId: string) => void;
   placeAuctionBid: (auctionId: string, bidAmount: number) => void;
   lobbyElection: (govKind: GovernmentKind, useInfluence: boolean) => void;
   revealFogPlot: (plotId: string) => void;
@@ -1371,6 +1372,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
   toggleInsurance: (buildingId) => {
     get().dispatchAction({ type: 'toggleInsurance', playerId: get().localPlayerId, buildingId });
+  },
+  toggleEmergencyFuelImport: (buildingId) => {
+    get().dispatchAction({ type: 'toggleEmergencyFuelImport', playerId: get().localPlayerId, buildingId });
   },
   placeAuctionBid: (auctionId, bidAmount) => {
     get().dispatchAction({ type: 'placeAuctionBid', playerId: get().localPlayerId, auctionId, bidAmount });

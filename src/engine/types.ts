@@ -56,7 +56,7 @@ export type BuildingCategory =
   | 'military'
   | 'waste';
 
-export type RoadClass = 'none' | 'local' | 'highway';
+export type RoadClass = 'none' | 'local' | 'highway' | 'bridge';
 
 export type TollRate = 'free' | 'low' | 'standard' | 'high' | 'prohibitive';
 
@@ -259,6 +259,23 @@ export interface Vehicle {
 export interface TransportRouteLine {
   fromPlotId: string;
   toPlotId: string;
+  mode: 'road' | 'sea' | 'air';
+  ownerId: string;
+}
+
+export interface ActiveFuelDelivery {
+  fromPlotId: string;
+  toPlotId: string;
+  resource: ResourceType;
+  mode: 'road' | 'sea' | 'air';
+  ownerId: string;
+}
+
+export interface ActiveB2BRoute {
+  contractId: string;
+  fromPlotId: string;
+  toPlotId: string;
+  resource: ResourceType;
   mode: 'road' | 'sea' | 'air';
   ownerId: string;
 }
@@ -535,6 +552,7 @@ export interface BuildingStatusFlags {
   wasteCrisis?: boolean;
   disasterStruck?: boolean;
   onStrike?: boolean;
+  noFuel?: boolean;
 }
 
 export interface Building {
@@ -583,9 +601,36 @@ export interface Building {
   crimeLevel?: number;
   sabotagedTicks: number;
   boycottedTicks: number;
+  // v8.0 fizyczne paliwo elektrowni
+  fuelLevel?: number;
+  fuelStored?: number;
+  fuelMax?: number;
+  fuelResource?: ResourceType;
+  fuelSourceMode?: 'none' | 'mine' | 'b2b' | 'market';
+  emergencyMarketImport?: boolean;
 }
 
 // ─── Utility & Resource Balance Report ────────────────────────────────────────
+
+export interface ClusterUtilitySummary {
+  clusterId: number;
+  label: string;
+  electricityProduced: number;
+  electricityConsumed: number;
+  electricityNet: number;
+  electricityCoverageRatio: number;
+  waterProduced: number;
+  waterConsumed: number;
+  waterNet: number;
+  waterCoverageRatio: number;
+  sewageProduced: number;
+  sewageTreated: number;
+  sewageNet: number;
+  wasteProduced: number;
+  wasteProcessed: number;
+  wasteNet: number;
+  buildingCount: number;
+}
 
 export interface UtilityBalanceReport {
   electricityProduced: number;
@@ -606,6 +651,8 @@ export interface UtilityBalanceReport {
   wasteProduced: number;
   wasteProcessed: number;
   wasteNet: number;
+  clusters?: ClusterUtilitySummary[];
+  isolatedClusterCount?: number;
   resourceBalances: {
     resource: ResourceType;
     produced: number;
@@ -648,6 +695,8 @@ export interface B2BContract {
   barterResource?: ResourceType;
   barterQtyPerTick?: number;
   listingSide?: 'sell' | 'buy';
+  blockedReason?: string;
+  transportMode?: 'road' | 'sea' | 'air' | 'blocked';
 }
 
 // ─── Global Tech & Entrepreneur Trees ─────────────────────────────────────────
@@ -1186,6 +1235,7 @@ export interface Player {
   bonds: CorporateBond[];
   inspectionRisk: number;
   warehouseStockpile: Partial<Record<ResourceType, number>>;
+  stockLocations?: Record<string, Partial<Record<ResourceType, number>>>;
   defaultAutoRepair: { enabled: boolean; threshold: number };
   activeTaxReliefTicks: number;
   spiedPlayers: Record<string, number>;
@@ -1292,6 +1342,8 @@ export interface GameState {
   vehicles: Vehicle[];
   transportLines: TransportRouteLine[];
   dispatches: ServiceDispatch[];
+  fuelDeliveries?: ActiveFuelDelivery[];
+  b2bRoutes?: ActiveB2BRoute[];
   stocks: CorporateStock[];
   coalitions?: Coalition[];
   naps?: NonAggressionPact[];
@@ -1366,7 +1418,7 @@ export type PlayerAction =
   | { type: 'sellPlot'; playerId: string; plotId: string }
   | { type: 'surveyPlot'; playerId: string; plotId: string }
   | { type: 'surveyArea'; playerId: string; plotId: string }
-  | { type: 'buildPlayerRoad'; playerId: string; plotId: string; roadClass?: 'local' | 'highway' }
+  | { type: 'buildPlayerRoad'; playerId: string; plotId: string; roadClass?: 'local' | 'highway' | 'bridge' }
   | {
       type: 'setRoadPolicy';
       playerId: string;
@@ -1461,7 +1513,8 @@ export type PlayerAction =
   // v6.0 & v7.0 batch & meta actions
   | { type: 'batchBuyPlots'; playerId: string; plotIds: string[] }
   | { type: 'batchSurveyPlots'; playerId: string; plotIds: string[] }
-  | { type: 'batchBuildRoad'; playerId: string; plotIds: string[]; roadClass: 'local' | 'highway' }
+  | { type: 'batchBuildRoad'; playerId: string; plotIds: string[]; roadClass: 'local' | 'highway' | 'bridge' }
+  | { type: 'toggleEmergencyFuelImport'; playerId: string; buildingId: string }
   | { type: 'applyHighwayPolicyToAll'; playerId: string; tollRate: TollRate; roadBlocked: boolean }
   | {
       type: 'cloneBuilding';

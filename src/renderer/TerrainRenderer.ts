@@ -457,9 +457,28 @@ export class TerrainRenderer {
     hasW: boolean,
     scale: number
   ): void {
+    const isBridge = plot.roadType === 'bridge';
     const isHighway = plot.roadType === 'highway';
-    const r = isHighway ? 0.24 : 0.16;
-    const rc = r + (isHighway ? 0.045 : 0.032);
+    const deckCy = isBridge ? cy - 3.5 * scale : cy;
+    const r = isHighway ? 0.24 : isBridge ? 0.19 : 0.16;
+    const rc = r + (isHighway ? 0.045 : isBridge ? 0.048 : 0.032);
+
+    if (isBridge) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(cx - 5.5 * scale, cy + 4.5 * scale, 3.2 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 5.5 * scale, cy + 4.5 * scale, 3.2 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(cx - 7 * scale, deckCy, 3 * scale, 7.5 * scale);
+      ctx.fillRect(cx + 4 * scale, deckCy, 3 * scale, 7.5 * scale);
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(cx - 7 * scale, deckCy, 1.2 * scale, 7.5 * scale);
+      ctx.fillRect(cx + 4 * scale, deckCy, 1.2 * scale, 7.5 * scale);
+      ctx.restore();
+    }
 
     // Bazowe pół-wektory krawędzi rombu:
     // granica N/S leży wzdłuż (+tw/2, +th/2), granica E/W leży wzdłuż (+tw/2, -th/2)
@@ -477,10 +496,10 @@ export class TerrainRenderer {
 
       const drawQuad = (dxEnd: number, dyEnd: number, px: number, py: number) => {
         ctx.beginPath();
-        ctx.moveTo(cx - px * ratio, cy - py * ratio);
-        ctx.lineTo(cx + px * ratio, cy + py * ratio);
-        ctx.lineTo(cx + dxEnd + px * ratio, cy + dyEnd + py * ratio);
-        ctx.lineTo(cx + dxEnd - px * ratio, cy + dyEnd - py * ratio);
+        ctx.moveTo(cx - px * ratio, deckCy - py * ratio);
+        ctx.lineTo(cx + px * ratio, deckCy + py * ratio);
+        ctx.lineTo(cx + dxEnd + px * ratio, deckCy + dyEnd + py * ratio);
+        ctx.lineTo(cx + dxEnd - px * ratio, deckCy + dyEnd - py * ratio);
         ctx.closePath();
         ctx.fill();
       };
@@ -494,30 +513,34 @@ export class TerrainRenderer {
       if (drawCenterDiamond) {
         // Romb środkowy łączący idealnie ramiona N/S oraz E/W
         ctx.beginPath();
-        ctx.moveTo(cx, cy - th * ratio);
-        ctx.lineTo(cx + tw * ratio, cy);
-        ctx.lineTo(cx, cy + th * ratio);
-        ctx.lineTo(cx - tw * ratio, cy);
+        ctx.moveTo(cx, deckCy - th * ratio);
+        ctx.lineTo(cx + tw * ratio, deckCy);
+        ctx.lineTo(cx, deckCy + th * ratio);
+        ctx.lineTo(cx - tw * ratio, deckCy);
         ctx.closePath();
         ctx.fill();
       }
     };
 
-    // 1. Krawężnik / barierka autostrady
-    drawRibbon(rc, isHighway ? '#94a3b8' : '#141923', true);
+    // 1. Krawężnik / barierka autostrady / balustrada mostu
+    drawRibbon(rc, isBridge ? '#94a3b8' : isHighway ? '#94a3b8' : '#141923', true);
     // 2. Nawierzchnia asfaltowa
-    drawRibbon(r, isHighway ? '#1e293b' : '#2d3545', true);
+    drawRibbon(r, isBridge ? '#334155' : isHighway ? '#1e293b' : '#2d3545', true);
 
     // 3. Pasy rozdzielające
-    ctx.strokeStyle = isHighway ? '#fbbf24' : 'rgba(226, 232, 240, 0.55)';
-    ctx.lineWidth = Math.max(1, (isHighway ? 1.8 : 1.1) * scale);
-    ctx.setLineDash(isHighway ? [4 * scale, 2.5 * scale] : [3 * scale, 3 * scale]);
+    ctx.strokeStyle = isBridge
+      ? '#38bdf8'
+      : isHighway
+        ? '#fbbf24'
+        : 'rgba(226, 232, 240, 0.55)';
+    ctx.lineWidth = Math.max(1, (isHighway || isBridge ? 1.8 : 1.1) * scale);
+    ctx.setLineDash(isHighway || isBridge ? [4 * scale, 2.5 * scale] : [3 * scale, 3 * scale]);
 
     const anyArm = hasN || hasE || hasS || hasW;
     const strokeAxis = (dx: number, dy: number) => {
       ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + dx, cy + dy);
+      ctx.moveTo(cx, deckCy);
+      ctx.lineTo(cx + dx, deckCy + dy);
       ctx.stroke();
     };
     if (hasN || !anyArm) strokeAxis(tw * 0.25, -th * 0.25);
@@ -532,18 +555,18 @@ export class TerrainRenderer {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2.6 * scale;
       ctx.beginPath();
-      ctx.moveTo(cx - 7 * scale, cy - 3 * scale);
-      ctx.lineTo(cx + 7 * scale, cy + 3 * scale);
+      ctx.moveTo(cx - 7 * scale, deckCy - 3 * scale);
+      ctx.lineTo(cx + 7 * scale, deckCy + 3 * scale);
       ctx.stroke();
       ctx.fillStyle = '#dc2626';
       ctx.beginPath();
-      ctx.arc(cx, cy - 5 * scale, 3.2 * scale, 0, Math.PI * 2);
+      ctx.arc(cx, deckCy - 5 * scale, 3.2 * scale, 0, Math.PI * 2);
       ctx.fill();
     } else if (plot.tollRate !== 'free') {
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(cx - 5 * scale, cy - 6 * scale, 10 * scale, 3 * scale);
+      ctx.fillRect(cx - 5 * scale, deckCy - 6 * scale, 10 * scale, 3 * scale);
       ctx.fillStyle = '#fbbf24';
-      ctx.fillRect(cx - 5 * scale, cy - 6 * scale, 10 * scale, 1.1 * scale);
+      ctx.fillRect(cx - 5 * scale, deckCy - 6 * scale, 10 * scale, 1.1 * scale);
     }
   }
 

@@ -306,10 +306,40 @@ export class BuildingRenderer {
       this.drawHazardDestructionBar(ctx, scale, building.activeHazard.destructionProgress ?? 0);
     }
 
+    this.drawFuelGaugeBar(ctx, scale, building, isSel);
     this.drawOwnerAndLevelBadge(ctx, scale, building.level, ownerColor);
     this.drawStatusIcons(ctx, scale, building);
 
     ctx.restore();
+  }
+
+  private drawFuelGaugeBar(
+    ctx: CanvasRenderingContext2D,
+    scale: number,
+    building: Building,
+    isSel: boolean
+  ): void {
+    if (building.fuelLevel === undefined) return;
+    if (building.fuelLevel >= 70 && !isSel && !building.status.noFuel) return;
+
+    const w = 24 * scale;
+    const h = 3.2 * scale;
+    const x = -w / 2;
+    const y = 9.5 * scale;
+    const pct = Math.max(0, Math.min(1, building.fuelLevel / 100));
+
+    ctx.fillStyle = 'rgba(11, 15, 23, 0.92)';
+    ctx.fillRect(x - 1 * scale, y - 1 * scale, w + 2 * scale, h + 2 * scale);
+
+    ctx.fillStyle =
+      building.fuelLevel >= 60 ? '#10b981' : building.fuelLevel >= 25 ? '#f59e0b' : '#ef4444';
+    if (pct > 0) {
+      ctx.fillRect(x, y, w * pct, h);
+    }
+
+    ctx.strokeStyle = building.status.noFuel ? '#ef4444' : '#334155';
+    ctx.lineWidth = Math.max(0.8, 0.9 * scale);
+    ctx.strokeRect(x - 1 * scale, y - 1 * scale, w + 2 * scale, h + 2 * scale);
   }
 
   private drawSelectionGlow(ctx: CanvasRenderingContext2D, tileW: number, tileH: number): void {
@@ -1508,6 +1538,7 @@ export class BuildingRenderer {
       icons.push('☣️');
     }
     if (building.status.missingInputs) icons.push('⛔');
+    if (building.status.noFuel) icons.push('⛽');
     if (building.status.sewageCrisis) icons.push('🚰');
     if (building.status.wasteCrisis) icons.push('🗑️');
     if (building.status.disasterStruck) icons.push('🌪️');

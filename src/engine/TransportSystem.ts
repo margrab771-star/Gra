@@ -5,6 +5,7 @@ import type {
   Building,
   BuildingType,
   GameState,
+  Player,
   Plot,
   ResourceType,
   TransportRouteLine,
@@ -315,6 +316,9 @@ export function evaluatePlotLogisticsMode(
     return 'isolated';
   }
 
+  const clusters = computeNetworkClusters(state);
+  const plotCluster = clusters.clusterByPlotId.get(plot.id) ?? 0;
+
   // Połączenie drogowe z siecią (preferencja dla połączeń do strefy miejskiej / HQ / Portu / Lotniska / Magazynu)
   const startRoads = isRoadPassableFor(plot, playerId, state)
     ? [plot]
@@ -325,20 +329,34 @@ export function evaluatePlotLogisticsMode(
     return 'road';
   }
 
-  // Lotnisko Cargo dodaje tryb lotniczy pod warunkiem posiadania drogi dojazdowej przy budynku
-  const hasAirport = state.plots.some(
-    (p) => p.ownerId === playerId && p.building?.type === 'cargoAirport' && p.building.isActive
-  );
+  // Lotnisko Cargo dodaje tryb lotniczy TYLKO w obrębie tego samego klastra lądowo-mostowego
+  const hasAirport =
+    plotCluster !== 0 &&
+    state.plots.some(
+      (p) =>
+        p.ownerId === playerId &&
+        p.building?.type === 'cargoAirport' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        clusters.clusterByPlotId.get(p.id) === plotCluster
+    );
   if (hasAirport) return 'air';
 
-  // Port Towarowy obsługuje ładunki przy brzegu lub w pobliżu portu morskiego (również z drogą dojazdową)
-  const hasPort = state.plots.some(
-    (p) =>
-      p.ownerId === playerId &&
-      p.building?.type === 'cargoPort' &&
-      p.building.isActive &&
-      (plot.terrain === 'coastal' || plot.hasWater || Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 4)
-  );
+  // Port Towarowy obsługuje ładunki w tym samym klastrze sieciowym (bez teleportacji przez wodę)
+  const hasPort =
+    plotCluster !== 0 &&
+    state.plots.some(
+      (p) =>
+        p.ownerId === playerId &&
+        p.building?.type === 'cargoPort' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        clusters.clusterByPlotId.get(p.id) === plotCluster &&
+        (plot.terrain === 'coastal' ||
+          plot.hasWater ||
+          Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 4 ||
+          computeWeightedRoadRouteWithIndex(plot, p, playerId, plotsByCoord, true, state) !== null)
+    );
   if (hasPort) return 'sea';
 
   if (startRoads.length > 0) {
@@ -370,6 +388,569 @@ export function evaluatePlotLogisticsMode(
   }
 
   return 'road';
+}
+
+// ─── Network Connectivity Clusters (Zero Teleportation Over Water) ────────────
+
+export interface NetworkClusterMap {
+  clusterByPlotId: Map<string, number>;
+  clusterPlots: Map<number, Plot[]>;
+  clusterCount: number;
+}
+
+export interface CargoRouteCheckResult {
+  reachable: boolean;
+  mode: 'road' | 'sea' | 'air' | 'blocked';
+  fromPlotId: string;
+  toPlotId: string;
+  routePlotIds?: string[];
+  reason?: string;
+}
+
+let cachedClustersRevisionKey = '';
+let cachedClustersMap: NetworkClusterMap | null = null;
+
+export function isClusterNodePlot(p: Plot): boolean {
+  if ((p.irradiatedTicks ?? 0) > 0) return false;
+  if (p.terrain === 'water') {
+    return Boolean(p.hasRoad && p.roadType === 'bridge');
+  }
+  return Boolean(p.hasRoad || p.building !== null || p.ownerId !== null || p.terrain === 'urban');
+}
+
+/**
+ * Grupuje połączone lądowo / mostowo klastry sieci (prąd, woda, ścieki i transport kołowy).
+ * Woda bez Mostu Drogowego ('bridge') zawsze izoluje wyspy i brzegi rzek.
+ */
+export function computeNetworkClusters(state: GameState): NetworkClusterMap {
+  let structuralSig = 0;
+  for (let i = 0; i < state.plots.length; i++) {
+    const p = state.plots[i];
+    if (p.hasRoad) structuralSig += p.roadType === 'bridge' ? 7 : 3;
+    if (p.ownerId) structuralSig += 5;
+    if (p.building) structuralSig += 11;
+  }
+  const key = `${state.networkRevision ?? 0}|${state.plots.length}|${structuralSig}`;
+  if (cachedClustersMap && cachedClustersRevisionKey === key) {
+    return cachedClustersMap;
+  }
+
+  const plotsByCoord = getPlotsByCoordCached(state);
+  const clusterByPlotId = new Map<string, number>();
+  const clusterPlots = new Map<number, Plot[]>();
+  let nextClusterId = 1;
+
+  for (const startPlot of state.plots) {
+    if (clusterByPlotId.has(startPlot.id)) continue;
+    if (!isClusterNodePlot(startPlot)) continue;
+
+    const cid = nextClusterId++;
+    const group: Plot[] = [];
+    const queue: Plot[] = [startPlot];
+    clusterByPlotId.set(startPlot.id, cid);
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      group.push(cur);
+
+      for (const [dx, dy] of DIRS) {
+        const nb = plotsByCoord.get(`${cur.gridX + dx}_${cur.gridY + dy}`);
+        if (!nb || clusterByPlotId.has(nb.id) || !isClusterNodePlot(nb)) continue;
+        clusterByPlotId.set(nb.id, cid);
+        queue.push(nb);
+      }
+    }
+
+    clusterPlots.set(cid, group);
+  }
+
+  const res: NetworkClusterMap = {
+    clusterByPlotId,
+    clusterPlots,
+    clusterCount: nextClusterId - 1,
+  };
+  cachedClustersRevisionKey = key;
+  cachedClustersMap = res;
+  return res;
+}
+
+export function getPlotClusterId(state: GameState, plot: Plot): number {
+  return computeNetworkClusters(state).clusterByPlotId.get(plot.id) ?? 0;
+}
+
+function canUseClusterFacility(
+  facilityOwnerId: string | null,
+  ownerId: string,
+  partnerId: string | undefined,
+  state: GameState
+): boolean {
+  if (!facilityOwnerId) return false;
+  if (facilityOwnerId === ownerId || arePlayersAllied(state, facilityOwnerId, ownerId)) return true;
+  if (partnerId && (facilityOwnerId === partnerId || arePlayersAllied(state, facilityOwnerId, partnerId))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Sprawdza realną fizyczną trasę ładunku pomiędzy dwoma działkami:
+ * 1) droga / most w tym samym klastrze, 2) para Portów Towarowych nad wodą, 3) para Lotnisk Cargo.
+ */
+export function canTransportGoodsBetweenPlots(
+  state: GameState,
+  srcPlot: Plot,
+  dstPlot: Plot,
+  ownerId: string,
+  partnerId?: string
+): CargoRouteCheckResult {
+  const clusters = computeNetworkClusters(state);
+  const c1 = clusters.clusterByPlotId.get(srcPlot.id) ?? 0;
+  const c2 = clusters.clusterByPlotId.get(dstPlot.id) ?? 0;
+  const plotsByCoord = getPlotsByCoordCached(state);
+
+  if (c1 !== 0 && c1 === c2) {
+    if (
+      srcPlot.id === dstPlot.id ||
+      Math.abs(srcPlot.gridX - dstPlot.gridX) + Math.abs(srcPlot.gridY - dstPlot.gridY) <= 1
+    ) {
+      return {
+        reachable: true,
+        mode: 'road',
+        fromPlotId: srcPlot.id,
+        toPlotId: dstPlot.id,
+        routePlotIds: srcPlot.id === dstPlot.id ? [srcPlot.id] : [srcPlot.id, dstPlot.id],
+      };
+    }
+
+    const r1 = computeWeightedRoadRouteWithIndex(srcPlot, dstPlot, ownerId, plotsByCoord, true, state);
+    if (r1) {
+      return {
+        reachable: true,
+        mode: 'road',
+        fromPlotId: srcPlot.id,
+        toPlotId: dstPlot.id,
+        routePlotIds: r1.path,
+      };
+    }
+    if (partnerId && partnerId !== ownerId) {
+      const r2 = computeWeightedRoadRouteWithIndex(srcPlot, dstPlot, partnerId, plotsByCoord, true, state);
+      if (r2) {
+        return {
+          reachable: true,
+          mode: 'road',
+          fromPlotId: srcPlot.id,
+          toPlotId: dstPlot.id,
+          routePlotIds: r2.path,
+        };
+      }
+    }
+  }
+
+  // Droga morska (para Portów Towarowych)
+  if (c1 !== 0 && c2 !== 0) {
+    const srcPorts = (clusters.clusterPlots.get(c1) ?? []).filter(
+      (p) =>
+        p.building?.type === 'cargoPort' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        canUseClusterFacility(p.ownerId, ownerId, undefined, state)
+    );
+    const dstPorts = (clusters.clusterPlots.get(c2) ?? []).filter(
+      (p) =>
+        p.building?.type === 'cargoPort' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        canUseClusterFacility(p.ownerId, partnerId ?? ownerId, partnerId ? ownerId : undefined, state)
+    );
+
+    for (const sp of srcPorts) {
+      for (const dp of dstPorts) {
+        if (sp.id === dp.id) continue;
+        const seaPath = computeSeaRoute(sp, dp, plotsByCoord);
+        if (seaPath.length >= 2) {
+          return {
+            reachable: true,
+            mode: 'sea',
+            fromPlotId: sp.id,
+            toPlotId: dp.id,
+            routePlotIds: seaPath,
+          };
+        }
+      }
+    }
+
+    // Droga lotnicza (para Lotnisk Cargo)
+    const srcAir = (clusters.clusterPlots.get(c1) ?? []).find(
+      (p) =>
+        p.building?.type === 'cargoAirport' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        canUseClusterFacility(p.ownerId, ownerId, undefined, state)
+    );
+    const dstAir = (clusters.clusterPlots.get(c2) ?? []).find(
+      (p) =>
+        p.building?.type === 'cargoAirport' &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        canUseClusterFacility(p.ownerId, partnerId ?? ownerId, partnerId ? ownerId : undefined, state)
+    );
+    if (srcAir && dstAir && srcAir.id !== dstAir.id) {
+      return {
+        reachable: true,
+        mode: 'air',
+        fromPlotId: srcAir.id,
+        toPlotId: dstAir.id,
+        routePlotIds: [srcAir.id, dstAir.id],
+      };
+    }
+  }
+
+  return {
+    reachable: false,
+    mode: 'blocked',
+    fromPlotId: srcPlot.id,
+    toPlotId: dstPlot.id,
+    reason:
+      c1 !== c2
+        ? 'Woda odcina połączenie — wybuduj Most Drogowy, parę Portów Towarowych lub Lotnisk Cargo.'
+        : 'Brak przejezdnej drogi (blokada przejazdu lub odizolowana działka).',
+  };
+}
+
+/**
+ * Wyznacza fizyczną trasę dla kontraktu B2B pomiędzy sprzedającym a kupującym.
+ */
+export function getCargoTransportModeBetweenPlayers(
+  state: GameState,
+  sellerId: string,
+  buyerId: string,
+  resource?: ResourceType
+): CargoRouteCheckResult {
+  const sellerActive = state.plots.filter(
+    (p) =>
+      p.ownerId === sellerId &&
+      p.building &&
+      p.building.isActive &&
+      !p.building.destroyedRuins &&
+      !p.building.status?.noRoadLink
+  );
+  const buyerActive = state.plots.filter(
+    (p) =>
+      p.ownerId === buyerId &&
+      p.building &&
+      p.building.isActive &&
+      !p.building.destroyedRuins &&
+      !p.building.status?.noRoadLink
+  );
+
+  const sellerPlayer = state.players.find((p) => p.id === sellerId);
+  const sellerPlotsWithSupply =
+    resource != null
+      ? state.plots.filter((p) => {
+          const hasLocStock = (sellerPlayer?.stockLocations?.[p.id]?.[resource] ?? 0) > 0.01;
+          const isSellerMineOrFactory =
+            p.ownerId === sellerId &&
+            p.building &&
+            p.building.isActive &&
+            !p.building.destroyedRuins &&
+            !p.building.status?.noRoadLink &&
+            ((p.building.productionPerTick?.[resource] ?? 0) > 0 ||
+              (p.building.storage?.[resource] ?? 0) > 0.01 ||
+              (resource === 'electricity' && p.building.category === 'energy') ||
+              (resource === 'water' && p.building.type === 'waterPlant'));
+          return hasLocStock || Boolean(isSellerMineOrFactory);
+        })
+      : [];
+
+  const sellerPool = sellerPlotsWithSupply.length > 0 ? sellerPlotsWithSupply : sellerActive;
+  const buyerPool =
+    resource != null
+      ? buyerActive
+          .slice()
+          .sort(
+            (a, b) =>
+              ((b.building?.consumptionPerTick?.[resource] ?? 0) > 0 || b.building?.fuelResource === resource ? 1 : 0) -
+              ((a.building?.consumptionPerTick?.[resource] ?? 0) > 0 || a.building?.fuelResource === resource ? 1 : 0)
+          )
+      : buyerActive;
+
+  const fallbackSeller = sellerPool.length > 0 ? sellerPool : state.plots.filter((p) => p.ownerId === sellerId);
+  const fallbackBuyer = buyerPool.length > 0 ? buyerPool : state.plots.filter((p) => p.ownerId === buyerId);
+
+  if (fallbackSeller.length === 0 || fallbackBuyer.length === 0) {
+    return {
+      reachable: false,
+      mode: 'blocked',
+      fromPlotId: fallbackSeller[0]?.id ?? '',
+      toPlotId: fallbackBuyer[0]?.id ?? '',
+      reason: 'Brak aktywnych działek po jednej ze stron.',
+    };
+  }
+
+  let bestSeaAir: CargoRouteCheckResult | null = null;
+  for (const sPlot of fallbackSeller.slice(0, 6)) {
+    for (const bPlot of fallbackBuyer.slice(0, 6)) {
+      const check = canTransportGoodsBetweenPlots(state, sPlot, bPlot, sellerId, buyerId);
+      if (check.reachable && check.mode === 'road') return check;
+      if (check.reachable && !bestSeaAir) bestSeaAir = check;
+    }
+  }
+
+  if (bestSeaAir) return bestSeaAir;
+  return {
+    reachable: false,
+    mode: 'blocked',
+    fromPlotId: fallbackSeller[0].id,
+    toPlotId: fallbackBuyer[0].id,
+    reason: 'Brak połączenia lądowego (mostu), morskiego lub lotniczego między brzegami.',
+  };
+}
+
+/**
+ * Sprawdza, czy budynek ma fizyczne wyjście na Rynek Centralny / strefę miejską
+ * (własnym klastrem z miastem lub przez aktywny Port Towarowy / Lotnisko Cargo).
+ */
+export function hasExternalMarketAccess(state: GameState, plot: Plot, playerId: string): boolean {
+  if (!hasRoadAccess(state, plot, playerId)) return false;
+  const clusters = computeNetworkClusters(state);
+  const cid = clusters.clusterByPlotId.get(plot.id) ?? 0;
+  if (cid === 0) return false;
+  const group = clusters.clusterPlots.get(cid) ?? [];
+  for (const p of group) {
+    if (p.terrain === 'urban') return true;
+    if (
+      p.building &&
+      p.building.isActive &&
+      !p.building.destroyedRuins &&
+      (p.building.type === 'cargoPort' || p.building.type === 'cargoAirport') &&
+      canUseClusterFacility(p.ownerId, playerId, undefined, state)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function addPlotWarehouseStock(
+  player: Player,
+  plotId: string,
+  resource: ResourceType,
+  qty: number
+): void {
+  if (qty <= 0) return;
+  player.warehouseStockpile[resource] = Number(((player.warehouseStockpile[resource] ?? 0) + qty).toFixed(2));
+  if (!player.stockLocations) player.stockLocations = {};
+  if (!player.stockLocations[plotId]) player.stockLocations[plotId] = {};
+  player.stockLocations[plotId][resource] = Number(
+    ((player.stockLocations[plotId][resource] ?? 0) + qty).toFixed(2)
+  );
+}
+
+export function consumePlotWarehouseStock(
+  player: Player,
+  plotId: string,
+  resource: ResourceType,
+  qty: number
+): number {
+  if (qty <= 0) return 0;
+  const totalStock = player.warehouseStockpile[resource] ?? 0;
+  const locAvail = player.stockLocations?.[plotId]?.[resource] ?? 0;
+  const take = Math.min(qty, totalStock, locAvail);
+  if (take <= 0) return 0;
+  player.warehouseStockpile[resource] = Math.max(0, Number((totalStock - take).toFixed(2)));
+  if (player.stockLocations?.[plotId]) {
+    const remLoc = Math.max(0, Number((locAvail - take).toFixed(2)));
+    if (remLoc <= 0.001) {
+      delete player.stockLocations[plotId][resource];
+    } else {
+      player.stockLocations[plotId][resource] = remLoc;
+    }
+  }
+  return take;
+}
+
+export function consumeReachableWarehouseStock(
+  state: GameState,
+  player: Player,
+  dstPlot: Plot,
+  resource: ResourceType,
+  needed: number,
+  partnerId?: string
+): {
+  consumed: number;
+  deliveries: { fromPlotId: string; mode: 'road' | 'sea' | 'air'; qty: number }[];
+} {
+  if (needed <= 0) return { consumed: 0, deliveries: [] };
+  const locs: Record<string, Partial<Record<ResourceType, number>>> = player.stockLocations ?? {};
+  const plotsById = new Map<string, Plot>();
+  for (const p of state.plots) plotsById.set(p.id, p);
+
+  let remaining = needed;
+  let totalConsumed = 0;
+  const deliveries: { fromPlotId: string; mode: 'road' | 'sea' | 'air'; qty: number }[] = [];
+
+  for (const [locPlotId, stockMap] of Object.entries(locs)) {
+    if (remaining <= 0.001) break;
+    const avail = stockMap[resource] ?? 0;
+    if (avail <= 0.001) continue;
+    const srcPlot = plotsById.get(locPlotId);
+    if (!srcPlot) continue;
+    const route = canTransportGoodsBetweenPlots(state, srcPlot, dstPlot, player.id, partnerId);
+    if (!route.reachable || route.mode === 'blocked') continue;
+
+    const take = consumePlotWarehouseStock(player, locPlotId, resource, remaining);
+    if (take > 0) {
+      remaining -= take;
+      totalConsumed += take;
+      deliveries.push({
+        fromPlotId: route.fromPlotId || locPlotId,
+        mode: route.mode,
+        qty: take,
+      });
+    }
+  }
+
+  return { consumed: totalConsumed, deliveries };
+}
+
+function appendLogisticsDispatchVehicles(
+  state: GameState,
+  plotsByCoord: Map<string, Plot>,
+  vehicles: Vehicle[],
+  routeLines: TransportRouteLine[]
+): void {
+  const plotsById = new Map<string, Plot>();
+  for (const p of state.plots) plotsById.set(p.id, p);
+
+  const seenRoutes = new Set<string>();
+
+  for (const fd of (state.fuelDeliveries ?? []).slice(0, 14)) {
+    const src = plotsById.get(fd.fromPlotId);
+    const dst = plotsById.get(fd.toPlotId);
+    if (!src || !dst) continue;
+    const key = `fuel|${fd.fromPlotId}|${fd.toPlotId}|${fd.resource}`;
+    if (seenRoutes.has(key)) continue;
+    seenRoutes.add(key);
+
+    if (fd.mode === 'road') {
+      const roadRoute = computeWeightedRoadRouteWithIndex(src, dst, fd.ownerId, plotsByCoord, true, state);
+      if (roadRoute && roadRoute.path.length >= 2) {
+        vehicles.push({
+          id: `fuel_trk_${fd.fromPlotId}_${fd.toPlotId}`,
+          sourcePlotId: src.id,
+          destinationPlotId: dst.id,
+          routePlotIds: roadRoute.path,
+          routeSegment: (state.time.tick + vehicles.length) % Math.max(1, roadRoute.path.length - 1),
+          progress: 0.25,
+          speed: roadRoute.usesHighway ? 1.85 : 1.4,
+          type: 'truck',
+          cargo: fd.resource,
+          ownerId: fd.ownerId,
+        });
+      }
+    } else if (fd.mode === 'sea') {
+      const seaPath = computeSeaRoute(src, dst, plotsByCoord);
+      if (seaPath.length >= 2) {
+        vehicles.push({
+          id: `fuel_ship_${fd.fromPlotId}_${fd.toPlotId}`,
+          sourcePlotId: src.id,
+          destinationPlotId: dst.id,
+          routePlotIds: seaPath,
+          routeSegment: 0,
+          progress: 0.2,
+          speed: 1.05,
+          type: 'ship',
+          cargo: fd.resource,
+          ownerId: fd.ownerId,
+        });
+      }
+    } else if (fd.mode === 'air') {
+      vehicles.push({
+        id: `fuel_air_${fd.fromPlotId}_${fd.toPlotId}`,
+        sourcePlotId: src.id,
+        destinationPlotId: dst.id,
+        routePlotIds: [src.id, dst.id],
+        routeSegment: 0,
+        progress: 0.35,
+        speed: 3.1,
+        type: 'plane',
+        cargo: fd.resource,
+        ownerId: fd.ownerId,
+      });
+    }
+
+    if (fd.ownerId === state.currentPlayerId) {
+      routeLines.push({
+        fromPlotId: src.id,
+        toPlotId: dst.id,
+        mode: fd.mode,
+        ownerId: fd.ownerId,
+      });
+    }
+  }
+
+  for (const br of (state.b2bRoutes ?? []).slice(0, 10)) {
+    const src = plotsById.get(br.fromPlotId);
+    const dst = plotsById.get(br.toPlotId);
+    if (!src || !dst) continue;
+    const key = `b2b|${br.contractId}`;
+    if (seenRoutes.has(key)) continue;
+    seenRoutes.add(key);
+
+    if (br.mode === 'road') {
+      const roadRoute = computeWeightedRoadRouteWithIndex(src, dst, br.ownerId, plotsByCoord, true, state);
+      if (roadRoute && roadRoute.path.length >= 2) {
+        vehicles.push({
+          id: `b2b_trk_${br.contractId}`,
+          sourcePlotId: src.id,
+          destinationPlotId: dst.id,
+          routePlotIds: roadRoute.path,
+          routeSegment: 0,
+          progress: 0.4,
+          speed: roadRoute.usesHighway ? 1.8 : 1.35,
+          type: 'truck',
+          cargo: br.resource,
+          ownerId: br.ownerId,
+        });
+      }
+    } else if (br.mode === 'sea') {
+      const seaPath = computeSeaRoute(src, dst, plotsByCoord);
+      if (seaPath.length >= 2) {
+        vehicles.push({
+          id: `b2b_ship_${br.contractId}`,
+          sourcePlotId: src.id,
+          destinationPlotId: dst.id,
+          routePlotIds: seaPath,
+          routeSegment: 0,
+          progress: 0.25,
+          speed: 1.0,
+          type: 'ship',
+          cargo: br.resource,
+          ownerId: br.ownerId,
+        });
+      }
+    } else if (br.mode === 'air') {
+      vehicles.push({
+        id: `b2b_air_${br.contractId}`,
+        sourcePlotId: src.id,
+        destinationPlotId: dst.id,
+        routePlotIds: [src.id, dst.id],
+        routeSegment: 0,
+        progress: 0.45,
+        speed: 3.1,
+        type: 'plane',
+        cargo: br.resource,
+        ownerId: br.ownerId,
+      });
+    }
+
+    routeLines.push({
+      fromPlotId: src.id,
+      toPlotId: dst.id,
+      mode: br.mode,
+      ownerId: br.ownerId,
+    });
+  }
 }
 
 /**
@@ -851,6 +1432,8 @@ export function syncVehiclesForWorld(state: GameState): void {
       });
     }
   }
+
+  appendLogisticsDispatchVehicles(state, plotsByCoord, vehicles, routeLines);
 
   state.vehicles = vehicles;
   state.transportLines = routeLines.slice(0, 18);

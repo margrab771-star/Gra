@@ -722,6 +722,40 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 )}
               </div>
             </div>
+
+            {(utilityReport.clusters?.length ?? 0) > 1 && (
+              <div className="mt-2 pt-2 border-t border-[#243044] space-y-1.5">
+                <div className="text-[11px] font-semibold text-amber-300 flex items-center justify-between gap-2">
+                  <span>🕸️ Klastry Sieciowe ({utilityReport.clusters?.length} oddzielnych wysp/brzegów)</span>
+                  <span className="text-[10px] text-slate-400">
+                    Prąd i woda nie przechodzą przez wodę — wybuduj Most Drogowy!
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                  {utilityReport.clusters?.map((cl) => (
+                    <div
+                      key={cl.clusterId}
+                      className="px-2 py-1.5 rounded bg-[#0b0f17] border border-[#243044] text-[10px] flex items-center justify-between gap-2"
+                    >
+                      <span className="font-semibold text-slate-200">
+                        {cl.label} ({cl.buildingCount} ob.)
+                      </span>
+                      <span className="font-mono">
+                        <span className={cl.electricityNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                          ⚡{cl.electricityNet >= 0 ? '+' : ''}
+                          {cl.electricityNet} MW
+                        </span>{' '}
+                        ·{' '}
+                        <span className={cl.waterNet >= 0 ? 'text-sky-300' : 'text-rose-400'}>
+                          💧{cl.waterNet >= 0 ? '+' : ''}
+                          {cl.waterNet} m³
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

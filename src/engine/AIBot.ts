@@ -1,3 +1,4 @@
+import { GAME_CONFIG } from '../config/gameConfig';
 import { ARCHETYPES } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
@@ -7,6 +8,7 @@ import {
   constructBuildingOnPlot,
   demolishBuildingOnPlot,
   getBuildingConstructionCost,
+  getPowerPlantFuelSpec,
   repairBuilding,
   startBuildingTechResearch,
   toggleBuildingInsurance,
@@ -31,7 +33,14 @@ import {
 } from './PlotSystem';
 import { tradeCorporateStock } from './StockMarketSystem';
 import { previewBuildingSynergyAtPlot } from './SynergySystem';
-import { hasRoadAccess, isRoadExemptBuilding, isRoadPassableFor } from './TransportSystem';
+import {
+  canTransportGoodsBetweenPlots,
+  computeNetworkClusters,
+  hasExternalMarketAccess,
+  hasRoadAccess,
+  isRoadExemptBuilding,
+  isRoadPassableFor,
+} from './TransportSystem';
 import type {
   AIStrategy,
   Building,
@@ -220,7 +229,10 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
 
   let emptyOwned = getEmptyOwnedPlots(ownedPlots);
 
-  // 3. PRIORYTET #1: Podstawowe media i przetrwanie (Prąd, Woda, Ścieki, Odpady <18% zapasu)
+  // 2b. Fizyczne paliwo elektrowni: B2B lub tymczasowy import awaryjny zamiast blackoutu
+  ensurePowerPlantFuelSupply(state, ai, ownedPlots);
+
+  // 3. PRIORYTET #1: Podstawowe media i przetrwanie (Prąd, Woda, Ścieki, Odpady <18% zapasu, również w odizolowanych klastrach!)
   const utilityBlocked = ensureUtilitiesSurvival(
     state,
     ai,
@@ -231,7 +243,7 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
     emptyOwned
   );
 
-  // Odśwież działki i natychmiast doprowadź drogi do odizolowanych stacji/fabryk (bez drogi dają 0 produkcji!)
+  // Odśwież działki i natychmiast doprowadź drogi/mosty do odizolowanych stacji/fabryk
   ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
   ensureContinuousRoads(state, ai, difficulty, ownedPlots, getEmptyOwnedPlots(ownedPlots), cashReserve, true);
 
@@ -246,7 +258,10 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
     postUtil.electricityNet < 0 ||
     postUtil.waterNet < 0 ||
     postUtil.sewageNet < 0 ||
-    postUtil.wasteNet < 0;
+    postUtil.wasteNet < 0 ||
+    (postUtil.clusters ?? []).some(
+      (c) => c.electricityNet < 0 || c.waterNet < 0 || c.sewageNet < 0 || c.wasteNet < 0
+    );
 
   // 4. Kadry, naprawy i opłacalne ulepszenia (wstrzymaj płatne ulepszenia/szkolenia przy aktywnym deficycie mediów)
   maintainAndUpgradeBuildings(state, ai, difficulty, ownedBuildings, cashReserve, !stillHasDeficit);
@@ -390,6 +405,57 @@ function manageFinancialSafety(
   }
 }
 
+function ensurePowerPlantFuelSupply(
+  state: GameState,
+  ai: Player,
+  ownedPlots: Plot[]
+): void {
+  const minePlots = ownedPlots.filter(
+    (p) =>
+      p.building &&
+      p.building.isActive &&
+      !p.building.destroyedRuins &&
+      Object.keys(BUILDING_DEFINITIONS[p.building.type].outputs).length > 0
+  );
+
+  for (const plantPlot of ownedPlots) {
+    const b = plantPlot.building;
+    if (!b || !b.isActive || b.destroyedRuins) continue;
+    const spec = getPowerPlantFuelSpec(b.type);
+    if (!spec) continue;
+
+    const hasReachableMine = minePlots.some((mp) => {
+      const outs = Object.keys(BUILDING_DEFINITIONS[mp.building!.type].outputs) as ResourceType[];
+      if (!outs.some((r) => spec.acceptedResources.includes(r))) return false;
+      return canTransportGoodsBetweenPlots(state, mp, plantPlot, ai.id).reachable;
+    });
+
+    const fuelLvl = b.fuelLevel ?? 50;
+    if (hasReachableMine && fuelLvl >= 85 && b.emergencyMarketImport) {
+      b.emergencyMarketImport = false;
+      continue;
+    }
+
+    if (!hasReachableMine && (fuelLvl < 40 || b.status.noFuel)) {
+      const openSell = state.contracts.find(
+        (c) =>
+          c.status === 'open_listing' &&
+          c.listingSide === 'sell' &&
+          c.sellerId !== ai.id &&
+          spec.acceptedResources.includes(c.resource) &&
+          ai.cash >= c.pricePerUnit * c.quantityPerTick * 2
+      );
+      if (openSell) {
+        acceptB2BContract(state, ai, openSell.id);
+      }
+
+      if (!b.emergencyMarketImport && hasExternalMarketAccess(state, plantPlot, ai.id) && ai.cash > 65_000) {
+        b.emergencyMarketImport = true;
+      }
+    }
+  }
+}
+
 function ensureUtilitiesSurvival(
   state: GameState,
   ai: Player,
@@ -399,19 +465,38 @@ function ensureUtilitiesSurvival(
   ownedBuildings: Building[],
   emptyOwned: Plot[]
 ): boolean {
+  const clusters = computeNetworkClusters(state);
+  const clusterSummaries = util.clusters ?? [];
+  const elecDeficitClusters = new Set(
+    clusterSummaries.filter((c) => c.electricityNet < 0).map((c) => c.clusterId)
+  );
+  const waterDeficitClusters = new Set(
+    clusterSummaries.filter((c) => c.waterNet < 0).map((c) => c.clusterId)
+  );
+  const sewageDeficitClusters = new Set(
+    clusterSummaries.filter((c) => c.sewageNet < 0).map((c) => c.clusterId)
+  );
+  const wasteDeficitClusters = new Set(
+    clusterSummaries.filter((c) => c.wasteNet < 0).map((c) => c.clusterId)
+  );
+
   const headroomPct = difficulty >= 3 ? 0.2 : 0.16;
   const minElecMargin = ownedBuildings.length >= 2 ? 22 : 12;
   const needElec =
+    elecDeficitClusters.size > 0 ||
     util.electricityNet < 0 ||
     (util.electricityConsumed > 0 &&
       util.electricityNet < Math.max(minElecMargin, util.electricityProduced * headroomPct));
   const needWater =
+    waterDeficitClusters.size > 0 ||
     util.waterNet < 0 ||
     (util.waterConsumed > 0 && util.waterNet < Math.max(12, util.waterProduced * headroomPct));
   const needSewage =
+    sewageDeficitClusters.size > 0 ||
     util.sewageNet < 0 ||
     (util.sewageProduced > 0 && util.sewageNet < Math.max(16, util.sewageProduced * headroomPct));
   const needWaste =
+    wasteDeficitClusters.size > 0 ||
     util.wasteNet < 0 ||
     (util.wasteProduced > 0 && util.wasteNet < Math.max(16, util.wasteProduced * headroomPct));
 
@@ -420,23 +505,37 @@ function ensureUtilitiesSurvival(
   }
 
   const hasDeficit =
-    util.electricityNet < 0 || util.waterNet < 0 || util.sewageNet < 0 || util.wasteNet < 0;
+    elecDeficitClusters.size > 0 ||
+    waterDeficitClusters.size > 0 ||
+    sewageDeficitClusters.size > 0 ||
+    wasteDeficitClusters.size > 0 ||
+    util.electricityNet < 0 ||
+    util.waterNet < 0 ||
+    util.sewageNet < 0 ||
+    util.wasteNet < 0;
   const isEco = ai.archetype === 'eco_innovator' || state.government?.currentGov === 'ecological';
+
+  const hasOwnCoal = ownedBuildings.some((b) => b.type === 'coalMine');
+  const hasOwnOilOrFuel = ownedBuildings.some((b) => b.type === 'oilWell' || b.type === 'oilRefinery');
+  const hasOwnUranium = ownedBuildings.some((b) => b.type === 'uraniumMine' || b.type === 'uraniumEnrichment');
 
   const windCount = ownedBuildings.filter((b) => b.type === 'windFarm').length;
   const solarCount = ownedBuildings.filter((b) => b.type === 'solarFarm').length;
   const elecCandidates: BuildingType[] =
     windCount <= solarCount
-      ? ['windFarm', 'solarFarm', 'geothermalPlant', 'gasPowerPlant']
-      : ['solarFarm', 'windFarm', 'geothermalPlant', 'gasPowerPlant'];
+      ? ['windFarm', 'solarFarm', 'geothermalPlant']
+      : ['solarFarm', 'windFarm', 'geothermalPlant'];
+  if (hasOwnOilOrFuel) elecCandidates.push('gasPowerPlant');
   if (
     difficulty >= 4 &&
+    hasOwnUranium &&
     ownedBuildings.some((b) => b.type === 'hazmatBase') &&
     util.waterNet > 25
   ) {
     elecCandidates.push('nuclearPowerPlant');
   }
-  if (!isEco && !state.greenTransitionEntered) elecCandidates.push('coalPowerPlant');
+  if (!isEco && !state.greenTransitionEntered && hasOwnCoal) elecCandidates.push('coalPowerPlant');
+  if (!elecCandidates.includes('gasPowerPlant')) elecCandidates.push('gasPowerPlant');
 
   const waterCandidates: BuildingType[] = [];
   if (needSewage && ai.corporationLevel >= 4) waterCandidates.push('closedLoopSewagePlant');
@@ -515,6 +614,10 @@ function ensureUtilitiesSurvival(
   const rankPlotForUtility = (p: Plot, bType: BuildingType): number => {
     let s = 0;
     const isWasteOrSewage = BUILDING_DEFINITIONS[bType].category === 'waste';
+    const bCid = clusters.clusterByPlotId.get(p.id) ?? 0;
+    if (BUILDING_DEFINITIONS[bType].electricityUsage < 0 && elecDeficitClusters.has(bCid)) s += 160;
+    if (bType === 'waterPlant' && waterDeficitClusters.has(bCid)) s += 160;
+    if (isWasteOrSewage && (sewageDeficitClusters.has(bCid) || wasteDeficitClusters.has(bCid))) s += 140;
     if (hasRoadAccess(state, p, ai.id)) s += 110;
     else if (p.distanceToRoad <= 1) s += 45;
     else if (p.distanceToRoad <= 2) s += 20;
@@ -543,13 +646,16 @@ function ensureUtilitiesSurvival(
       if (state.settings.scenarioId === 'green_transition' && state.greenTransitionEntered && bType === 'wasteIncinerator') {
         continue;
       }
+      if (bType === 'gasPowerPlant') {
+        if (!hasOwnOilOrFuel && ai.cash < 550_000) continue;
+      }
       if (bType === 'coalPowerPlant') {
         if (isEco || state.greenTransitionEntered) continue;
         const hasCoalMine = ownedBuildings.some((b) => b.type === 'coalMine');
         const windSolarBanned =
           state.settings.weeklyBannedBuildings?.includes('windFarm') &&
           state.settings.weeklyBannedBuildings?.includes('solarFarm');
-        if (!windSolarBanned && !hasCoalMine && ai.cash < 800_000) continue;
+        if (!windSolarBanned && !hasCoalMine && ai.cash < 850_000) continue;
       }
 
       // 1) Najpierw własna pusta działka pasująca terenem i warunkami
@@ -817,7 +923,8 @@ const ROAD_DIRS: ReadonlyArray<readonly [number, number]> = [
 function findRoadPathFromDisconnectedPlot(
   state: GameState,
   targetPlot: Plot,
-  aiId: string
+  aiId: string,
+  allowWaterBridges = false
 ): Plot[] {
   const byCoord = new Map<string, Plot>();
   let anyPassableOrHQ = false;
@@ -850,10 +957,11 @@ function findRoadPathFromDisconnectedPlot(
     return directCandidates[0] ? [directCandidates[0]] : [];
   }
 
-  // BFS od sąsiednich pól budynku do najbliższej drogi lub HQ (preferuje własne działki i istniejące arterie)
+  // BFS od sąsiednich pól budynku do najbliższej drogi lub HQ (obsługuje również krótkie mosty przez wodę!)
   interface SearchNode {
     plot: Plot;
     cost: number;
+    waterSteps: number;
   }
   const dist = new Map<string, number>();
   const parent = new Map<string, string | null>();
@@ -862,17 +970,23 @@ function findRoadPathFromDisconnectedPlot(
 
   for (const [dx, dy] of ROAD_DIRS) {
     const nb = byCoord.get(`${targetPlot.gridX + dx}_${targetPlot.gridY + dy}`);
-    if (!nb || nb.terrain === 'water' || (nb.irradiatedTicks ?? 0) > 0) continue;
+    if (!nb || (nb.irradiatedTicks ?? 0) > 0) continue;
+    const isWater = nb.terrain === 'water';
+    if (isWater && (!allowWaterBridges || nb.hasRoad)) continue;
     plotById.set(nb.id, nb);
     if (isRoadPassableFor(nb, aiId, state) || (nb.ownerId === aiId && nb.building?.type === 'corporateHQ')) {
       return [];
     }
     if (nb.building) continue;
-    if (nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
-    const stepCost = nb.ownerId === aiId ? 1 : 2.2 + nb.price / 55_000;
+    if (!isWater && nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
+    const stepCost = isWater
+      ? 5.0 + GAME_CONFIG.bridgeCost / 45_000
+      : nb.ownerId === aiId
+        ? 1
+        : 2.2 + nb.price / 55_000;
     dist.set(nb.id, stepCost);
     parent.set(nb.id, null);
-    queue.push({ plot: nb, cost: stepCost });
+    queue.push({ plot: nb, cost: stepCost, waterSteps: isWater ? 1 : 0 });
   }
 
   let bestAnchorId: string | null = null;
@@ -885,7 +999,7 @@ function findRoadPathFromDisconnectedPlot(
 
     for (const [dx, dy] of ROAD_DIRS) {
       const nb = byCoord.get(`${cur.plot.gridX + dx}_${cur.plot.gridY + dy}`);
-      if (!nb || nb.terrain === 'water' || (nb.irradiatedTicks ?? 0) > 0) continue;
+      if (!nb || (nb.irradiatedTicks ?? 0) > 0) continue;
       plotById.set(nb.id, nb);
 
       if (
@@ -899,17 +1013,24 @@ function findRoadPathFromDisconnectedPlot(
         continue;
       }
 
+      const isWater = nb.terrain === 'water';
+      const nextWaterSteps = cur.waterSteps + (isWater ? 1 : 0);
+      if (isWater && (!allowWaterBridges || nb.hasRoad || nextWaterSteps > 3)) continue;
       if (nb.building) continue;
-      if (nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
+      if (!isWater && nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
 
-      const stepCost = nb.ownerId === aiId ? 1 : 2.2 + nb.price / 55_000;
+      const stepCost = isWater
+        ? 5.0 + GAME_CONFIG.bridgeCost / 45_000
+        : nb.ownerId === aiId
+          ? 1
+          : 2.2 + nb.price / 55_000;
       const nextCost = cur.cost + stepCost;
       if (nextCost > 26) continue;
       const prevBest = dist.get(nb.id);
       if (prevBest === undefined || nextCost < prevBest) {
         dist.set(nb.id, nextCost);
         parent.set(nb.id, cur.plot.id);
-        queue.push({ plot: nb, cost: nextCost });
+        queue.push({ plot: nb, cost: nextCost, waterSteps: nextWaterSteps });
       }
     }
   }
@@ -970,21 +1091,28 @@ function ensureContinuousRoads(
     });
 
     let segmentsBuilt = 0;
+    const allowWaterBridges = ai.cash > 220_000;
     for (const target of sortedTargets.slice(0, 2)) {
       if (segmentsBuilt >= 3) break;
-      const path = findRoadPathFromDisconnectedPlot(state, target, ai.id);
+      const path = findRoadPathFromDisconnectedPlot(state, target, ai.id, allowWaterBridges);
       for (const stepPlot of path) {
         if (segmentsBuilt >= 3) break;
         if (stepPlot.hasRoad) continue;
 
+        const isBridgeStep = stepPlot.terrain === 'water';
         const wantHighway =
+          !isBridgeStep &&
           !isPriorityPass &&
           difficulty >= 3 &&
           ai.cash - 85_000 >= cashReserve &&
           (target.building?.category === 'mining' || target.building?.category === 'processing');
-        const roadClass: 'local' | 'highway' = wantHighway ? 'highway' : 'local';
+        const roadClass: 'local' | 'highway' | 'bridge' = isBridgeStep
+          ? 'bridge'
+          : wantHighway
+            ? 'highway'
+            : 'local';
         const roadCost = getRoadBuildCostForPlot(state, ai, stepPlot, roadClass);
-        const totalStepCost = (stepPlot.ownerId === null ? stepPlot.price : 0) + roadCost;
+        const totalStepCost = (!isBridgeStep && stepPlot.ownerId === null ? stepPlot.price : 0) + roadCost;
 
         if (
           ai.cash < totalStepCost &&
@@ -996,7 +1124,7 @@ function ensureContinuousRoads(
         }
         if (ai.cash < totalStepCost) break;
 
-        if (stepPlot.ownerId === null) {
+        if (!isBridgeStep && stepPlot.ownerId === null) {
           const bought = buyPlotForPlayer(state, ai, stepPlot);
           if (!bought.ok) break;
         }
@@ -1009,6 +1137,45 @@ function ensureContinuousRoads(
       }
     }
     if (segmentsBuilt > 0) return;
+  }
+
+  // Jeśli wyspy/klastry gracza są rozdzielone wąską rzeką (1-2 pola wody), wybuduj Most Drogowy!
+  if (!isPriorityPass && ai.cash > cashReserve + GAME_CONFIG.bridgeCost * 2 + 100_000) {
+    const clusters = computeNetworkClusters(state);
+    const ownedCids = new Set<number>();
+    for (const op of ownedPlots) {
+      const cid = clusters.clusterByPlotId.get(op.id) ?? 0;
+      if (cid > 0) ownedCids.add(cid);
+    }
+    if (ownedCids.size >= 2) {
+      const byCoord = new Map<string, Plot>();
+      for (const p of state.plots) byCoord.set(`${p.gridX}_${p.gridY}`, p);
+      for (const op of ownedPlots) {
+        const c1 = clusters.clusterByPlotId.get(op.id) ?? 0;
+        if (c1 === 0) continue;
+        for (const [dx, dy] of ROAD_DIRS) {
+          const w1 = byCoord.get(`${op.gridX + dx}_${op.gridY + dy}`);
+          if (!w1 || w1.terrain !== 'water' || w1.hasRoad || (w1.irradiatedTicks ?? 0) > 0) continue;
+          const b1 = byCoord.get(`${op.gridX + dx * 2}_${op.gridY + dy * 2}`);
+          if (b1 && b1.terrain !== 'water') {
+            const c2 = clusters.clusterByPlotId.get(b1.id) ?? 0;
+            if (c2 > 0 && c2 !== c1) {
+              buildPlayerRoadOnPlot(state, ai, w1, 'bridge');
+              return;
+            }
+          } else if (b1 && b1.terrain === 'water' && !b1.hasRoad && (b1.irradiatedTicks ?? 0) <= 0) {
+            const b2 = byCoord.get(`${op.gridX + dx * 3}_${op.gridY + dy * 3}`);
+            const c2 = b2 ? clusters.clusterByPlotId.get(b2.id) ?? 0 : 0;
+            if (c2 > 0 && c2 !== c1 && ai.cash >= cashReserve + GAME_CONFIG.bridgeCost * 2) {
+              if (buildPlayerRoadOnPlot(state, ai, w1, 'bridge').ok) {
+                buildPlayerRoadOnPlot(state, ai, b1, 'bridge');
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   if (isPriorityPass) return;
@@ -1341,9 +1508,17 @@ function evaluateAndBuildBestStructure(
     ) {
       continue;
     }
-    // Nie spamuj elektrowni przy dużym zapasie MW (a węglowej bez własnego węgla w ogóle)
+    // Nie spamuj elektrowni przy dużym zapasie MW ani paliwowych bez własnego paliwa / funduszy
     if (def.category === 'energy') {
-      if (bType === 'coalPowerPlant' && (producedRes.get('coal') ?? 0) <= 0) continue;
+      const fSpec = getPowerPlantFuelSpec(bType);
+      if (fSpec) {
+        const hasFuelSup = fSpec.acceptedResources.some(
+          (r) => (producedRes.get(r) ?? 0) > 0 || (ai.warehouseStockpile[r] ?? 0) >= fSpec.consumptionPerTick * 3
+        );
+        if (!hasFuelSup && (isClosedMp || bType === 'coalPowerPlant' || ai.cash < cashReserve + 550_000)) {
+          continue;
+        }
+      }
       if (util.electricityNet > 40 && (strategy !== 'energyMagnate' || ai.cash < cashReserve + 550_000)) continue;
     }
 

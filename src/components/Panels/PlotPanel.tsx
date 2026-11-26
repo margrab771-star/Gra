@@ -24,7 +24,7 @@ interface PlotPanelProps {
   onSellPlot: (plotId: string) => void;
   onSurveyPlot: (plotId: string) => void;
   onSurveyArea: (plotId: string) => void;
-  onBuildRoad: (plotId: string, roadClass: 'local' | 'highway') => void;
+  onBuildRoad: (plotId: string, roadClass: 'local' | 'highway' | 'bridge') => void;
   onSetRoadPolicy: (
     plotId: string,
     opts: { tollRate?: TollRate; roadBlocked?: boolean; toggleBlockedPlayerId?: string }
@@ -275,6 +275,20 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                 </button>
               )}
 
+              {plot.terrain === 'water' && !plot.hasRoad && !plot.building && (
+                <button
+                  type="button"
+                  onClick={() => onBuildRoad(plot.id, 'bridge')}
+                  disabled={
+                    (plot.irradiatedTicks ?? 0) > 0 ||
+                    currentPlayer.cash < getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'bridge')
+                  }
+                  className="w-full py-2 px-3 rounded-lg bg-sky-950/55 hover:bg-sky-900/70 border border-sky-400/50 text-sky-200 text-xs font-semibold disabled:opacity-40 transition-colors"
+                >
+                  🌉 Wybuduj Most Drogowy ({formatMoney(getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'bridge'))})
+                </button>
+              )}
+
               {plot.terrain !== 'water' && !plot.hasRoad && (
                 <div className="grid grid-cols-1 gap-1.5">
                   <button
@@ -300,7 +314,12 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
                 <div className="p-3 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-amber-300">
-                      🛣️ {plot.roadType === 'highway' ? 'Autostrada Płatna' : 'Droga Zwykła'}
+                      {plot.roadType === 'bridge' ? '🌉' : '🛣️'}{' '}
+                      {plot.roadType === 'bridge'
+                        ? 'Most Drogowy'
+                        : plot.roadType === 'highway'
+                          ? 'Autostrada Płatna'
+                          : 'Droga Zwykła'}
                     </span>
                     <span className="font-mono text-emerald-400">
                       Myto zebrane: {formatMoney(plot.tollRevenueTotal ?? 0)}

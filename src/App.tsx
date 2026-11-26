@@ -391,6 +391,7 @@ export function App() {
           );
         }}
         onToggleInsurance={actions.toggleInsurance}
+        onToggleEmergencyFuelImport={actions.toggleEmergencyFuelImport}
         onRevealFogPlot={actions.revealFogPlot}
         onOpenB2BMarket={() => actions.setActiveModal('contracts')}
         onProposePlotOffer={actions.proposePlotOffer}

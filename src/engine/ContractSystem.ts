@@ -1,7 +1,23 @@
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { hasActiveEmbargo } from './CoalitionSystem';
 import { getResourcePrice } from './EconomyEngine';
+import {
+  addPlotWarehouseStock,
+  canTransportGoodsBetweenPlots,
+  consumeReachableWarehouseStock,
+  getCargoTransportModeBetweenPlayers,
+} from './TransportSystem';
 import type { B2BContract, GameState, Player, ResourceType } from './types';
+
+export interface B2BFuelReceipt {
+  contractId: string;
+  buyerId: string;
+  resource: ResourceType;
+  remainingQty: number;
+  arrivalPlotId: string;
+  fromPlotId: string;
+  mode: 'road' | 'sea' | 'air';
+}
 
 export interface ProposeContractOptions {
   kind?: 'recurring' | 'spot' | 'barter';
@@ -97,12 +113,23 @@ export function proposeB2BContract(
   };
 
   if (contract.status === 'active' && kind === 'spot') {
-    const settled = executeContractSettlement(state, contract, seller, buyer);
-    if (!settled) {
-      return { ok: false, error: 'Partner lub nadawca nie posiada jeszcze wymaganego zapasu/gotówki na transakcję spot.' };
+    const settlement = executeContractSettlement(state, contract, seller, buyer);
+    if (!settlement.settled) {
+      return {
+        ok: false,
+        error:
+          contract.blockedReason ??
+          'Partner lub nadawca nie posiada jeszcze wymaganego zapasu/gotówki na transakcję spot.',
+      };
     }
     contract.status = 'completed';
     contract.remainingTicks = 0;
+  }
+
+  if (contract.status === 'active') {
+    const check = getCargoTransportModeBetweenPlayers(state, seller.id, buyer.id, resource);
+    contract.transportMode = check.mode;
+    contract.blockedReason = check.reachable ? undefined : check.reason;
   }
 
   state.contracts.push(contract);
@@ -164,9 +191,20 @@ export function acceptB2BContract(
     const seller = state.players.find((p) => p.id === c.sellerId);
     const buyer = state.players.find((p) => p.id === c.buyerId);
     if (!seller || !buyer) return { ok: false, error: 'Brak strony kontraktu.' };
-    executeContractSettlement(state, c, seller, buyer);
+    const settlement = executeContractSettlement(state, c, seller, buyer);
+    if (!settlement.settled) {
+      c.status = 'cancelled';
+      return {
+        ok: false,
+        error: c.blockedReason ?? 'Nie udało się rozliczyć kontraktu spot (brak zapasu, gotówki lub trasy).',
+      };
+    }
     c.remainingTicks = 0;
     c.status = 'completed';
+  } else {
+    const check = getCargoTransportModeBetweenPlayers(state, c.sellerId, c.buyerId, c.resource);
+    c.transportMode = check.mode;
+    c.blockedReason = check.reachable ? undefined : check.reason;
   }
 
   return { ok: true };
@@ -195,52 +233,136 @@ function executeContractSettlement(
   c: B2BContract,
   seller: Player,
   buyer: Player
-): boolean {
-  if (hasActiveEmbargo(state, seller.id, buyer.id)) return false;
+): {
+  settled: boolean;
+  qty: number;
+  arrivalPlotId: string;
+  fromPlotId: string;
+  mode: 'road' | 'sea' | 'air';
+} {
+  if (hasActiveEmbargo(state, seller.id, buyer.id)) {
+    c.transportMode = 'blocked';
+    c.blockedReason = 'Aktywne embargo handlowe.';
+    return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
+  }
+
+  const route = getCargoTransportModeBetweenPlayers(state, seller.id, buyer.id, c.resource);
+  if (!route.reachable || route.mode === 'blocked') {
+    c.transportMode = 'blocked';
+    c.blockedReason = route.reason ?? 'Woda odcina połączenie — zbuduj Most Drogowy, Port lub Lotnisko Cargo.';
+    return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
+  }
+
+  c.transportMode = route.mode;
+  c.blockedReason = undefined;
+  const arrivalPlot = state.plots.find((p) => p.id === route.toPlotId);
+  const departurePlot = state.plots.find((p) => p.id === route.fromPlotId);
+  if (!arrivalPlot || !departurePlot) {
+    return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
+  }
 
   if (c.kind === 'barter' && c.barterResource && (c.barterQtyPerTick ?? 0) > 0) {
     const sellerStock = seller.warehouseStockpile[c.resource] ?? 0;
     const buyerStock = buyer.warehouseStockpile[c.barterResource] ?? 0;
     const giveRatio = Math.min(sellerStock / c.quantityPerTick, buyerStock / (c.barterQtyPerTick ?? 1), 1);
-    if (giveRatio <= 0.01) return false;
+    if (giveRatio <= 0.01) {
+      return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
+    }
     const qtyA = Number((c.quantityPerTick * giveRatio).toFixed(2));
     const qtyB = Number(((c.barterQtyPerTick ?? 1) * giveRatio).toFixed(2));
 
-    seller.warehouseStockpile[c.resource] = Math.max(0, sellerStock - qtyA);
-    buyer.warehouseStockpile[c.resource] = (buyer.warehouseStockpile[c.resource] ?? 0) + qtyA;
-    buyer.warehouseStockpile[c.barterResource] = Math.max(0, buyerStock - qtyB);
-    seller.warehouseStockpile[c.barterResource] = (seller.warehouseStockpile[c.barterResource] ?? 0) + qtyB;
+    consumeReachableWarehouseStock(state, seller, arrivalPlot, c.resource, qtyA, buyer.id);
+    if ((seller.warehouseStockpile[c.resource] ?? 0) >= qtyA && (!seller.stockLocations || Object.keys(seller.stockLocations).length === 0)) {
+      seller.warehouseStockpile[c.resource] = Math.max(0, (seller.warehouseStockpile[c.resource] ?? 0) - qtyA);
+    }
+    addPlotWarehouseStock(buyer, arrivalPlot.id, c.resource, qtyA);
+
+    consumeReachableWarehouseStock(state, buyer, departurePlot, c.barterResource, qtyB, seller.id);
+    if ((buyer.warehouseStockpile[c.barterResource] ?? 0) >= qtyB && (!buyer.stockLocations || Object.keys(buyer.stockLocations).length === 0)) {
+      buyer.warehouseStockpile[c.barterResource] = Math.max(0, (buyer.warehouseStockpile[c.barterResource] ?? 0) - qtyB);
+    }
+    addPlotWarehouseStock(seller, departurePlot.id, c.barterResource, qtyB);
+
     c.totalValueDelivered += Math.round(qtyA * getResourcePrice(state, c.resource));
-    return true;
+    if (!state.b2bRoutes) state.b2bRoutes = [];
+    state.b2bRoutes.push({
+      contractId: c.id,
+      fromPlotId: route.fromPlotId,
+      toPlotId: route.toPlotId,
+      resource: c.resource,
+      mode: route.mode,
+      ownerId: seller.id,
+    });
+    return { settled: true, qty: qtyA, arrivalPlotId: arrivalPlot.id, fromPlotId: departurePlot.id, mode: route.mode };
   }
 
   const sellerOutput =
     c.kind === 'spot'
       ? 0
       : state.plots
-          .filter((p) => p.ownerId === seller.id && p.building?.isActive && !p.building.destroyedRuins)
+          .filter(
+            (p) =>
+              p.ownerId === seller.id &&
+              p.building?.isActive &&
+              !p.building.destroyedRuins &&
+              (p.building.productionPerTick[c.resource] ?? 0) > 0 &&
+              canTransportGoodsBetweenPlots(state, p, arrivalPlot, seller.id, buyer.id).reachable
+          )
           .reduce((sum, p) => sum + (p.building?.productionPerTick[c.resource] ?? 0), 0);
-  const sellerStock = seller.warehouseStockpile[c.resource] ?? 0;
-  const maxAvailable = c.kind === 'spot' ? sellerStock : sellerOutput * 0.65 + sellerStock;
-  const deliverable = Math.min(c.quantityPerTick, maxAvailable);
+
+  let reachableSellerStock = 0;
+  if (seller.stockLocations) {
+    for (const [locId, map] of Object.entries(seller.stockLocations)) {
+      const amt = map[c.resource] ?? 0;
+      if (amt <= 0) continue;
+      const locPlot = state.plots.find((p) => p.id === locId);
+      if (locPlot && canTransportGoodsBetweenPlots(state, locPlot, arrivalPlot, seller.id, buyer.id).reachable) {
+        reachableSellerStock += amt;
+      }
+    }
+  } else {
+    reachableSellerStock = seller.warehouseStockpile[c.resource] ?? 0;
+  }
+
+  const maxAvailable = c.kind === 'spot' ? reachableSellerStock : sellerOutput * 0.65 + reachableSellerStock;
+  const deliverable = Number(Math.min(c.quantityPerTick, maxAvailable).toFixed(2));
   const value = Math.round(deliverable * c.pricePerUnit);
 
   if (deliverable > 0 && buyer.cash >= value) {
-    if (sellerStock >= deliverable) {
-      seller.warehouseStockpile[c.resource] = sellerStock - deliverable;
-    } else if (sellerStock > 0) {
-      seller.warehouseStockpile[c.resource] = 0;
+    if (seller.stockLocations) {
+      consumeReachableWarehouseStock(state, seller, arrivalPlot, c.resource, deliverable, buyer.id);
+    } else {
+      const sellerStock = seller.warehouseStockpile[c.resource] ?? 0;
+      seller.warehouseStockpile[c.resource] = Math.max(0, sellerStock - deliverable);
     }
-    buyer.warehouseStockpile[c.resource] = (buyer.warehouseStockpile[c.resource] ?? 0) + deliverable;
+    addPlotWarehouseStock(buyer, arrivalPlot.id, c.resource, deliverable);
     buyer.cash -= value;
     seller.cash += value * 1.04;
     c.totalValueDelivered += value;
-    return true;
+    if (!state.b2bRoutes) state.b2bRoutes = [];
+    state.b2bRoutes.push({
+      contractId: c.id,
+      fromPlotId: route.fromPlotId,
+      toPlotId: route.toPlotId,
+      resource: c.resource,
+      mode: route.mode,
+      ownerId: seller.id,
+    });
+    return {
+      settled: true,
+      qty: deliverable,
+      arrivalPlotId: arrivalPlot.id,
+      fromPlotId: departurePlot.id,
+      mode: route.mode,
+    };
   }
-  return false;
+  return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
 }
 
-export function processContractsTick(state: GameState): void {
+export function processContractsTick(state: GameState): B2BFuelReceipt[] {
+  state.b2bRoutes = [];
+  const receipts: B2BFuelReceipt[] = [];
+
   for (const c of state.contracts) {
     if (c.status !== 'active') continue;
     const seller = state.players.find((p) => p.id === c.sellerId);
@@ -250,11 +372,23 @@ export function processContractsTick(state: GameState): void {
       continue;
     }
 
-    executeContractSettlement(state, c, seller, buyer);
+    const res = executeContractSettlement(state, c, seller, buyer);
+    if (res.settled && res.qty > 0) {
+      receipts.push({
+        contractId: c.id,
+        buyerId: buyer.id,
+        resource: c.resource,
+        remainingQty: res.qty,
+        arrivalPlotId: res.arrivalPlotId,
+        fromPlotId: res.fromPlotId,
+        mode: res.mode,
+      });
+    }
 
     c.remainingTicks -= 1;
     if (c.remainingTicks <= 0) {
       c.status = 'completed';
     }
   }
+  return receipts;
 }

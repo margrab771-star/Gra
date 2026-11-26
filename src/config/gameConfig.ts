@@ -30,6 +30,7 @@ export const GAME_CONFIG = {
   propertyTaxPerPlotPerTick: 45,
   playerRoadCost: 18_000,
   highwayCost: 68_000,
+  bridgeCost: 85_000,
   highwayInputs: {} as Record<string, number>,
   areaSurveyMultiplier: 2.3,
   baseWagePerWorkerPerTick: 18,

@@ -602,7 +602,7 @@ export function getRoadBuildCostForPlot(
   state: GameState,
   player: Player,
   plot: Plot,
-  roadClass: 'local' | 'highway' = 'local'
+  roadClass: 'local' | 'highway' | 'bridge' = 'local'
 ): number {
   if (roadClass === 'local' && state.settings.mutators?.freeLocalRoads) {
     return 0;
@@ -611,11 +611,13 @@ export function getRoadBuildCostForPlot(
   const govKind = state.government?.currentGov;
   const govDisc = govKind ? GOVERNMENT_CONFIGS[govKind].roadDiscount : 0;
   const baseCash =
-    roadClass === 'highway'
-      ? plot.hasRoad
-        ? GAME_CONFIG.highwayCost - Math.round(GAME_CONFIG.playerRoadCost * 0.6)
-        : GAME_CONFIG.highwayCost
-      : GAME_CONFIG.playerRoadCost;
+    roadClass === 'bridge'
+      ? GAME_CONFIG.bridgeCost
+      : roadClass === 'highway'
+        ? plot.hasRoad
+          ? GAME_CONFIG.highwayCost - Math.round(GAME_CONFIG.playerRoadCost * 0.6)
+          : GAME_CONFIG.highwayCost
+        : GAME_CONFIG.playerRoadCost;
 
   let cashCost = Math.round(baseCash * archMult * (1 - govDisc));
   if (roadClass === 'highway') {
@@ -637,19 +639,28 @@ export function buildPlayerRoadOnPlot(
   state: GameState,
   player: Player,
   plot: Plot,
-  roadClass: 'local' | 'highway' = 'local'
+  roadClass: 'local' | 'highway' | 'bridge' = 'local'
 ): { ok: boolean; error?: string } {
-  if (plot.terrain === 'water') {
-    return { ok: false, error: 'Nie można budować drogi na wodzie (użyj Portu Towarowego).' };
-  }
   if ((plot.irradiatedTicks ?? 0) > 0) {
     return {
       ok: false,
       error: `Strefa skażenia nuklearnego — zakaz budowy dróg jeszcze przez ${plot.irradiatedTicks} tur.`,
     };
   }
-  if (plot.ownerId !== player.id) {
-    return { ok: false, error: 'Najpierw kup działkę, aby wybudować na niej drogę.' };
+  if (roadClass === 'bridge') {
+    if (plot.terrain !== 'water') {
+      return { ok: false, error: 'Most Drogowy można zbudować wyłącznie na polu wodnym.' };
+    }
+    if (plot.hasRoad) {
+      return { ok: false, error: 'Na tym polu wodnym stoi już Most Drogowy.' };
+    }
+  } else {
+    if (plot.terrain === 'water') {
+      return { ok: false, error: 'Na wodzie można zbudować wyłącznie Most Drogowy (lub użyć Portu Towarowego).' };
+    }
+    if (plot.ownerId !== player.id) {
+      return { ok: false, error: 'Najpierw kup działkę, aby wybudować na niej drogę.' };
+    }
   }
   if (plot.building) {
     return { ok: false, error: 'Na działce stoi już struktura — drogi kładzie się na pustych działkach.' };
@@ -664,9 +675,11 @@ export function buildPlayerRoadOnPlot(
   const cashCost = getRoadBuildCostForPlot(state, player, plot, roadClass);
 
   if (player.cash < cashCost) {
+    const label =
+      roadClass === 'bridge' ? 'Mostu Drogowego' : roadClass === 'highway' ? 'Autostrady' : 'Drogi';
     return {
       ok: false,
-      error: `Brak środków na budowę ${roadClass === 'highway' ? 'Autostrady' : 'Drogi'} (${cashCost.toLocaleString('pl-PL')} zł).`,
+      error: `Brak środków na budowę ${label} (${cashCost.toLocaleString('pl-PL')} zł).`,
     };
   }
 
@@ -681,6 +694,10 @@ export function buildPlayerRoadOnPlot(
   }
 
   player.cash -= cashCost;
+  if (roadClass === 'bridge' && !plot.ownerId) {
+    plot.ownerId = player.id;
+    plot.purchasable = false;
+  }
   plot.hasRoad = true;
   plot.isPlayerRoad = true;
   plot.roadType = roadClass;
@@ -1117,7 +1134,7 @@ export function batchBuildRoadForPlayer(
   state: GameState,
   player: Player,
   plotIds: string[],
-  roadClass: 'local' | 'highway'
+  roadClass: 'local' | 'highway' | 'bridge'
 ): { ok: boolean; builtCount: number; totalCost: number; error?: string } {
   const uniqueIds = Array.from(new Set(plotIds));
   let builtCount = 0;
@@ -1125,31 +1142,52 @@ export function batchBuildRoadForPlayer(
 
   for (const id of uniqueIds) {
     const plot = state.plots.find((p) => p.id === id);
-    if (!plot) continue;
+    if (!plot || (plot.irradiatedTicks ?? 0) > 0) continue;
+
+    if (roadClass === 'bridge' && plot.terrain === 'water') {
+      if (plot.hasRoad || plot.building) continue;
+      const cost = getRoadBuildCostForPlot(state, player, plot, 'bridge');
+      if (player.cash < cost) break;
+      player.cash -= cost;
+      totalCost += cost;
+      if (!plot.ownerId) {
+        plot.ownerId = player.id;
+        plot.purchasable = false;
+      }
+      plot.hasRoad = true;
+      plot.isPlayerRoad = true;
+      plot.roadType = 'bridge';
+      plot.tollRate = 'free';
+      builtCount++;
+      continue;
+    }
+
+    const effectiveClass: 'local' | 'highway' = roadClass === 'bridge' ? 'local' : roadClass;
+
     // W trybie Drag-to-Build pozwalamy najpierw automatycznie kupić wolną działkę, jeśli nie ma właściciela,
     // LUB budować bezpośrednio na własnych działkach bez budynku
-    if (plot.ownerId === null && plot.purchasable && plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0) {
-      const roadCost = getRoadBuildCostForPlot(state, player, plot, roadClass);
+    if (plot.ownerId === null && plot.purchasable && plot.terrain !== 'water') {
+      const roadCost = getRoadBuildCostForPlot(state, player, plot, effectiveClass);
       if (player.cash < plot.price + roadCost) break;
       player.cash -= plot.price;
       totalCost += plot.price;
       plot.ownerId = player.id;
       plot.purchasable = false;
     }
-    if (plot.ownerId !== player.id || plot.building || plot.terrain === 'water' || (plot.irradiatedTicks ?? 0) > 0) {
+    if (plot.ownerId !== player.id || plot.building || plot.terrain === 'water') {
       continue;
     }
-    if (plot.hasRoad && (roadClass === 'local' || plot.roadType === 'highway')) {
+    if (plot.hasRoad && (effectiveClass === 'local' || plot.roadType === 'highway')) {
       continue;
     }
-    const cost = getRoadBuildCostForPlot(state, player, plot, roadClass);
+    const cost = getRoadBuildCostForPlot(state, player, plot, effectiveClass);
     if (player.cash < cost) break;
     player.cash -= cost;
     totalCost += cost;
     plot.hasRoad = true;
     plot.isPlayerRoad = true;
-    plot.roadType = roadClass;
-    if (roadClass === 'highway' && plot.tollRate === 'free') {
+    plot.roadType = effectiveClass;
+    if (effectiveClass === 'highway' && plot.tollRate === 'free') {
       plot.tollRate = 'standard';
     }
     builtCount++;

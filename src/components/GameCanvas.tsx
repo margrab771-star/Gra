@@ -20,7 +20,7 @@ import { TILE_HEIGHT, TILE_WIDTH } from '../renderer/utils';
 import { formatCompactMoney, formatMoney } from '../utils/formatters';
 import { DarkToggle } from './HUD/DarkControls';
 
-type MapToolMode = 'normal' | 'area_select' | 'road_local' | 'road_highway';
+type MapToolMode = 'normal' | 'area_select' | 'road_local' | 'road_highway' | 'road_bridge';
 
 interface CloneBlueprintSource {
   buildingId: string;
@@ -47,7 +47,7 @@ interface GameCanvasProps {
   onAreaSelectionChange?: (plotIds: string[]) => void;
   onBatchBuyPlots?: (plotIds: string[]) => void;
   onBatchSurveyPlots?: (plotIds: string[]) => void;
-  onBatchBuildRoad?: (plotIds: string[], roadClass: 'local' | 'highway') => void;
+  onBatchBuildRoad?: (plotIds: string[], roadClass: 'local' | 'highway' | 'bridge') => void;
   onToggleCloneUpgrades?: (includeUpgrades: boolean) => void;
   onSelectPlot: (plotId: string | null) => void;
 }
@@ -55,7 +55,8 @@ interface GameCanvasProps {
 function buildManhattanRoadPath(
   plots: Plot[],
   startPlot: Plot,
-  endPlot: Plot
+  endPlot: Plot,
+  allowWaterBridge = false
 ): string[] {
   const mapSize = Math.round(Math.sqrt(plots.length));
   const byCoord = new Map<string, Plot>();
@@ -67,7 +68,7 @@ function buildManhattanRoadPath(
   const pushCoord = (gx: number, gy: number) => {
     if (gx < 0 || gy < 0 || gx >= mapSize || gy >= mapSize) return;
     const p = byCoord.get(`${gx},${gy}`);
-    if (!p || p.terrain === 'water' || p.building || (p.irradiatedTicks ?? 0) > 0) return;
+    if (!p || (!allowWaterBridge && p.terrain === 'water') || p.building || (p.irradiatedTicks ?? 0) > 0) return;
     if (!seen.has(p.id)) {
       seen.add(p.id);
       pathIds.push(p.id);
@@ -233,7 +234,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
               liveAreaIdsRef.current.length > 0 ? liveAreaIdsRef.current : areaSelectedRef.current,
             roadPreviewIds: liveRoadIdsRef.current,
             roadPreviewClass:
-              mapToolModeRef.current === 'road_highway' ? 'highway' : 'local',
+              mapToolModeRef.current === 'road_bridge'
+                ? 'bridge'
+                : mapToolModeRef.current === 'road_highway'
+                  ? 'highway'
+                  : 'local',
             previewBuildingType:
               hoveredBuildTypeRef.current ?? cloneBlueprintRef.current?.buildingType ?? null,
           }
@@ -267,7 +272,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       const subEl = tooltipSubRef.current;
       if (!box || !titleEl || !subEl) return;
 
-      if (!plot || plot.terrain === 'water') {
+      if (!plot || (plot.terrain === 'water' && !plot.hasRoad && mapToolModeRef.current !== 'road_bridge')) {
         box.style.opacity = '0';
         return;
       }
@@ -291,12 +296,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         const owner = plot.ownerId
           ? stateRef.current.players.find((p) => p.id === plot.ownerId)?.companyName
           : 'Droga';
-        const roadName = plot.roadType === 'highway' ? 'Autostrada' : 'Droga Zwykła';
+        const roadName =
+          plot.roadType === 'bridge'
+            ? 'Most Drogowy'
+            : plot.roadType === 'highway'
+              ? 'Autostrada'
+              : 'Droga Zwykła';
         const tollTxt = plot.roadBlocked
           ? 'BLOKADA'
           : TOLL_RATE_CONFIG[plot.tollRate ?? 'free'].label;
-        subEl.className = 'text-amber-300 mt-0.5';
-        subEl.textContent = `🛣️ ${roadName} (${owner ?? ''}) · ${tollTxt}`;
+        subEl.className = plot.roadType === 'bridge' ? 'text-sky-300 mt-0.5' : 'text-amber-300 mt-0.5';
+        subEl.textContent = `${plot.roadType === 'bridge' ? '🌉' : '🛣️'} ${roadName} (${owner ?? ''}) · ${tollTxt}`;
+      } else if (plot.terrain === 'water') {
+        subEl.className = 'text-sky-300 mt-0.5';
+        subEl.textContent = `🌉 Kliknij lub przeciągnij, aby wybudować Most Drogowy (${formatMoney(GAME_CONFIG.bridgeCost)})`;
       } else if (plot.ownerId) {
         const owner = stateRef.current.players.find((p) => p.id === plot.ownerId);
         subEl.className = 'text-sky-400 mt-0.5';
@@ -345,20 +358,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           return;
         }
       }
-      if (e.button === 0 && (mode === 'road_local' || mode === 'road_highway')) {
+      if (e.button === 0 && (mode === 'road_local' || mode === 'road_highway' || mode === 'road_bridge')) {
         const sp = pickPlot(e.clientX, e.clientY);
         if (sp) {
           specialDragKindRef.current = 'road';
           dragStartPlotRef.current = sp;
-          const pathIds = buildManhattanRoadPath(stateRef.current.plots, sp, sp);
+          const allowWater = mode === 'road_bridge';
+          const pathIds = buildManhattanRoadPath(stateRef.current.plots, sp, sp, allowWater);
           liveRoadIdsRef.current = pathIds;
           const st = stateRef.current;
           const lp = st.players.find((pl) => pl.id === st.currentPlayerId);
-          const cls = mode === 'road_highway' ? 'highway' : 'local';
+          const cls: 'local' | 'highway' | 'bridge' =
+            mode === 'road_bridge' ? 'bridge' : mode === 'road_highway' ? 'highway' : 'local';
           const totalCost = lp
             ? pathIds.reduce((s, pid) => {
                 const pl = st.plots.find((q) => q.id === pid);
-                return pl ? s + getRoadBuildCostForPlot(st, lp, pl, cls) : s;
+                if (!pl) return s;
+                const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
+                if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
+                return s + getRoadBuildCostForPlot(st, lp, pl, effCls);
               }, 0)
             : 0;
           setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
@@ -381,21 +399,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         return;
       }
       if (specialDragKindRef.current === 'road' && dragStartPlotRef.current && plot) {
+        const isBridgeMode = mapToolModeRef.current === 'road_bridge';
         const pathIds = buildManhattanRoadPath(
           stateRef.current.plots,
           dragStartPlotRef.current,
-          plot
+          plot,
+          isBridgeMode
         );
         liveRoadIdsRef.current = pathIds;
         const st = stateRef.current;
         const lp = st.players.find((pl) => pl.id === st.currentPlayerId);
-        const cls = mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
+        const cls: 'local' | 'highway' | 'bridge' =
+          isBridgeMode ? 'bridge' : mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
         const totalCost = lp
           ? pathIds.reduce((s, pid) => {
               const pl = st.plots.find((q) => q.id === pid);
               if (!pl) return s;
-              if (pl.hasRoad && (cls === 'local' || pl.roadType === 'highway')) return s;
-              return s + getRoadBuildCostForPlot(st, lp, pl, cls);
+              const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
+              if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
+              return s + getRoadBuildCostForPlot(st, lp, pl, effCls);
             }, 0)
           : 0;
         setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
@@ -416,7 +438,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       }
       if (specialDragKindRef.current === 'road') {
         const ids = [...liveRoadIdsRef.current];
-        const cls = mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
+        const cls: 'local' | 'highway' | 'bridge' =
+          mapToolModeRef.current === 'road_bridge'
+            ? 'bridge'
+            : mapToolModeRef.current === 'road_highway'
+              ? 'highway'
+              : 'local';
         specialDragKindRef.current = 'none';
         dragStartPlotRef.current = null;
         liveRoadIdsRef.current = [];
@@ -528,7 +555,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
                 : targetMode === 'missile'
                   ? '🚀 Wskaż cel uderzenia taktycznego 3×3'
                   : roadPreviewInfo
-                    ? `🛣️ Rysowanie odcinka: ${roadPreviewInfo.count} pól · Koszt: ${formatMoney(roadPreviewInfo.cost)}`
+                    ? `${mapToolMode === 'road_bridge' ? '🌉 Rysowanie Mostu / Drogi' : '🛣️ Rysowanie odcinka'}: ${roadPreviewInfo.count} pól · Koszt: ${formatMoney(roadPreviewInfo.cost)}`
                     : cloneBlueprintSource && cloneBlueprintCost
                       ? `🧪 Klonowanie 1:1 „${BUILDING_DEFINITIONS[cloneBlueprintSource.buildingType]?.name ?? cloneBlueprintSource.buildingType}” · Koszt: ${formatMoney(cloneBlueprintCost.totalCost)} (baza ${formatCompactMoney(cloneBlueprintCost.baseCost)} + ulepszenia/flota ${formatCompactMoney(cloneBlueprintCost.upgradesCost + cloneBlueprintCost.fleetCost)}) · Klikaj seryjnie puste działki`
                       : `🧪 Tryb klonowania: Kliknij wolną własną działkę, aby postawić "${BUILDING_DEFINITIONS[cloneBuildingType!]?.name ?? cloneBuildingType}"`}
@@ -621,6 +648,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
                   { id: 'area_select', icon: '📐', label: 'Obszar (Shift)' },
                   { id: 'road_local', icon: '🛣️', label: 'Rysuj Drogę (R)' },
                   { id: 'road_highway', icon: '🟨', label: 'Rysuj Autostradę' },
+                  { id: 'road_bridge', icon: '🌉', label: 'Rysuj Most' },
                 ] as { id: MapToolMode; icon: string; label: string }[]
               ).map((tool) => (
                 <button

@@ -8,6 +8,7 @@ const CARGO_COLORS: Partial<Record<ResourceType, string>> = {
   gold: '#fde047',
   oil: '#0f172a',
   uranium: '#84cc16',
+  lithium: '#c084fc',
   rareMetals: '#38bdf8',
   gravel: '#94a3b8',
   water: '#0ea5e9',
@@ -49,12 +50,21 @@ export class VehicleRenderer {
       const wy = src.gridY + (dst.gridY - src.gridY) * t;
 
       const { screenX, screenY } = worldToScreen(wx, wy, tw, th, camera.x, camera.y);
+      const isGround =
+        vehicle.type !== 'ship' &&
+        vehicle.type !== 'plane' &&
+        vehicle.type !== 'helicopter';
+      const bridgeLift = isGround
+        ? ((src.roadType === 'bridge' ? 1 - t : 0) + (dst.roadType === 'bridge' ? t : 0)) *
+          -3.5 *
+          camera.zoom
+        : 0;
       const srcS = worldToScreen(src.gridX, src.gridY, tw, th, camera.x, camera.y);
       const dstS = worldToScreen(dst.gridX, dst.gridY, tw, th, camera.x, camera.y);
       const angle = Math.atan2(dstS.screenY - srcS.screenY, dstS.screenX - srcS.screenX);
 
       ctx.save();
-      ctx.translate(screenX, screenY);
+      ctx.translate(screenX, screenY + bridgeLift);
       switch (vehicle.type) {
         case 'truck':
           this.drawTruck(ctx, camera.zoom, angle, vehicle.cargo);

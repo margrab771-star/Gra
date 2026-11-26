@@ -618,9 +618,32 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name}`
                               : `× ${formatMoney(c.pricePerUnit)}`}
                           </div>
-                          <div className="text-slate-400">
-                            {c.sellerName} → {c.buyerName} · Wolumen: {formatMoney(c.totalValueDelivered)}
+                          <div className="text-slate-400 flex flex-wrap items-center gap-2">
+                            <span>
+                              {c.sellerName} → {c.buyerName} · Wolumen: {formatMoney(c.totalValueDelivered)}
+                            </span>
+                            {c.transportMode && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                  c.transportMode === 'blocked'
+                                    ? 'bg-rose-950/60 border-rose-500/50 text-rose-300'
+                                    : 'bg-sky-950/40 border-sky-500/35 text-sky-300'
+                                }`}
+                                title={c.blockedReason}
+                              >
+                                {c.transportMode === 'blocked'
+                                  ? '⛔ Brak trasy przez wodę'
+                                  : c.transportMode === 'sea'
+                                    ? '🚢 Port Morski'
+                                    : c.transportMode === 'air'
+                                      ? '✈️ Lotnisko Cargo'
+                                      : '🚛 Droga / Most'}
+                              </span>
+                            )}
                           </div>
+                          {c.transportMode === 'blocked' && c.blockedReason && (
+                            <div className="text-[10px] text-rose-300 mt-0.5">{c.blockedReason}</div>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-sky-300">{c.remainingTicks} cykli</span>

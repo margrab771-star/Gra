@@ -1,8 +1,76 @@
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_LIST } from '../data/resources';
-import { getAggregatedBuildingModifiers } from './BuildingSystem';
-import { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
-import type { GameState, Player, ResourceType, UtilityBalanceReport } from './types';
+import {
+  getAggregatedBuildingModifiers,
+  getPowerPlantFuelSpec,
+  type UtilityTickSnapshot,
+} from './BuildingSystem';
+import {
+  computeNetworkClusters,
+  getCargoTransportModeBetweenPlayers,
+  hasRoadAccess,
+  isRoadExemptBuilding,
+  type NetworkClusterMap,
+} from './TransportSystem';
+import type {
+  ClusterUtilitySummary,
+  GameState,
+  Player,
+  Plot,
+  ResourceType,
+  UtilityBalanceReport,
+} from './types';
+
+interface ClusterAccum {
+  clusterId: number;
+  electricityProduced: number;
+  electricityConsumed: number;
+  waterProduced: number;
+  waterConsumed: number;
+  sewageProduced: number;
+  sewageTreated: number;
+  wasteProduced: number;
+  wasteProcessed: number;
+  buildingCount: number;
+}
+
+function getOrCreateClusterAccum(map: Map<number, ClusterAccum>, clusterId: number): ClusterAccum {
+  let entry = map.get(clusterId);
+  if (!entry) {
+    entry = {
+      clusterId,
+      electricityProduced: 0,
+      electricityConsumed: 0,
+      waterProduced: 0,
+      waterConsumed: 0,
+      sewageProduced: 0,
+      sewageTreated: 0,
+      wasteProduced: 0,
+      wasteProcessed: 0,
+      buildingCount: 0,
+    };
+    map.set(clusterId, entry);
+  }
+  return entry;
+}
+
+export function getUtilitySnapshotForPlot(
+  report: UtilityBalanceReport,
+  clusters: NetworkClusterMap,
+  plot: Plot
+): UtilityTickSnapshot {
+  const cid = clusters.clusterByPlotId.get(plot.id) ?? 0;
+  const cluster = report.clusters?.find((c) => c.clusterId === cid);
+  if (!cluster) {
+    return { elecRatio: 0, waterRatio: 0, sewageNet: 0, wasteNet: 0 };
+  }
+  return {
+    elecRatio: cluster.electricityCoverageRatio,
+    waterRatio: cluster.waterCoverageRatio,
+    sewageNet: cluster.sewageNet,
+    wasteNet: cluster.wasteNet,
+  };
+}
 
 export function computePlayerUtilityAndResourceBalance(
   state: GameState,
@@ -28,22 +96,37 @@ export function computePlayerUtilityAndResourceBalance(
   const resImport: Partial<Record<ResourceType, number>> = {};
   const resExport: Partial<Record<ResourceType, number>> = {};
 
+  const clusters = computeNetworkClusters(state);
+  const clusterAcc = new Map<number, ClusterAccum>();
+  const playerOwnedPlots: Plot[] = [];
+
   for (const plot of state.plots) {
-    if (plot.ownerId !== player.id || !plot.building || !plot.building.isActive || plot.building.destroyedRuins) continue;
+    if (plot.ownerId !== player.id) continue;
+    playerOwnedPlots.push(plot);
+    if (!plot.building || !plot.building.isActive || plot.building.destroyedRuins) continue;
     const b = plot.building;
     const def = BUILDING_DEFINITIONS[b.type];
     const mods = getAggregatedBuildingModifiers(b);
     const roadAccessOk = isRoadExemptBuilding(b.type) || hasRoadAccess(state, plot, player.id);
+    const cid = clusters.clusterByPlotId.get(plot.id) ?? 0;
+    const ca = getOrCreateClusterAccum(clusterAcc, cid);
+    ca.buildingCount++;
 
-    // Energia elektryczna (MWh/MW)
-    const elecOutput = roadAccessOk
-      ? (b.productionPerTick.electricity ?? (def.electricityUsage < 0 ? Math.abs(def.electricityUsage) * (b.efficiency / 100) : 0))
-      : 0;
-    if (def.electricityUsage < 0 || b.type === 'copperCablePlant') {
-      const prodMW = roadAccessOk
-        ? Math.round(Math.max(elecOutput, Math.abs(def.electricityUsage) * 0.4 * (b.efficiency / 100)))
+    // Energia elektryczna (MWh/MW) — elektrownie paliwowe wymagają fizycznego zapasu paliwa > 0
+    const fuelSpec = getPowerPlantFuelSpec(b.type);
+    const hasFuelForPower = !fuelSpec || ((b.fuelStored ?? b.fuelMax ?? 0) > 0.05 && !b.status?.noFuel);
+    const elecOutput =
+      roadAccessOk && hasFuelForPower
+        ? (b.productionPerTick.electricity ??
+            (def.electricityUsage < 0 ? Math.abs(def.electricityUsage) * (b.efficiency / 100) : 0))
         : 0;
+    if (def.electricityUsage < 0 || b.type === 'copperCablePlant') {
+      const prodMW =
+        roadAccessOk && hasFuelForPower
+          ? Math.round(Math.max(elecOutput, Math.abs(def.electricityUsage) * 0.4 * Math.max(0.15, b.efficiency / 100)))
+          : 0;
       electricityProduced += prodMW;
+      ca.electricityProduced += prodMW;
       if (prodMW > 0) {
         electricityByPlant.push({
           label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
@@ -53,6 +136,7 @@ export function computePlayerUtilityAndResourceBalance(
     } else if (def.electricityUsage > 0) {
       const consMW = Math.round(def.electricityUsage * Math.max(0.2, 1 + mods.electricityDelta));
       electricityConsumed += consMW;
+      ca.electricityConsumed += consMW;
       electricityConsumers.push({
         label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
         consumed: consMW,
@@ -65,6 +149,7 @@ export function computePlayerUtilityAndResourceBalance(
         ? Math.round(Math.max(b.productionPerTick.water ?? 0, Math.abs(def.waterUsage) * (b.efficiency / 100)))
         : 0;
       waterProduced += prodW;
+      ca.waterProduced += prodW;
       if (prodW > 0) {
         waterSources.push({
           label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
@@ -74,6 +159,7 @@ export function computePlayerUtilityAndResourceBalance(
     } else if (def.waterUsage > 0) {
       const consW = Math.round(def.waterUsage * Math.max(0.2, 1 + mods.waterDelta));
       waterConsumed += consW;
+      ca.waterConsumed += consW;
       waterConsumers.push({
         label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
         consumed: consW,
@@ -84,20 +170,28 @@ export function computePlayerUtilityAndResourceBalance(
     const rawSewage = def.sewageUsage ?? 0;
     if (rawSewage < 0) {
       if (roadAccessOk) {
-        sewageTreated += Math.round(Math.abs(rawSewage) * (1 + mods.sewageTreatmentBonus) * Math.max(0.25, b.efficiency / 100));
+        const treated = Math.round(Math.abs(rawSewage) * (1 + mods.sewageTreatmentBonus) * Math.max(0.25, b.efficiency / 100));
+        sewageTreated += treated;
+        ca.sewageTreated += treated;
       }
     } else if (rawSewage > 0) {
-      sewageProduced += Math.round(rawSewage * Math.max(0.2, 1 + mods.sewageDelta));
+      const produced = Math.round(rawSewage * Math.max(0.2, 1 + mods.sewageDelta));
+      sewageProduced += produced;
+      ca.sewageProduced += produced;
     }
 
     // Odpady i śmieci (t)
     const rawWaste = def.wasteUsage ?? 0;
     if (rawWaste < 0) {
       if (roadAccessOk) {
-        wasteProcessed += Math.round(Math.abs(rawWaste) * (1 + mods.wasteProcessingBonus) * Math.max(0.25, b.efficiency / 100));
+        const processed = Math.round(Math.abs(rawWaste) * (1 + mods.wasteProcessingBonus) * Math.max(0.25, b.efficiency / 100));
+        wasteProcessed += processed;
+        ca.wasteProcessed += processed;
       }
     } else if (rawWaste > 0) {
-      wasteProduced += Math.round(rawWaste * Math.max(0.2, 1 + mods.wasteDelta));
+      const produced = Math.round(rawWaste * Math.max(0.2, 1 + mods.wasteDelta));
+      wasteProduced += produced;
+      ca.wasteProduced += produced;
     }
 
     // Surowce i półprodukty
@@ -111,19 +205,92 @@ export function computePlayerUtilityAndResourceBalance(
     }
   }
 
-  // Kontrakty B2B import/export
+  // Kontrakty B2B import/export — prąd i woda przenikają WYŁĄCZNIE przez wspólne połączenie lądowe/mostowe ('road')
   for (const c of state.contracts) {
     if (c.status !== 'active') continue;
+    const involvesPlayer = c.buyerId === player.id || c.sellerId === player.id;
+    if (!involvesPlayer) continue;
+    const isPipeUtility = c.resource === 'electricity' || c.resource === 'water';
+    const route = isPipeUtility
+      ? getCargoTransportModeBetweenPlayers(state, c.sellerId, c.buyerId, c.resource)
+      : null;
+    if (isPipeUtility && route?.mode !== 'road') continue;
+
     if (c.buyerId === player.id) {
       resImport[c.resource] = (resImport[c.resource] ?? 0) + c.quantityPerTick;
-      if (c.resource === 'electricity') electricityProduced += c.quantityPerTick;
-      if (c.resource === 'water') waterProduced += c.quantityPerTick;
+      if (isPipeUtility && route) {
+        const cid = clusters.clusterByPlotId.get(route.toPlotId) ?? 0;
+        const ca = getOrCreateClusterAccum(clusterAcc, cid);
+        if (c.resource === 'electricity') {
+          electricityProduced += c.quantityPerTick;
+          ca.electricityProduced += c.quantityPerTick;
+        }
+        if (c.resource === 'water') {
+          waterProduced += c.quantityPerTick;
+          ca.waterProduced += c.quantityPerTick;
+        }
+      }
     }
     if (c.sellerId === player.id) {
       resExport[c.resource] = (resExport[c.resource] ?? 0) + c.quantityPerTick;
-      if (c.resource === 'electricity') electricityConsumed += c.quantityPerTick;
-      if (c.resource === 'water') waterConsumed += c.quantityPerTick;
+      if (isPipeUtility && route) {
+        const cid = clusters.clusterByPlotId.get(route.fromPlotId) ?? 0;
+        const ca = getOrCreateClusterAccum(clusterAcc, cid);
+        if (c.resource === 'electricity') {
+          electricityConsumed += c.quantityPerTick;
+          ca.electricityConsumed += c.quantityPerTick;
+        }
+        if (c.resource === 'water') {
+          waterConsumed += c.quantityPerTick;
+          ca.waterConsumed += c.quantityPerTick;
+        }
+      }
     }
+  }
+
+  const sortedClusters = Array.from(clusterAcc.values()).sort((a, b) => b.buildingCount - a.buildingCount);
+  const clusterSummaries: ClusterUtilitySummary[] = sortedClusters.map((ca, idx) => {
+    const elecRatio =
+      ca.electricityConsumed > 0
+        ? Math.min(1, Number((ca.electricityProduced / ca.electricityConsumed).toFixed(3)))
+        : ca.electricityProduced > 0
+          ? 1
+          : 0;
+    const waterRatio =
+      ca.waterConsumed > 0
+        ? Math.min(1, Number((ca.waterProduced / ca.waterConsumed).toFixed(3)))
+        : ca.waterProduced > 0
+          ? 1
+          : 0;
+    return {
+      clusterId: ca.clusterId,
+      label: ca.clusterId === 0 ? 'Odizolowane działki' : `Sieć #${idx + 1}`,
+      electricityProduced: ca.electricityProduced,
+      electricityConsumed: ca.electricityConsumed,
+      electricityNet: ca.electricityProduced - ca.electricityConsumed,
+      electricityCoverageRatio: elecRatio,
+      waterProduced: ca.waterProduced,
+      waterConsumed: ca.waterConsumed,
+      waterNet: ca.waterProduced - ca.waterConsumed,
+      waterCoverageRatio: waterRatio,
+      sewageProduced: ca.sewageProduced,
+      sewageTreated: ca.sewageTreated,
+      sewageNet: ca.sewageTreated - ca.sewageProduced,
+      wasteProduced: ca.wasteProduced,
+      wasteProcessed: ca.wasteProcessed,
+      wasteNet: ca.wasteProcessed - ca.wasteProduced,
+      buildingCount: ca.buildingCount,
+    };
+  });
+
+  // Oznacz realną dostępność prądu i wody na działkach gracza według ICH klastra
+  const clusterById = new Map<number, ClusterUtilitySummary>();
+  for (const cs of clusterSummaries) clusterById.set(cs.clusterId, cs);
+  for (const op of playerOwnedPlots) {
+    const cid = clusters.clusterByPlotId.get(op.id) ?? 0;
+    const cs = clusterById.get(cid);
+    op.hasElectricity = Boolean(cs && cs.electricityProduced > 0);
+    op.hasWater = Boolean(cs && cs.waterProduced > 0);
   }
 
   const resourceBalances = RESOURCE_LIST.map((r) => {
@@ -165,6 +332,8 @@ export function computePlayerUtilityAndResourceBalance(
     wasteProduced,
     wasteProcessed,
     wasteNet: wasteProcessed - wasteProduced,
+    clusters: clusterSummaries,
+    isolatedClusterCount: clusterSummaries.length,
     resourceBalances,
   };
 }

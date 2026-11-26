@@ -15,12 +15,83 @@ import { hasPlayerDiscoveredPlot, recalculateSpatialNetwork } from './PlotSystem
 import { consumeRequiredResources, evaluateNonFinancialRequirements } from './RequirementsSystem';
 import { evaluateSynergyForPlotAndType, recalculateSynergiesAndPassengerDemand } from './SynergySystem';
 import {
+  addPlotWarehouseStock,
+  canTransportGoodsBetweenPlots,
+  computeNetworkClusters,
+  consumePlotWarehouseStock,
+  consumeReachableWarehouseStock,
   evaluatePlotLogisticsMode,
+  hasExternalMarketAccess,
   hasRoadAccess,
   isRoadExemptBuilding,
   refreshBuildingsRoadStatus,
 } from './TransportSystem';
+import type { B2BFuelReceipt } from './ContractSystem';
 export { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
+
+export interface PowerPlantFuelSpec {
+  primaryResource: ResourceType;
+  acceptedResources: ResourceType[];
+  consumptionPerTick: number;
+  maxStock: number;
+  label: string;
+}
+
+export function getPowerPlantFuelSpec(type: BuildingType): PowerPlantFuelSpec | null {
+  switch (type) {
+    case 'coalPowerPlant':
+      return {
+        primaryResource: 'coal',
+        acceptedResources: ['coal'],
+        consumptionPerTick: 10,
+        maxStock: 45,
+        label: 'Węgiel',
+      };
+    case 'gasPowerPlant':
+      return {
+        primaryResource: 'fuel',
+        acceptedResources: ['fuel', 'oil'],
+        consumptionPerTick: 3.5,
+        maxStock: 18,
+        label: 'Paliwo / Ropa',
+      };
+    case 'nuclearPowerPlant':
+      return {
+        primaryResource: 'uranium',
+        acceptedResources: ['uranium'],
+        consumptionPerTick: 2.2,
+        maxStock: 12,
+        label: 'Uran',
+      };
+    case 'fusionReactor':
+      return {
+        primaryResource: 'lithium',
+        acceptedResources: ['lithium', 'rareMetals'],
+        consumptionPerTick: 1.5,
+        maxStock: 9,
+        label: 'Lit / Metale ziem rzadkich',
+      };
+    default:
+      return null;
+  }
+}
+
+export function toggleEmergencyFuelImport(
+  building: Building
+): { ok: boolean; enabled: boolean; message: string } {
+  const spec = getPowerPlantFuelSpec(building.type);
+  if (!spec) {
+    return { ok: false, enabled: false, message: 'Ten obiekt nie zużywa fizycznego paliwa elektrowni.' };
+  }
+  building.emergencyMarketImport = !building.emergencyMarketImport;
+  return {
+    ok: true,
+    enabled: Boolean(building.emergencyMarketImport),
+    message: building.emergencyMarketImport
+      ? `Włączono awaryjny import ${spec.label} z rynku (+35% narzutu) dla ${building.name}.`
+      : `Wyłączono awaryjny import z rynku dla ${building.name}.`,
+  };
+}
 import type {
   Building,
   BuildingTechNode,
@@ -201,6 +272,8 @@ export function constructBuildingOnPlot(
             ? 'police'
             : undefined;
 
+  const fuelSpec = getPowerPlantFuelSpec(buildingType);
+
   const building: Building = {
     id: `bld_${plot.gridX}_${plot.gridY}_${Date.now().toString(36)}`,
     type: buildingType,
@@ -267,7 +340,14 @@ export function constructBuildingOnPlot(
       sewageCrisis: false,
       wasteCrisis: false,
       disasterStruck: false,
+      noFuel: false,
     },
+    fuelResource: fuelSpec?.primaryResource,
+    fuelMax: fuelSpec?.maxStock,
+    fuelStored: fuelSpec ? Number((fuelSpec.maxStock * 0.5).toFixed(2)) : undefined,
+    fuelLevel: fuelSpec ? 50 : undefined,
+    fuelSourceMode: fuelSpec ? 'none' : undefined,
+    emergencyMarketImport: fuelSpec ? false : undefined,
     activeHazard: null,
     hasRoadConnection: roadOk,
     logisticsMode: logiMode,
@@ -649,11 +729,23 @@ function computeNonLinearUtilityFactor(coverageRatio: number): number {
   return 0;
 }
 
+export interface ProducedResourceLot {
+  resource: ResourceType;
+  plotId: string;
+  playerId: string;
+  qty: number;
+  unitPrice: number;
+  storedInWarehouse: boolean;
+  revCat: string;
+}
+
 export interface UtilityTickSnapshot {
   elecRatio: number;
   waterRatio: number;
   sewageNet: number;
   wasteNet: number;
+  byCluster?: Record<number, { elecRatio: number; waterRatio: number; sewageNet: number; wasteNet: number }>;
+  producedLots?: ProducedResourceLot[];
 }
 
 export function processBuildingTick(
@@ -820,36 +912,47 @@ export function processBuildingTick(
   const sewageNeeded = (def.sewageUsage ?? 0) * Math.max(0.2, 1 + bMods.sewageDelta);
   const wasteNeeded = (def.wasteUsage ?? 0) * Math.max(0.2, 1 + bMods.wasteDelta);
 
+  const clusters = computeNetworkClusters(state);
+  const myClusterId = clusters.clusterByPlotId.get(plot.id) ?? 0;
+  const clusterSnap = utilitySnapshot?.byCluster?.[myClusterId];
+  const effSnap = clusterSnap ?? utilitySnapshot;
+
   const playerHasOwnPower =
     plot.hasElectricity ||
-    state.plots.some(
-      (p) =>
-        p.ownerId === player.id &&
-        p.building &&
-        p.building.isActive &&
-        !p.building.destroyedRuins &&
-        (p.building.category === 'energy' ||
-          p.building.type === 'wasteIncinerator' ||
-          p.building.type === 'plasmaGasificationPlant')
-    );
+    (myClusterId !== 0 &&
+      state.plots.some(
+        (p) =>
+          p.ownerId === player.id &&
+          clusters.clusterByPlotId.get(p.id) === myClusterId &&
+          p.building &&
+          p.building.isActive &&
+          !p.building.destroyedRuins &&
+          (p.building.category === 'energy' ||
+            p.building.type === 'wasteIncinerator' ||
+            p.building.type === 'plasmaGasificationPlant') &&
+          (!getPowerPlantFuelSpec(p.building.type) ||
+            ((p.building.fuelStored ?? p.building.fuelMax ?? 0) > 0.05 && !p.building.status?.noFuel))
+      ));
   const playerHasOwnWater =
     plot.hasWater ||
-    state.plots.some(
-      (p) =>
-        p.ownerId === player.id &&
-        p.building &&
-        p.building.isActive &&
-        !p.building.destroyedRuins &&
-        (p.building.type === 'waterPlant' ||
-          p.building.type === 'bioSewagePlant' ||
-          p.building.type === 'closedLoopSewagePlant')
-    );
+    (myClusterId !== 0 &&
+      state.plots.some(
+        (p) =>
+          p.ownerId === player.id &&
+          clusters.clusterByPlotId.get(p.id) === myClusterId &&
+          p.building &&
+          p.building.isActive &&
+          !p.building.destroyedRuins &&
+          (p.building.type === 'waterPlant' ||
+            p.building.type === 'bioSewagePlant' ||
+            p.building.type === 'closedLoopSewagePlant')
+      ));
 
   let elecRatio = 1;
   if (elecNeeded > 0 && !bMods.blackoutProtection) {
     elecRatio = !playerHasOwnPower
       ? 0
-      : utilitySnapshot?.elecRatio ??
+      : effSnap?.elecRatio ??
         (player.electricityBalance >= 0
           ? 1
           : Math.max(0, 1 + player.electricityBalance / Math.max(50, Math.abs(player.electricityBalance) + elecNeeded)));
@@ -859,20 +962,22 @@ export function processBuildingTick(
   if (waterNeeded > 0 && !bMods.droughtProtection) {
     waterRatio = !playerHasOwnWater
       ? 0
-      : utilitySnapshot?.waterRatio ??
+      : effSnap?.waterRatio ??
         (player.waterBalance >= 0
           ? 1
           : Math.max(0, 1 + player.waterBalance / Math.max(40, Math.abs(player.waterBalance) + waterNeeded)));
   }
 
   const powerFactor = computeNonLinearUtilityFactor(elecRatio);
-  const waterFactor = computeNonLinearUtilityFactor(waterRatio);
+  const rawWaterFactor = computeNonLinearUtilityFactor(waterRatio);
+  const isFuelPlantBlackStart = getPowerPlantFuelSpec(building.type) !== null && playerHasOwnWater;
+  const waterFactor = isFuelPlantBlackStart ? Math.max(0.55, rawWaterFactor) : rawWaterFactor;
 
   building.status.noPower = elecNeeded > 0 && elecRatio < 0.99 && !bMods.blackoutProtection;
   building.status.noWater = waterNeeded > 0 && waterRatio < 0.99 && !bMods.droughtProtection;
 
-  const sewageNet = utilitySnapshot?.sewageNet ?? player.sewageBalance ?? 0;
-  const wasteNet = utilitySnapshot?.wasteNet ?? player.wasteBalance ?? 0;
+  const sewageNet = effSnap?.sewageNet ?? player.sewageBalance ?? 0;
+  const wasteNet = effSnap?.wasteNet ?? player.wasteBalance ?? 0;
   building.status.sewageCrisis = sewageNeeded > 0 && sewageNet < -8;
   building.status.wasteCrisis = wasteNeeded > 0 && wasteNet < -8;
 
@@ -1040,12 +1145,14 @@ export function processBuildingTick(
 
   building.efficiency = Math.round(rawEfficiency * 100);
 
-  // 6. Wsad i gospodarka zamknięta MP
+  // 6. Wsad, fizyczne paliwo elektrowni i gospodarka zamknięta MP
   const isMpClosedEconomy = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
+  const fuelSpec = getPowerPlantFuelSpec(building.type);
   let inputCost = 0;
   let totalGoodsVolume = 0;
   let inputFulfillment = rawEfficiency <= 0.001 ? 0 : 1.0;
   building.status.missingInputs = false;
+  building.status.noFuel = false;
   const consumptionPerTick: Partial<Record<ResourceType, number>> = {};
 
   for (const [resKey, baseQty] of Object.entries(def.inputs)) {
@@ -1054,10 +1161,46 @@ export function processBuildingTick(
       consumptionPerTick[res] = 0;
       continue;
     }
+
+    if (fuelSpec && (fuelSpec.acceptedResources.includes(res) || res === fuelSpec.primaryResource)) {
+      const targetBurn = fuelSpec.consumptionPerTick * Math.max(0.2, rawEfficiency) * econMult;
+      consumptionPerTick[res] = Number(targetBurn.toFixed(2));
+      demandAccum[res] = (demandAccum[res] ?? 0) + targetBurn;
+      totalGoodsVolume += targetBurn;
+
+      const maxStock = building.fuelMax ?? fuelSpec.maxStock;
+      building.fuelMax = maxStock;
+      building.fuelResource = building.fuelResource ?? fuelSpec.primaryResource;
+      const availFuel = Math.max(0, building.fuelStored ?? 0);
+      const burned = Math.min(availFuel, targetBurn);
+      building.fuelStored = Math.max(0, Number((availFuel - burned).toFixed(2)));
+      building.fuelLevel = Math.max(0, Math.min(100, Math.round((building.fuelStored / maxStock) * 100)));
+
+      if (burned <= 0.005) {
+        building.status.noFuel = true;
+        building.status.missingInputs = true;
+        inputFulfillment = 0;
+        building.efficiency = 0;
+      } else if (burned < targetBurn * 0.98) {
+        const burnRatio = burned / Math.max(0.01, targetBurn);
+        building.status.noFuel = building.fuelStored <= 0.005;
+        inputFulfillment = Math.min(inputFulfillment, burnRatio);
+        building.efficiency = Math.round(rawEfficiency * 100 * burnRatio);
+      } else {
+        building.status.noFuel = false;
+      }
+      continue;
+    }
+
     const qty = (baseQty ?? 0) * Math.max(0.2, rawEfficiency) * econMult;
     consumptionPerTick[res] = Number(qty.toFixed(2));
     demandAccum[res] = (demandAccum[res] ?? 0) + qty;
     totalGoodsVolume += qty;
+
+    if (res === 'water') {
+      const coveredByPipe = qty * Math.min(1, waterRatio);
+      if (coveredByPipe >= qty * 0.96) continue;
+    }
 
     let remainingNeed = qty;
     const localStock = building.storage[res] ?? 0;
@@ -1066,15 +1209,21 @@ export function processBuildingTick(
       building.storage[res] = localStock - fromLocal;
       remainingNeed -= fromLocal;
     }
-    const ownedStock = player.warehouseStockpile[res] ?? 0;
-    const fromStock = Math.min(ownedStock, remainingNeed);
-    if (fromStock > 0) {
-      player.warehouseStockpile[res] = ownedStock - fromStock;
-      remainingNeed -= fromStock;
+    const warehouseTaken = consumeReachableWarehouseStock(state, player, plot, res, remainingNeed);
+    if (warehouseTaken.consumed > 0) {
+      remainingNeed -= warehouseTaken.consumed;
+    }
+    if (remainingNeed > 0.001 && (!player.stockLocations || Object.keys(player.stockLocations).length === 0)) {
+      const ownedStock = player.warehouseStockpile[res] ?? 0;
+      const fromStock = Math.min(ownedStock, remainingNeed);
+      if (fromStock > 0) {
+        player.warehouseStockpile[res] = ownedStock - fromStock;
+        remainingNeed -= fromStock;
+      }
     }
     if (remainingNeed > 0.001) {
-      if (isMpClosedEconomy) {
-        // Gospodarka zamknięta MP: ZERO zakupów spot od NPC! Zakład staje lub zwalnia proporcjonalnie do wkładu własnego.
+      if (isMpClosedEconomy || !hasExternalMarketAccess(state, plot, player.id)) {
+        // Gospodarka zamknięta MP lub działka bez dostępu do rynku: brak zakupów spot z powietrza!
         building.status.missingInputs = true;
         const coveredRatio = Math.max(0, (qty - remainingNeed) / Math.max(0.01, qty));
         inputFulfillment = Math.min(inputFulfillment, coveredRatio);
@@ -1092,6 +1241,19 @@ export function processBuildingTick(
   }
   building.consumptionPerTick = consumptionPerTick;
 
+  const revCat =
+    building.category === 'mining'
+      ? 'Wydobycie'
+      : building.category === 'processing'
+        ? 'Przetwórstwo'
+        : building.category === 'energy'
+          ? 'Energetyka'
+          : building.category === 'waste'
+            ? 'Gospodarka Odpadami i Ścieki'
+            : building.category === 'real_estate' || building.category === 'attractions' || building.category === 'finance'
+              ? 'Nieruchomości, Atrakcje i Finanse'
+              : 'Usługi i Bezpieczeństwo';
+
   // 7. Produkcja i przychód
   const depositRichness = def.requiredDeposit
     ? plot.deposits.find((d) => d.type === def.requiredDeposit)?.richness ?? 1
@@ -1105,8 +1267,15 @@ export function processBuildingTick(
         demandFactor *
         econMult *
         boycottFactor *
-        (Object.keys(def.inputs).length > 0 ? Math.max(0.15, inputFulfillment) : 1);
+        (Object.keys(def.inputs).length > 0
+          ? fuelSpec
+            ? inputFulfillment
+            : Math.max(0.15, inputFulfillment)
+          : 1);
   const productionPerTick: Partial<Record<ResourceType, number>> = {};
+  if (fuelSpec && (building.status.noFuel || inputFulfillment <= 0.01)) {
+    productionPerTick.electricity = 0;
+  }
 
   for (const [resKey, baseOut] of Object.entries(def.outputs)) {
     const res = resKey as ResourceType;
@@ -1126,7 +1295,16 @@ export function processBuildingTick(
       building.type === 'recyclingPlant' ||
       building.type === 'plasmaGasificationPlant'
     ) {
-      player.warehouseStockpile[res] = (player.warehouseStockpile[res] ?? 0) + produced;
+      addPlotWarehouseStock(player, plot.id, res, produced);
+      utilitySnapshot?.producedLots?.push({
+        resource: res,
+        plotId: plot.id,
+        playerId: player.id,
+        qty: produced,
+        unitPrice: 0,
+        storedInWarehouse: true,
+        revCat,
+      });
       continue;
     }
 
@@ -1135,23 +1313,59 @@ export function processBuildingTick(
       if (currentStorageTotal + produced <= building.storageCapacity) {
         building.storage[res] = (building.storage[res] ?? 0) + produced;
         building.status.storageFull = false;
+        utilitySnapshot?.producedLots?.push({
+          resource: res,
+          plotId: plot.id,
+          playerId: player.id,
+          qty: produced,
+          unitPrice: 0,
+          storedInWarehouse: true,
+          revCat,
+        });
       } else {
         const hasWarehouse = state.plots.some(
           (p) => p.ownerId === player.id && p.building?.type === 'warehouse'
         );
         if (hasWarehouse || isMpClosedEconomy) {
-          player.warehouseStockpile[res] = (player.warehouseStockpile[res] ?? 0) + produced;
+          addPlotWarehouseStock(player, plot.id, res, produced);
           building.status.storageFull = false;
+          utilitySnapshot?.producedLots?.push({
+            resource: res,
+            plotId: plot.id,
+            playerId: player.id,
+            qty: produced,
+            unitPrice: 0,
+            storedInWarehouse: true,
+            revCat,
+          });
         } else {
           building.status.storageFull = true;
-          const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
-          grossRevenue += produced * unitPrice * 0.85;
+          const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus) * 0.85;
+          grossRevenue += produced * unitPrice;
+          utilitySnapshot?.producedLots?.push({
+            resource: res,
+            plotId: plot.id,
+            playerId: player.id,
+            qty: produced,
+            unitPrice,
+            storedInWarehouse: false,
+            revCat,
+          });
         }
       }
     } else {
       building.status.storageFull = false;
       const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
       grossRevenue += produced * unitPrice;
+      utilitySnapshot?.producedLots?.push({
+        resource: res,
+        plotId: plot.id,
+        playerId: player.id,
+        qty: produced,
+        unitPrice,
+        storedInWarehouse: false,
+        revCat,
+      });
     }
   }
   building.productionPerTick = productionPerTick;
@@ -1363,18 +1577,6 @@ export function processBuildingTick(
   player.cash += netProfit;
   player.totalRevenueEarned += grossRevenue;
 
-  const revCat =
-    building.category === 'mining'
-      ? 'Wydobycie'
-      : building.category === 'processing'
-        ? 'Przetwórstwo'
-        : building.category === 'energy'
-          ? 'Energetyka'
-          : building.category === 'waste'
-            ? 'Gospodarka Odpadami i Ścieki'
-            : building.category === 'real_estate' || building.category === 'attractions' || building.category === 'finance'
-              ? 'Nieruchomości, Atrakcje i Finanse'
-              : 'Usługi i Bezpieczeństwo';
   player.lastTickRevenueByCategory[revCat] =
     (player.lastTickRevenueByCategory[revCat] ?? 0) + grossRevenue;
 
@@ -1392,5 +1594,197 @@ export function processBuildingTick(
 
   if (effectivePollution >= 6) {
     state.voterMood = Math.max(-100, state.voterMood - 0.08);
+  }
+}
+
+/**
+ * Fizyczna logistyka paliwa do elektrowni w 3 priorytetach:
+ * 1) Własne połączone kopalnie/rafinerie lub magazyn klastra,
+ * 2) Aktywne osiągalne kontrakty B2B,
+ * 3) Opcjonalny awaryjny import z rynku (+35% kosztów przy połączeniu z rynkiem/portem).
+ */
+export function processPowerPlantFuelDeliveriesTick(
+  state: GameState,
+  producedLots: ProducedResourceLot[],
+  b2bReceipts: B2BFuelReceipt[]
+): void {
+  state.fuelDeliveries = [];
+  const plotsById = new Map<string, Plot>();
+  for (const p of state.plots) plotsById.set(p.id, p);
+  const clusters = computeNetworkClusters(state);
+
+  for (const plantPlot of state.plots) {
+    const b = plantPlot.building;
+    if (!b || !b.isActive || b.destroyedRuins) continue;
+    const spec = getPowerPlantFuelSpec(b.type);
+    if (!spec) continue;
+
+    const owner = plantPlot.ownerId ? state.players.find((pl) => pl.id === plantPlot.ownerId) : undefined;
+    if (!owner || owner.isEliminated) continue;
+
+    const maxStock = b.fuelMax ?? spec.maxStock;
+    b.fuelMax = maxStock;
+    b.fuelResource = b.fuelResource ?? spec.primaryResource;
+    let stored = Math.max(0, b.fuelStored ?? maxStock * 0.5);
+
+    const roadOk = isRoadExemptBuilding(b.type) || hasRoadAccess(state, plantPlot, owner.id);
+    if (!roadOk) {
+      b.fuelStored = stored;
+      b.fuelLevel = Math.max(0, Math.min(100, Math.round((stored / maxStock) * 100)));
+      b.fuelSourceMode = 'none';
+      continue;
+    }
+
+    const headroom = Math.max(0, maxStock - stored);
+    let need = Math.min(headroom, spec.consumptionPerTick * 1.65);
+    let sourceMode: NonNullable<Building['fuelSourceMode']> = 'none';
+
+    // Priorytet 1a: Bieżąca produkcja własnych połączonych kopalń / rafinerii
+    if (need > 0.01) {
+      const candidateLots = producedLots
+        .filter((lot) => lot.playerId === owner.id && lot.qty > 0.01 && spec.acceptedResources.includes(lot.resource))
+        .sort((a, z) => {
+          const ap = a.resource === spec.primaryResource ? 0 : 1;
+          const zp = z.resource === spec.primaryResource ? 0 : 1;
+          return ap - zp;
+        });
+
+      for (const lot of candidateLots) {
+        if (need <= 0.01) break;
+        const srcPlot = plotsById.get(lot.plotId);
+        if (!srcPlot) continue;
+        const route = canTransportGoodsBetweenPlots(state, srcPlot, plantPlot, owner.id);
+        if (!route.reachable || route.mode === 'blocked') continue;
+
+        const take = Math.min(need, lot.qty);
+        lot.qty -= take;
+        if (!lot.storedInWarehouse) {
+          const refund = take * lot.unitPrice;
+          owner.cash -= refund;
+          owner.totalRevenueEarned = Math.max(0, owner.totalRevenueEarned - refund);
+          if (lot.revCat) {
+            owner.lastTickRevenueByCategory[lot.revCat] = Math.max(
+              0,
+              (owner.lastTickRevenueByCategory[lot.revCat] ?? 0) - refund
+            );
+          }
+          if (srcPlot.building) {
+            srcPlot.building.revenue = Math.max(0, Math.round(srcPlot.building.revenue - refund));
+            srcPlot.building.netProfit = Math.round(srcPlot.building.netProfit - refund);
+          }
+        } else if (srcPlot.building && (srcPlot.building.storage[lot.resource] ?? 0) >= take) {
+          srcPlot.building.storage[lot.resource] = Math.max(
+            0,
+            (srcPlot.building.storage[lot.resource] ?? 0) - take
+          );
+        } else {
+          consumePlotWarehouseStock(owner, srcPlot.id, lot.resource, take);
+        }
+
+        stored += take;
+        need -= take;
+        sourceMode = 'mine';
+        state.fuelDeliveries.push({
+          fromPlotId: route.fromPlotId || srcPlot.id,
+          toPlotId: route.toPlotId || plantPlot.id,
+          resource: lot.resource,
+          mode: route.mode,
+          ownerId: owner.id,
+        });
+      }
+    }
+
+    // Priorytet 1b: Zapas z własnego magazynu klastra / połączonego portu lub lotniska
+    if (need > 0.01) {
+      for (const res of spec.acceptedResources) {
+        if (need <= 0.01) break;
+        const taken = consumeReachableWarehouseStock(state, owner, plantPlot, res, need);
+        if (taken.consumed > 0) {
+          stored += taken.consumed;
+          need -= taken.consumed;
+          sourceMode = 'mine';
+          for (const d of taken.deliveries) {
+            state.fuelDeliveries.push({
+              fromPlotId: d.fromPlotId,
+              toPlotId: plantPlot.id,
+              resource: res,
+              mode: d.mode,
+              ownerId: owner.id,
+            });
+          }
+        }
+      }
+    }
+
+    // Priorytet 2: Dostawy z aktywnych kontraktów B2B w zasięgu transportu
+    if (need > 0.01) {
+      for (const rcpt of b2bReceipts) {
+        if (need <= 0.01) break;
+        if (rcpt.buyerId !== owner.id || rcpt.remainingQty <= 0.01) continue;
+        if (!spec.acceptedResources.includes(rcpt.resource)) continue;
+        const arrivalPlot = plotsById.get(rcpt.arrivalPlotId);
+        if (!arrivalPlot) continue;
+        const route = canTransportGoodsBetweenPlots(state, arrivalPlot, plantPlot, owner.id);
+        if (!route.reachable || route.mode === 'blocked') continue;
+
+        const take = Math.min(need, rcpt.remainingQty);
+        rcpt.remainingQty -= take;
+        consumePlotWarehouseStock(owner, arrivalPlot.id, rcpt.resource, take);
+        stored += take;
+        need -= take;
+        if (sourceMode === 'none') sourceMode = 'b2b';
+        state.fuelDeliveries.push({
+          fromPlotId: rcpt.fromPlotId || route.fromPlotId || arrivalPlot.id,
+          toPlotId: plantPlot.id,
+          resource: rcpt.resource,
+          mode: route.mode,
+          ownerId: owner.id,
+        });
+      }
+    }
+
+    // Priorytet 3: Opcjonalny awaryjny import z rynku (+35% narzutu)
+    if (need > 0.01 && b.emergencyMarketImport && hasExternalMarketAccess(state, plantPlot, owner.id)) {
+      const entMods = getPlayerEntrepreneurModifiers(state, owner);
+      const unitCost =
+        getResourcePrice(state, spec.primaryResource) * (1 - entMods.buyPriceDiscount) * 1.35;
+      const buyQty = owner.cash > -150_000 ? Number(need.toFixed(2)) : 0;
+      if (buyQty > 0) {
+        const totalCost = buyQty * unitCost;
+        owner.cash -= totalCost;
+        owner.lastTickCostsByCategory['Surowce i Wsad'] =
+          (owner.lastTickCostsByCategory['Surowce i Wsad'] ?? 0) + totalCost;
+        b.costs.inputs = Math.round((b.costs.inputs ?? 0) + totalCost);
+        b.costs.total = Math.round((b.costs.total ?? 0) + totalCost);
+        stored += buyQty;
+        need = Math.max(0, need - buyQty);
+        if (sourceMode === 'none') sourceMode = 'market';
+
+        const cid = clusters.clusterByPlotId.get(plantPlot.id) ?? 0;
+        const clusterPlots = clusters.clusterPlots.get(cid) ?? [];
+        const entryPlot =
+          clusterPlots.find((p) => p.terrain === 'urban') ??
+          clusterPlots.find(
+            (p) =>
+              p.building?.isActive &&
+              (p.building.type === 'cargoPort' || p.building.type === 'cargoAirport')
+          ) ??
+          plantPlot;
+        if (entryPlot.id !== plantPlot.id) {
+          state.fuelDeliveries.push({
+            fromPlotId: entryPlot.id,
+            toPlotId: plantPlot.id,
+            resource: spec.primaryResource,
+            mode: 'road',
+            ownerId: owner.id,
+          });
+        }
+      }
+    }
+
+    b.fuelStored = Math.min(maxStock, Number(stored.toFixed(2)));
+    b.fuelLevel = Math.max(0, Math.min(100, Math.round((b.fuelStored / maxStock) * 100)));
+    b.fuelSourceMode = sourceMode;
+    b.status.noFuel = b.fuelStored <= 0.005;
   }
 }

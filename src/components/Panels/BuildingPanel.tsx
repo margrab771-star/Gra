@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { SERVICE_VEHICLE_COST } from '../../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
-import { getInsurancePremiumPerTick, getRepairCost } from '../../engine/BuildingSystem';
+import {
+  getInsurancePremiumPerTick,
+  getPowerPlantFuelSpec,
+  getRepairCost,
+} from '../../engine/BuildingSystem';
 import { getSafetyCoverageForPlot, getStationEffectiveMaxFleet } from '../../engine/HazardSystem';
 import { calculateZUSBreakdown, getTrainingCost } from '../../engine/HRSystem';
 import {
@@ -10,6 +14,7 @@ import {
   isPlotBuildingVisibleToViewer,
 } from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
+import { hasExternalMarketAccess } from '../../engine/TransportSystem';
 import type { Building, BuildingTechNode, BuildingType, EmergencyServiceKind, GameState, Player, Plot, ResourceType } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
 import { DarkNumberInput, DarkToggle } from '../HUD/DarkControls';
@@ -33,6 +38,7 @@ interface BuildingPanelProps {
   onCloneBuilding?: (buildingType: BuildingType) => void;
   onStartCloneBlueprint?: (buildingId: string, buildingType: BuildingType) => void;
   onToggleInsurance?: (buildingId: string) => void;
+  onToggleEmergencyFuelImport?: (buildingId: string) => void;
   onRevealFogPlot?: (plotId: string) => void;
   onOpenB2BMarket?: () => void;
   onProposePlotOffer?: (
@@ -73,6 +79,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     onCloneBuilding,
     onStartCloneBlueprint,
     onToggleInsurance,
+    onToggleEmergencyFuelImport,
     onRevealFogPlot,
     onOpenB2BMarket,
     onProposePlotOffer,
@@ -705,6 +712,75 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 </div>
               </div>
             )}
+
+            {/* Zasobnik Fizycznego Paliwa Elektrowni */}
+            {(() => {
+              const fuelSpec = getPowerPlantFuelSpec(building.type);
+              if (!fuelSpec) return null;
+              const fuelPct = Math.max(0, Math.min(100, building.fuelLevel ?? 0));
+              const fuelStored = building.fuelStored ?? 0;
+              const fuelMax = building.fuelMax ?? fuelSpec.maxStock;
+              const barColor =
+                fuelPct >= 60 ? 'bg-emerald-400' : fuelPct >= 25 ? 'bg-amber-400' : 'bg-rose-500';
+              const textColor =
+                fuelPct >= 60
+                  ? 'text-emerald-300'
+                  : fuelPct >= 25
+                    ? 'text-amber-300'
+                    : 'text-rose-400';
+              const canMarketImport = hasExternalMarketAccess(gameState, plot, currentPlayer.id);
+              const srcLabel =
+                building.fuelSourceMode === 'mine'
+                  ? '🚛 Własna kopalnia / magazyn (0 zł marży)'
+                  : building.fuelSourceMode === 'b2b'
+                    ? '🚢 Kontrakt B2B'
+                    : building.fuelSourceMode === 'market'
+                      ? '⚠️ Awaryjny import z rynku (+35% kosztów)'
+                      : '⏸️ Brak aktywnej dostawy w tym cyklu';
+              return (
+                <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-amber-300">
+                      ⛽ Paliwo ({fuelSpec.label})
+                    </span>
+                    <span className={`font-mono font-bold ${textColor}`}>
+                      {fuelSpec.label}: {fuelPct}% ({fuelStored.toFixed(1)}/{fuelMax})
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-[#151c28] rounded-full overflow-hidden border border-[#243044]">
+                    <div
+                      className={`h-full transition-all ${barColor}`}
+                      style={{ width: `${fuelPct}%` }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-slate-300 flex flex-wrap justify-between gap-1">
+                    <span>Źródło: {srcLabel}</span>
+                    <span className="font-mono text-slate-400">
+                      Zużycie: {fuelSpec.consumptionPerTick}/T
+                    </span>
+                  </div>
+                  {building.status.noFuel && (
+                    <div className="p-1.5 rounded bg-rose-950/50 border border-rose-500/45 text-[11px] text-rose-200">
+                      ⛔ Zbiornik pusty (0 MW)! Połącz kopalnię drogą/mostem/portem, podpisz B2B lub włącz import awaryjny.
+                    </div>
+                  )}
+                  {isMine && onToggleEmergencyFuelImport && (
+                    <div className="pt-1 border-t border-[#1e293b] space-y-1">
+                      <DarkToggle
+                        checked={Boolean(building.emergencyMarketImport)}
+                        onChange={() => onToggleEmergencyFuelImport(building.id)}
+                        label="Awaryjny import z rynku (+35% kosztów)"
+                      />
+                      {!canMarketImport && (
+                        <div className="text-[10px] text-rose-300">
+                          ⚠️ Brak wyjścia lądowego (mostu) ani portu/lotniska do miasta — import z rynku zablokowany.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Polisa Ubezpieczeniowa Majątku */}
             {isMine && !building.destroyedRuins && onToggleInsurance && (

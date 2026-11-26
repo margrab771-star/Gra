@@ -20,10 +20,14 @@ import {
   computeCorporationLevel,
   constructBuildingOnPlot,
   demolishBuildingOnPlot,
+  getPowerPlantFuelSpec,
   processBuildingTick,
+  processPowerPlantFuelDeliveriesTick,
   repairBuilding,
   startBuildingTechResearch,
   toggleBuildingInsurance,
+  toggleEmergencyFuelImport,
+  type ProducedResourceLot,
   type UtilityTickSnapshot,
 } from './BuildingSystem';
 import {
@@ -102,7 +106,10 @@ import {
 } from './StockMarketSystem';
 import { recalculateSynergiesAndPassengerDemand } from './SynergySystem';
 import {
+  addPlotWarehouseStock,
   computeEmergencyResponseEtaGrid,
+  consumePlotWarehouseStock,
+  hasExternalMarketAccess,
   processTollsAndLogisticsTick,
   refreshBuildingsRoadStatus,
   syncVehiclesForWorld,
@@ -567,6 +574,8 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     vehicles: [],
     transportLines: [],
     dispatches: [],
+    fuelDeliveries: [],
+    b2bRoutes: [],
     stocks: [],
     coalitions: [],
     naps: [],
@@ -633,8 +642,9 @@ export function stepGameSimulation(state: GameState): void {
   state.zusMultiplier = effectiveZusMult;
   state.laborShortageIndex = computeLaborShortageIndex(state);
 
-  // Przelicz bilans mediów każdego gracza przed tiknięciem budynków
+  // Przelicz bilans mediów każdego gracza przed tiknięciem budynków (z rozbiciem na klastry sieciowe)
   const utilityByPlayer = new Map<string, UtilityTickSnapshot>();
+  const allProducedLots: ProducedResourceLot[] = [];
   for (const player of state.players) {
     if (player.isEliminated) continue;
     const util = computePlayerUtilityAndResourceBalance(state, player);
@@ -642,11 +652,22 @@ export function stepGameSimulation(state: GameState): void {
     player.waterBalance = util.waterNet;
     player.sewageBalance = util.sewageNet;
     player.wasteBalance = util.wasteNet;
+    const byCluster: NonNullable<UtilityTickSnapshot['byCluster']> = {};
+    for (const c of util.clusters ?? []) {
+      byCluster[c.clusterId] = {
+        elecRatio: c.electricityCoverageRatio,
+        waterRatio: c.waterCoverageRatio,
+        sewageNet: c.sewageNet,
+        wasteNet: c.wasteNet,
+      };
+    }
     utilityByPlayer.set(player.id, {
       elecRatio: util.electricityCoverageRatio,
       waterRatio: util.waterCoverageRatio,
       sewageNet: util.sewageNet,
       wasteNet: util.wasteNet,
+      byCluster,
+      producedLots: allProducedLots,
     });
 
     player.lastTickRevenueByCategory = {};
@@ -717,8 +738,9 @@ export function stepGameSimulation(state: GameState): void {
   const supplyAccum: Partial<Record<ResourceType, number>> = {};
   const demandAccum: Partial<Record<ResourceType, number>> = {};
 
-  // Faza I: Podatek gruntowy + wydobycie, energetyka i gospodarka odpadami (zasila magazyn przed przetwórstwem)
+  // Faza I: Podatek gruntowy + wydobycie, OZE bez paliwa i gospodarka odpadami
   const deferredProcessingPlots: typeof state.plots = [];
+  const deferredFuelPowerPlots: typeof state.plots = [];
   for (const plot of state.plots) {
     const owner = plot.ownerId ? state.players.find((p) => p.id === plot.ownerId) : undefined;
     if (!owner || owner.isEliminated) continue;
@@ -731,7 +753,10 @@ export function stepGameSimulation(state: GameState): void {
 
     if (plot.building && plot.building.isActive && !plot.building.destroyedRuins) {
       const cat = BUILDING_DEFINITIONS[plot.building.type].category;
-      if (cat === 'mining' || cat === 'energy' || cat === 'waste') {
+      const isFuelPowerPlant = getPowerPlantFuelSpec(plot.building.type) !== null;
+      if (isFuelPowerPlant) {
+        deferredFuelPowerPlots.push(plot);
+      } else if (cat === 'mining' || cat === 'energy' || cat === 'waste') {
         processBuildingTick(
           plot.building,
           plot,
@@ -747,7 +772,7 @@ export function stepGameSimulation(state: GameState): void {
     }
   }
 
-  // Faza II: Przetwórstwo, nieruchomości, usługi, bezpieczeństwo i wpływy
+  // Faza II: Przetwórstwo (m.in. Rafinerie Ropy), nieruchomości, usługi, bezpieczeństwo i wpływy
   for (const plot of deferredProcessingPlots) {
     const owner = plot.ownerId ? state.players.find((p) => p.id === plot.ownerId) : undefined;
     if (!owner || !plot.building) continue;
@@ -762,7 +787,34 @@ export function stepGameSimulation(state: GameState): void {
     );
   }
 
-  processContractsTick(state);
+  // Rozliczenie fizycznych kontraktów B2B i dostawy paliwa do elektrowni
+  const b2bReceipts = processContractsTick(state);
+  processPowerPlantFuelDeliveriesTick(state, allProducedLots, b2bReceipts);
+
+  // Faza III: Elektrownie konwencjonalne i jądrowe spalają zgromadzony zapas paliwa
+  for (const plot of deferredFuelPowerPlots) {
+    const owner = plot.ownerId ? state.players.find((p) => p.id === plot.ownerId) : undefined;
+    if (!owner || !plot.building) continue;
+    processBuildingTick(
+      plot.building,
+      plot,
+      owner,
+      state,
+      supplyAccum,
+      demandAccum,
+      utilityByPlayer.get(owner.id)
+    );
+  }
+  // Odśwież bilans mediów po pracy elektrowni paliwowych (aby prąd na mapie i w HUD był aktualny natychmiast)
+  for (const player of state.players) {
+    if (player.isEliminated) continue;
+    const postUtil = computePlayerUtilityAndResourceBalance(state, player);
+    player.electricityBalance = postUtil.electricityNet;
+    player.waterBalance = postUtil.waterNet;
+    player.sewageBalance = postUtil.sewageNet;
+    player.wasteBalance = postUtil.wasteNet;
+  }
+
   processPatentsAndTendersTick(state);
   processNuclearProjectTick(state);
   processTollsAndLogisticsTick(state);
@@ -981,6 +1033,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const roadClass = action.roadClass ?? 'local';
       const r = buildPlayerRoadOnPlot(state, player, plot, roadClass);
       if (r.ok) {
+        computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
@@ -988,9 +1041,11 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         ok: r.ok,
         message:
           r.error ??
-          (roadClass === 'highway'
-            ? 'Wybudowano Autostradę Płatną!'
-            : 'Wybudowano Drogę Zwykłą!'),
+          (roadClass === 'bridge'
+            ? 'Wybudowano Most Drogowy łączący brzegi!'
+            : roadClass === 'highway'
+              ? 'Wybudowano Autostradę Płatną!'
+              : 'Wybudowano Drogę Zwykłą!'),
       };
     }
     case 'setRoadPolicy': {
@@ -1074,6 +1129,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
       const r = constructBuildingOnPlot(state, player, plot, action.buildingType);
       if (r.ok) {
+        computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
@@ -1084,6 +1140,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
       const r = demolishBuildingOnPlot(state, player, plot);
       if (r.ok) {
+        computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
@@ -1131,7 +1188,16 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const qty = Math.min(stock, action.amount);
       if (qty <= 0) return { ok: false, message: 'Brak towaru w magazynie.' };
       const revenue = Math.round(qty * getResourcePrice(state, action.resource));
-      player.warehouseStockpile[action.resource] = stock - qty;
+      let rem = qty;
+      if (player.stockLocations) {
+        for (const locId of Object.keys(player.stockLocations)) {
+          if (rem <= 0.001) break;
+          rem -= consumePlotWarehouseStock(player, locId, action.resource, rem);
+        }
+      }
+      if (rem > 0) {
+        player.warehouseStockpile[action.resource] = Math.max(0, (player.warehouseStockpile[action.resource] ?? 0) - rem);
+      }
       player.cash += revenue;
       return { ok: true, message: `Sprzedano ${qty.toFixed(1)} jedn. za ${revenue.toLocaleString('pl-PL')} zł.` };
     }
@@ -1154,9 +1220,24 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       if (player.cash < totalCost) {
         return { ok: false, message: `Brak środków na zakup na giełdzie (${totalCost.toLocaleString('pl-PL')} zł).` };
       }
+      const deliveryPlot =
+        state.plots.find(
+          (p) =>
+            p.ownerId === player.id &&
+            p.building &&
+            (p.building.type === 'warehouse' || p.building.type === 'corporateHQ') &&
+            hasExternalMarketAccess(state, p, player.id)
+        ) ??
+        state.plots.find((p) => p.ownerId === player.id && p.building && hasExternalMarketAccess(state, p, player.id)) ??
+        state.plots.find((p) => p.ownerId === player.id && (p.building?.type === 'corporateHQ' || p.building?.type === 'warehouse')) ??
+        state.plots.find((p) => p.ownerId === player.id);
       player.cash -= totalCost;
-      player.warehouseStockpile[action.resource] =
-        (player.warehouseStockpile[action.resource] ?? 0) + action.amount;
+      if (deliveryPlot) {
+        addPlotWarehouseStock(player, deliveryPlot.id, action.resource, action.amount);
+      } else {
+        player.warehouseStockpile[action.resource] =
+          (player.warehouseStockpile[action.resource] ?? 0) + action.amount;
+      }
       return {
         ok: true,
         message: `Kupiono ${action.amount} ${rdef.unit} ${rdef.genitiveName} do magazynu za ${totalCost.toLocaleString('pl-PL')} zł.`,
@@ -1428,6 +1509,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     case 'batchBuildRoad': {
       const r = batchBuildRoadForPlayer(state, player, action.plotIds, action.roadClass);
       if (r.ok) {
+        computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
@@ -1435,7 +1517,13 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         ok: r.ok,
         message:
           r.error ??
-          `Wybudowano ${r.builtCount} odc. ${action.roadClass === 'highway' ? 'Autostrady' : 'Drogi'} (${r.totalCost.toLocaleString('pl-PL')} zł).`,
+          `Wybudowano ${r.builtCount} odc. ${
+            action.roadClass === 'bridge'
+              ? 'Mostu / Drogi'
+              : action.roadClass === 'highway'
+                ? 'Autostrady'
+                : 'Drogi'
+          } (${r.totalCost.toLocaleString('pl-PL')} zł).`,
       };
     }
     case 'applyHighwayPolicyToAll': {
@@ -1468,6 +1556,12 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const b = findPlayerBuilding(state, player.id, action.buildingId);
       if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
       const r = toggleBuildingInsurance(b);
+      return { ok: r.ok, message: r.message };
+    }
+    case 'toggleEmergencyFuelImport': {
+      const b = findPlayerBuilding(state, player.id, action.buildingId);
+      if (!b) return { ok: false, message: 'Nie znaleziono elektrowni.' };
+      const r = toggleEmergencyFuelImport(b);
       return { ok: r.ok, message: r.message };
     }
     case 'placeAuctionBid': {
@@ -1706,6 +1800,19 @@ export function migrateGameStateInPlace(state: GameState): void {
       pl.building.status.wasteCrisis = pl.building.status.wasteCrisis ?? false;
       pl.building.status.disasterStruck = pl.building.status.disasterStruck ?? false;
       pl.building.status.onStrike = pl.building.status.onStrike ?? false;
+      pl.building.status.noFuel = pl.building.status.noFuel ?? false;
+      const fuelSpec = getPowerPlantFuelSpec(pl.building.type);
+      if (fuelSpec) {
+        pl.building.fuelResource = pl.building.fuelResource ?? fuelSpec.primaryResource;
+        pl.building.fuelMax = pl.building.fuelMax ?? fuelSpec.maxStock;
+        pl.building.fuelStored =
+          pl.building.fuelStored ?? Number((pl.building.fuelMax * 0.5).toFixed(2));
+        pl.building.fuelLevel =
+          pl.building.fuelLevel ??
+          Math.round((pl.building.fuelStored / pl.building.fuelMax) * 100);
+        pl.building.fuelSourceMode = pl.building.fuelSourceMode ?? 'none';
+        pl.building.emergencyMarketImport = pl.building.emergencyMarketImport ?? false;
+      }
     }
     pl.synergyPercent = pl.synergyPercent ?? 0;
     pl.passengerDemandPercent = pl.passengerDemandPercent ?? 100;
@@ -1714,6 +1821,26 @@ export function migrateGameStateInPlace(state: GameState): void {
     const rawPlot = pl as unknown as Record<string, unknown>;
     if ('isSseZone' in rawPlot) delete rawPlot.isSseZone;
     if ('sseExpiresTick' in rawPlot) delete rawPlot.sseExpiresTick;
+  }
+  state.fuelDeliveries = state.fuelDeliveries ?? [];
+  state.b2bRoutes = state.b2bRoutes ?? [];
+  for (const p of state.players) {
+    if (!p.stockLocations) {
+      p.stockLocations = {};
+      const anchor =
+        state.plots.find((pl) => pl.ownerId === p.id && pl.building?.type === 'corporateHQ') ??
+        state.plots.find((pl) => pl.ownerId === p.id && pl.building) ??
+        state.plots.find((pl) => pl.ownerId === p.id);
+      if (anchor) {
+        const seeded: Partial<Record<ResourceType, number>> = {};
+        for (const [k, v] of Object.entries(p.warehouseStockpile ?? {})) {
+          if ((v ?? 0) > 0) seeded[k as ResourceType] = v;
+        }
+        if (Object.keys(seeded).length > 0) {
+          p.stockLocations[anchor.id] = seeded;
+        }
+      }
+    }
   }
   state.news = (state.news ?? []).filter((n) => !String(n.id).startsWith('sse_'));
   assignSecretGoalsForPlayers(state);

@@ -148,7 +148,7 @@ export class IsometricRenderer {
     overlayOpts?: {
       areaHighlightIds?: string[];
       roadPreviewIds?: string[];
-      roadPreviewClass?: 'local' | 'highway';
+      roadPreviewClass?: 'local' | 'highway' | 'bridge';
       previewBuildingType?: BuildingType | null;
     }
   ): void {
@@ -445,11 +445,12 @@ export class IsometricRenderer {
     tw: number,
     th: number,
     plotIds: string[],
-    roadClass: 'local' | 'highway'
+    roadClass: 'local' | 'highway' | 'bridge'
   ): void {
     for (let i = 0; i < plotIds.length; i++) {
       const p = this.plotById.get(plotIds[i]);
-      if (!p || p.terrain === 'water' || p.building) continue;
+      if (!p || p.building || (roadClass !== 'bridge' && p.terrain === 'water')) continue;
+      const isWaterBridge = roadClass === 'bridge' && p.terrain === 'water';
       const { screenX, screenY } = worldToScreen(p.gridX, p.gridY, tw, th, camera.x, camera.y);
       ctx.beginPath();
       ctx.moveTo(screenX, screenY - th / 2);
@@ -457,9 +458,17 @@ export class IsometricRenderer {
       ctx.lineTo(screenX, screenY + th / 2);
       ctx.lineTo(screenX - tw / 2, screenY);
       ctx.closePath();
-      ctx.fillStyle = roadClass === 'highway' ? 'rgba(245, 158, 11, 0.32)' : 'rgba(16, 185, 129, 0.30)';
+      ctx.fillStyle = isWaterBridge
+        ? 'rgba(56, 189, 248, 0.36)'
+        : roadClass === 'highway'
+          ? 'rgba(245, 158, 11, 0.32)'
+          : 'rgba(16, 185, 129, 0.30)';
       ctx.fill();
-      ctx.strokeStyle = roadClass === 'highway' ? '#fbbf24' : '#10b981';
+      ctx.strokeStyle = isWaterBridge
+        ? '#38bdf8'
+        : roadClass === 'highway'
+          ? '#fbbf24'
+          : '#10b981';
       ctx.lineWidth = 2;
       ctx.stroke();
     }
