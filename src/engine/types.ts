@@ -824,6 +824,7 @@ export interface CorporateStock {
   dividendPerShareTick: number;
   totalDividendsPaid: number;
   holdings: Record<string, number>; // holderId -> % (0..100)
+  buybackReserve?: number; // realna pula gotówki na odkup wyemitowanych udziałów
 }
 
 export interface FinancialHistoryPoint {
@@ -1200,6 +1201,8 @@ export interface PlayerMatchStatsAccum {
   patentsOwnedCount: number;
   highApprovalTicks: number;
   ownedPlotsPeak: number;
+  auctionsWon?: number;
+  hostilePressuresCount?: number;
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────

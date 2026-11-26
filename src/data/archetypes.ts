@@ -76,7 +76,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDefinition> = {
     color: '#fbbf24',
     tagline: 'Tani kapitał i przewaga giełdowa kosztem ciężkiego przemysłu.',
     pros: [
-      '+25% gotówki startowej na agresywne przejęcia i giełdę',
+      '+15% gotówki startowej na agresywne przejęcia i giełdę',
       '-20% oprocentowania kredytów i wcześniejszy dostęp do giełdy',
     ],
     cons: [
@@ -85,7 +85,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDefinition> = {
     ],
     modifiers: {
       ...DEFAULT_MODIFIERS,
-      startingCashMult: 1.25,
+      startingCashMult: 1.15,
       loanInterestMult: 0.8,
       stockAccessCorpLevelDelta: -1,
       industrialUpkeepMult: 1.15,
@@ -128,15 +128,15 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDefinition> = {
       '-15% kosztu wdrożenia technologii, laboratoriów i patentów',
     ],
     cons: [
-      '-20% gotówki startowej w portfelu',
-      '+20% poboru prądu (MW) przez obiekty high-tech i przemysł',
+      '-10% gotówki startowej w portfelu',
+      '+12% poboru prądu (MW) przez obiekty high-tech i przemysł',
     ],
     modifiers: {
       ...DEFAULT_MODIFIERS,
       researchSpeedMult: 1.2,
       labPatentCostMult: 0.85,
-      startingCashMult: 0.8,
-      advancedPowerUsageMult: 1.2,
+      startingCashMult: 0.9,
+      advancedPowerUsageMult: 1.12,
     },
   },
   logistics_cartel: {
@@ -147,19 +147,20 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDefinition> = {
     color: '#a855f7',
     tagline: 'Król autostrad i transportu pasażerskiego kosztem drogiej geologii i handlu.',
     pros: [
-      '+25% przychodu z myta na własnych autostradach',
-      '-20% kosztu budowy i utrzymania floty, stacji pasażerskich i transportu',
+      '+45% przychodu z myta na własnych autostradach',
+      '-20% kosztu budowy i utrzymania floty, stacji pasażerskich i -15% dróg',
     ],
     cons: [
       '+25% kosztu odwiertów i badań geologicznych',
-      '-10% marży w obiektach handlu detalicznego i rozrywki',
+      '-5% marży w obiektach handlu detalicznego i rozrywki',
     ],
     modifiers: {
       ...DEFAULT_MODIFIERS,
-      tollRevenueMult: 1.25,
+      tollRevenueMult: 1.45,
+      roadBuildCostMult: 0.85,
       passengerFleetCostMult: 0.8,
       surveyCostMult: 1.25,
-      retailMarginDelta: -0.1,
+      retailMarginDelta: -0.05,
     },
   },
   eco_innovator: {

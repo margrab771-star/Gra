@@ -495,6 +495,9 @@ export function executeInfluenceAction(
       if (plot.building) {
         plot.building.ownerId = player.id;
       }
+      if (player.statsAccum) {
+        player.statsAccum.hostilePressuresCount = (player.statsAccum.hostilePressuresCount ?? 0) + 1;
+      }
       state.networkRevision = (state.networkRevision ?? 0) + 1;
       recalculateSpatialNetwork(state.plots);
       pushInfluenceNews(
@@ -558,6 +561,9 @@ export function executeInfluenceAction(
         targetPlot.building.condition = Math.max(15, targetPlot.building.condition - 45);
         targetPlot.building.sabotagedTicks = 8;
         targetPlot.building.status.breakdown = true;
+        if (player.statsAccum) {
+          player.statsAccum.hostilePressuresCount = (player.statsAccum.hostilePressuresCount ?? 0) + 1;
+        }
         pushInfluenceNews(
           state,
           `Awaria i podejrzenie sabotażu w zakładzie ${targetPlot.building.name}!`,
@@ -579,12 +585,28 @@ export function executeInfluenceAction(
       if (!targetPlot || !targetPlot.building) {
         return { ok: false, message: 'Nie znaleziono wskazanego obiektu przeciwnika.' };
       }
+      if (targetPlot.building.type === 'corporateHQ') {
+        return {
+          ok: false,
+          message: 'Siedziba Główna (HQ) konkurenta jest chroniona immunitetem i nie podlega abordażowi!',
+        };
+      }
       player.cash -= effectiveCost;
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      const milRatio = (player.militaryPower + 30) / Math.max(25, targetPlayer.militaryPower + 25);
-      if (milRatio >= 0.9 || Math.random() < 0.75) {
+      const attackerMil = Math.max(0, player.militaryPower) + player.influence.military * 0.25;
+      const targetMil = Math.max(15, targetPlayer.militaryPower + targetPlayer.influence.military * 0.25);
+      const milRatio = attackerMil / targetMil;
+      // Szansa zależy wyłącznie od realnej przewagi militarnej (koniec z płaskim 75% przy 0 armii!)
+      const raidChance =
+        attackerMil < 35 || milRatio < 0.75
+          ? 0.08
+          : Math.min(0.75, 0.25 + (milRatio - 0.75) * 0.45);
+      if (Math.random() < raidChance) {
         targetPlot.ownerId = player.id;
         targetPlot.building.ownerId = player.id;
+        if (player.statsAccum) {
+          player.statsAccum.hostilePressuresCount = (player.statsAccum.hostilePressuresCount ?? 0) + 1;
+        }
         state.networkRevision = (state.networkRevision ?? 0) + 1;
         recalculateSpatialNetwork(state.plots);
         pushInfluenceNews(
@@ -595,19 +617,59 @@ export function executeInfluenceAction(
         );
         return { ok: true, message: `Abordaż zakończony przejęciem ${targetPlot.building.name}!` };
       }
-      return { ok: false, message: 'Ochrona obiektu odparła próbę korporacyjnego abordażu.' };
+      return {
+        ok: false,
+        message: `Ochrona obiektu odparła próbę korporacyjnego abordażu (szansa: ${Math.round(raidChance * 100)}%).`,
+      };
     }
 
     case 'coup_attempt': {
+      if (player.militaryPower < 100 || player.influence.military < 110) {
+        return { ok: false, message: 'Zbyt słabe zaplecze militarne na udany zamach stanu (min. 100 Siły Militarnej).' };
+      }
       player.cash -= effectiveCost;
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      if (player.militaryPower < 100 && player.influence.military < 95) {
-        return { ok: false, message: 'Zbyt słabe zaplecze militarne na udany zamach stanu.' };
+
+      const rivals = state.players.filter(
+        (p) => p.id !== player.id && !p.isEliminated && !arePlayersAllied(state, player.id, p.id)
+      );
+      const maxRivalDefense = rivals.reduce((mx, r) => {
+        const secCount = state.plots.filter(
+          (pl) =>
+            pl.ownerId === r.id &&
+            pl.building?.isActive &&
+            !pl.building.destroyedRuins &&
+            (pl.building.type === 'militaryBase' ||
+              pl.building.type === 'intelligenceCenter' ||
+              pl.building.type === 'policeStation')
+        ).length;
+        return Math.max(mx, r.militaryPower + secCount * 22);
+      }, 20);
+      const coupChance = Math.max(
+        0.22,
+        Math.min(0.7, 0.42 + (player.militaryPower - maxRivalDefense) * 0.004)
+      );
+      if (Math.random() >= coupChance) {
+        player.reputation = Math.max(0, player.reputation - 20);
+        state.voterMood = Math.max(-100, state.voterMood - 10);
+        pushInfluenceNews(
+          state,
+          `🛡️ Udaremniono Próbę Zamachu Stanu!`,
+          `Służby kontrwywiadu i garnizony rywali rozbiły pucz przygotowywany przez ${player.companyName}.`
+        );
+        return {
+          ok: false,
+          message: `Zamach stanu odparty przez kontrwywiad rywali! (Szansa sukcesu: ${Math.round(coupChance * 100)}%).`,
+        };
       }
-      player.influence.financial += 120;
-      player.influence.military += 120;
-      player.influence.social += 80;
-      state.taxRate = 0.08;
+
+      player.influence.financial += 65;
+      player.influence.military += 65;
+      player.influence.social += 40;
+      if (player.statsAccum) {
+        player.statsAccum.hostilePressuresCount = (player.statsAccum.hostilePressuresCount ?? 0) + 1;
+      }
+      state.taxRate = Math.max(0.11, Number((state.taxRate - 0.05).toFixed(2)));
       let seized = 0;
       for (const p of state.plots) {
         if (
@@ -621,7 +683,7 @@ export function executeInfluenceAction(
           p.ownerId = player.id;
           p.building.ownerId = player.id;
           seized++;
-          if (seized >= 3) break;
+          if (seized >= 2) break;
         }
       }
       state.networkRevision = (state.networkRevision ?? 0) + 1;
@@ -629,9 +691,12 @@ export function executeInfluenceAction(
       pushInfluenceNews(
         state,
         `ZAMACH STANU! Konsorcjum ${player.companyName} przejmuje władzę w państwie!`,
-        `Siły korporacyjne obaliły dotychczasowy gabinet. Przejęto strategiczne aktywa konkurencji i narzucono nowy ład podatkowy.`
+        `Siły korporacyjne obaliły dotychczasowy gabinet. Przejęto ${seized} strategiczne obiekty i obniżono CIT do ${Math.round(state.taxRate * 100)}%.`
       );
-      return { ok: true, message: `Zamach stanu udany! Przejęto ${seized} strategiczne zakłady i obcięto CIT do 8%!` };
+      return {
+        ok: true,
+        message: `Zamach stanu udany! Przejęto ${seized} zakłady i obniżono CIT do ${Math.round(state.taxRate * 100)}%.`,
+      };
     }
 
     case 'church_donation': {
@@ -668,6 +733,9 @@ export function executeInfluenceAction(
       player.cash -= effectiveCost;
       player.influence.social += Math.round(12 * powerMult);
       player.actionCooldowns[actionId] = action.cooldownTicks;
+      if (player.statsAccum) {
+        player.statsAccum.hostilePressuresCount = (player.statsAccum.hostilePressuresCount ?? 0) + 1;
+      }
       let hitCount = 0;
       for (const p of state.plots) {
         if (p.ownerId === targetPlayer.id && p.building) {

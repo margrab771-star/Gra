@@ -354,7 +354,7 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                     }`}
                   >
                     <div className="text-[10px] font-mono flex items-center justify-between" style={{ color: st === 'locked' ? '#64748b' : col }}>
-                      <span>{isApex ? '★ APEX' : `T${sk.tier ?? 1}`}</span>
+                      <span>{isApex ? '★ EKSTRA' : `T${sk.tier ?? 1}`}</span>
                       <span>
                         {st === 'done' ? '✅' : st === 'available' ? `✨${sk.skillPointCost}SP` : `🔒${sk.skillPointCost}SP`}
                       </span>

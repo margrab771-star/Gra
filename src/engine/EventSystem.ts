@@ -124,9 +124,10 @@ export function triggerNewEventOrForecast(state: GameState): void {
   const recentDisaster = state.activeEvents.some((e) => e.category === 'disaster') ||
     state.pendingForecasts.some((e) => e.category === 'disaster');
 
-  // Katastrofy wyłączone -> zero katastrof; Ekstremalny Klimat podwaja częstość i siłę
+  // Katastrofy wyłączone -> zero katastrof; Ekstremalny Klimat podwaja częstość po okresie rozruchu
   const disasterChance = extremeClimate ? 0.56 : 0.28;
-  const allowDisasterRoll = disastersOn && (!recentDisaster || extremeClimate) && state.time.tick >= 16 && Math.random() < disasterChance;
+  const minDisasterTick = extremeClimate ? 36 : 20;
+  const allowDisasterRoll = disastersOn && (!recentDisaster || extremeClimate) && state.time.tick >= minDisasterTick && Math.random() < disasterChance;
   const pool = EVENT_TEMPLATES.filter((t) => {
     if (activeIds.has(t.id)) return false;
     if (t.category === 'disaster' && !allowDisasterRoll) return false;
@@ -736,6 +737,9 @@ export function processLiveAuctionTick(state: GameState): void {
     if (plot) {
       if (winner && winner.cash >= auc.currentBid) {
         winner.cash -= auc.currentBid;
+        if (winner.statsAccum) {
+          winner.statsAccum.auctionsWon = (winner.statsAccum.auctionsWon ?? 0) + 1;
+        }
         plot.ownerId = winner.id;
         plot.purchasable = false;
         if (plot.building) {

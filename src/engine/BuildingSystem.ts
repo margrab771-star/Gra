@@ -43,8 +43,8 @@ export function getPowerPlantFuelSpec(type: BuildingType): PowerPlantFuelSpec | 
       return {
         primaryResource: 'coal',
         acceptedResources: ['coal'],
-        consumptionPerTick: 10,
-        maxStock: 45,
+        consumptionPerTick: 7.5,
+        maxStock: 36,
         label: 'Węgiel',
       };
     case 'gasPowerPlant':
@@ -746,6 +746,7 @@ export interface UtilityTickSnapshot {
   wasteNet: number;
   byCluster?: Record<number, { elecRatio: number; waterRatio: number; sewageNet: number; wasteNet: number }>;
   producedLots?: ProducedResourceLot[];
+  b2bDivertRemaining?: Partial<Record<ResourceType, number>>;
 }
 
 export function processBuildingTick(
@@ -1090,15 +1091,25 @@ export function processBuildingTick(
 
   let realEstateFactor = 1.0;
   if (isCommercialConsumer) {
-    const attractionBoost = 1 + plot.attractionBonus * 0.014;
-    realEstateFactor = Math.max(0.35, (plot.attractiveness / 65) * attractionBoost * (1 + state.voterMood / 250));
+    const attractionBoost = 1 + Math.min(25, plot.attractionBonus) * 0.008;
+    realEstateFactor = Math.max(
+      0.55,
+      Math.min(1.38, (plot.attractiveness / 65) * attractionBoost * (1 + state.voterMood / 350))
+    );
   }
 
-  const synergyRes = evaluateSynergyForPlotAndType(state.plots, plot, building.type);
-  const synergyFactor = Math.max(0.55, 1 + (plot.synergyPercent ?? synergyRes.netPercent) / 100);
-  const demandFactor = isCommercialConsumer
-    ? Math.max(0.85, (plot.passengerDemandPercent ?? synergyRes.passengerDemandPercent) / 100)
-    : 1.0;
+  const synergyRes = evaluateSynergyForPlotAndType(state.plots, plot, building.type, clusters);
+  const synPctVal = (plot.synergyPercent ?? synergyRes.netPercent) / 100;
+  const demPctVal = isCommercialConsumer
+    ? ((plot.passengerDemandPercent ?? synergyRes.passengerDemandPercent) - 100) / 100
+    : 0;
+  // Sumaryczna premia synergii i popytu pasażerskiego (koniec z podwójnym mnożeniem i kasynem w 2 tury)
+  const combinedSynDem = isCommercialConsumer ? synPctVal + demPctVal * 0.65 : synPctVal;
+  const cappedSynDem =
+    combinedSynDem > 0.55
+      ? 0.55 + (combinedSynDem - 0.55) * 0.42
+      : combinedSynDem;
+  const synergyFactor = Math.max(0.55, Math.min(1.95, 1 + cappedSynDem));
 
   let archetypeProdMult = 1.0;
   if (building.category === 'mining') archetypeProdMult *= archMods.miningYieldMult;
@@ -1123,7 +1134,13 @@ export function processBuildingTick(
   const boycottFactor = building.boycottedTicks > 0 ? 0.65 : 1.0;
   const disasterPlotFactor = (plot.disasterDamagedTicks ?? 0) > 0 ? 0.78 : 1.0;
 
-  const rawEfficiency =
+  const techStackBonus = bMods.productionBonus + categoryBonus + entMods.profitBonus;
+  const effectiveTechMult =
+    techStackBonus <= 0.6
+      ? 1 + techStackBonus
+      : 1.6 + (techStackBonus - 0.6) * 0.35;
+
+  const rawPreCap =
     !roadAccessOk || utilityFactor <= 0.001
       ? 0
       : staffingRatio *
@@ -1141,7 +1158,14 @@ export function processBuildingTick(
         realEstateFactor *
         synergyFactor *
         archetypeProdMult *
-        (1 + bMods.productionBonus + categoryBonus + entMods.profitBonus);
+        effectiveTechMult;
+
+  const effPivot = isCommercialConsumer ? 1.72 : 1.58;
+  const effCeiling = isCommercialConsumer ? 2.2 : 1.98;
+  const rawEfficiency =
+    rawPreCap <= effPivot
+      ? rawPreCap
+      : Math.min(effCeiling, effPivot + (rawPreCap - effPivot) * 0.36);
 
   building.efficiency = Math.round(rawEfficiency * 100);
 
@@ -1264,7 +1288,6 @@ export function processBuildingTick(
       ? 0
       : def.baseRevenue *
         rawEfficiency *
-        demandFactor *
         econMult *
         boycottFactor *
         (Object.keys(def.inputs).length > 0
@@ -1355,17 +1378,35 @@ export function processBuildingTick(
       }
     } else {
       building.status.storageFull = false;
-      const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
-      grossRevenue += produced * unitPrice;
-      utilitySnapshot?.producedLots?.push({
-        resource: res,
-        plotId: plot.id,
-        playerId: player.id,
-        qty: produced,
-        unitPrice,
-        storedInWarehouse: false,
-        revCat,
-      });
+      const needB2B = res !== 'electricity' ? (utilitySnapshot?.b2bDivertRemaining?.[res] ?? 0) : 0;
+      const diverted = needB2B > 0.001 ? Math.min(produced, needB2B) : 0;
+      if (diverted > 0.001 && utilitySnapshot?.b2bDivertRemaining) {
+        utilitySnapshot.b2bDivertRemaining[res] = Math.max(0, Number((needB2B - diverted).toFixed(2)));
+        addPlotWarehouseStock(player, plot.id, res, diverted);
+        utilitySnapshot.producedLots?.push({
+          resource: res,
+          plotId: plot.id,
+          playerId: player.id,
+          qty: diverted,
+          unitPrice: 0,
+          storedInWarehouse: true,
+          revCat,
+        });
+      }
+      const marketSold = Math.max(0, produced - diverted);
+      if (marketSold > 0.001) {
+        const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
+        grossRevenue += marketSold * unitPrice;
+        utilitySnapshot?.producedLots?.push({
+          resource: res,
+          plotId: plot.id,
+          playerId: player.id,
+          qty: marketSold,
+          unitPrice,
+          storedInWarehouse: false,
+          revCat,
+        });
+      }
     }
   }
   building.productionPerTick = productionPerTick;
@@ -1428,7 +1469,7 @@ export function processBuildingTick(
         Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 4.5
     );
     if (nearbyLuxury) {
-      grossRevenue = Math.round(grossRevenue * 1.24);
+      grossRevenue = Math.round(grossRevenue * 1.08);
     }
   }
   if (building.type === 'corporateHQ') {

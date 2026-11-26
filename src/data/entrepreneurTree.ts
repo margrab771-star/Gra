@@ -108,7 +108,7 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   },
   {
     id: 'ent_fin_apex',
-    name: 'Architekt Monopolu (APEX)',
+    name: 'Architekt Monopolu (Projekt Flagowy)',
     description: 'Szczyt potęgi finansowej: absolutna kontrola przepływów pieniężnych i wycen kapitałowych na giełdzie.',
     branch: 'finance',
     cashCost: 16_000_000,
@@ -232,7 +232,7 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   },
   {
     id: 'ent_neg_apex',
-    name: 'Król Surowców i Ekspansji (APEX)',
+    name: 'Król Surowców i Ekspansji (Projekt Flagowy)',
     description: 'Absolutny hegemon rynku B2B i nieruchomości: przeciwnicy płacą wyżej, a Twoje przejęcia są błyskawiczne.',
     branch: 'negotiation',
     cashCost: 15_500_000,
@@ -356,7 +356,7 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   },
   {
     id: 'ent_log_apex',
-    name: 'Tytan Przemysłu i Logistyki (APEX)',
+    name: 'Tytan Przemysłu i Logistyki (Projekt Flagowy)',
     description: 'Absolutna perfekcja produkcyjno-spedycyjna: gigantyczna marża i bezkosztowy obrót towarowy.',
     branch: 'logistics',
     cashCost: 14_500_000,
@@ -479,18 +479,18 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   },
   {
     id: 'ent_tech_apex',
-    name: 'Wizjoner Technologii (APEX)',
+    name: 'Wizjoner Technologii (Projekt Flagowy)',
     description: 'Najwyższy autorytet naukowy na planecie: natychmiastowa przewaga badawcza i gigantyczna wydajność R&D.',
     branch: 'technology',
     cashCost: 17_500_000,
-    skillPointCost: 6,
+    skillPointCost: 4,
     tier: 6,
     isApex: true,
     requiredCorpLevel: 5,
     requiredGlobalTechCount: 8,
     status: 'locked',
     prerequisites: ['ent_tech_singularity'],
-    effects: ['+60% tempa badań globalnych i Apex', '+20% zysków', '-10% kosztów CIT'],
+    effects: ['+60% tempa badań globalnych i Flagowych', '+20% zysków', '-10% kosztów CIT'],
     position: { x: -895, y: 540 },
     modifiers: { researchSpeedBonus: 0.6, profitBonus: 0.2, taxReduction: 0.1 },
   },
@@ -602,7 +602,7 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
   },
   {
     id: 'ent_inf_apex',
-    name: 'Szara Eminencja Imperium (APEX)',
+    name: 'Szara Eminencja Imperium (Projekt Flagowy)',
     description: 'Ostateczna władza za kulisami: bezdyskusyjny autorytet polityczny, medialny i militarny.',
     branch: 'influence',
     cashCost: 18_500_000,
@@ -622,9 +622,10 @@ const RAW_ENTREPRENEUR_SKILLS: SkillNode[] = [
 
 export const DEFAULT_ENTREPRENEUR_SKILLS: SkillNode[] = RAW_ENTREPRENEUR_SKILLS.map((sk) => {
   const tier = sk.tier ?? 1;
-  const expCost = tier <= 1 ? 1 : tier === 2 ? 2 : tier === 3 ? 3 : tier === 4 ? 5 : tier === 5 ? 7 : 12;
+  // Zbalansowana skala punktów: 1+1+2+2+2+2+3+4 = 17 pkt na gałąź (łącznie 85 pkt zamiast 190 pkt!)
+  const expCost = tier <= 2 ? 1 : tier <= 4 ? 2 : tier === 5 ? 3 : 4;
   return {
     ...sk,
-    skillPointCost: Math.max(sk.skillPointCost, expCost),
+    skillPointCost: expCost,
   };
 });

@@ -1,4 +1,5 @@
 import { BUILDING_DEFINITIONS } from '../data/buildings';
+import { computeNetworkClusters, type NetworkClusterMap } from './TransportSystem';
 import type { BuildingType, GameState, Plot, SynergyBreakdownItem } from './types';
 
 const RETAIL_ZONE_TYPES = new Set<BuildingType>([
@@ -95,10 +96,102 @@ export interface SynergyComputationResult {
   researchClusterBonus: number;
 }
 
+interface SynergySpatialIndex {
+  rows: Map<number, Plot[]>;
+  trainClusterIds: Set<number>;
+  airportVipClusterIds: Set<number>;
+  airportOrPortClusterIds: Set<number>;
+  hasAnyTrain: boolean;
+  hasAnyAirportVip: boolean;
+}
+
+let cachedSynSig = '';
+let cachedSynPlotsLen = -1;
+let cachedSynIndex: SynergySpatialIndex | null = null;
+
+function buildSynergySpatialIndex(plots: Plot[], clusters?: NetworkClusterMap): SynergySpatialIndex {
+  const rows = new Map<number, Plot[]>();
+  const trainClusterIds = new Set<number>();
+  const airportVipClusterIds = new Set<number>();
+  const airportOrPortClusterIds = new Set<number>();
+  let hasAnyTrain = false;
+  let hasAnyAirportVip = false;
+
+  for (let i = 0; i < plots.length; i++) {
+    const p = plots[i];
+    const ob = p.building;
+    if (!ob || !ob.isActive || ob.destroyedRuins) continue;
+
+    let row = rows.get(p.gridY);
+    if (!row) {
+      row = [];
+      rows.set(p.gridY, row);
+    }
+    row.push(p);
+
+    const cid = clusters ? (clusters.clusterByPlotId.get(p.id) ?? 0) : 0;
+    const ot = ob.type;
+    if (ot === 'trainStation') {
+      hasAnyTrain = true;
+      if (cid !== 0) trainClusterIds.add(cid);
+    } else if (ot === 'passengerTerminal') {
+      hasAnyAirportVip = true;
+      if (cid !== 0) {
+        airportVipClusterIds.add(cid);
+        airportOrPortClusterIds.add(cid);
+      }
+    } else if (ot === 'cargoAirport' || ot === 'cargoPort') {
+      if (cid !== 0) airportOrPortClusterIds.add(cid);
+    }
+  }
+
+  return {
+    rows,
+    trainClusterIds,
+    airportVipClusterIds,
+    airportOrPortClusterIds,
+    hasAnyTrain,
+    hasAnyAirportVip,
+  };
+}
+
+function getSynergySpatialIndexCached(plots: Plot[], clusters?: NetworkClusterMap): SynergySpatialIndex {
+  let activeSig = 0;
+  for (let i = 0; i < plots.length; i++) {
+    const ob = plots[i].building;
+    if (ob && ob.isActive && !ob.destroyedRuins) {
+      let doneHash = 0;
+      for (let t = 0; t < ob.techTree.length; t++) {
+        if (ob.techTree[t].status === 'done') doneHash++;
+      }
+      activeSig = (activeSig * 31 + i + 1 + doneHash * 7) | 0;
+    }
+  }
+  const sig = `${plots.length}_${clusters?.clusterCount ?? -1}_${activeSig}`;
+  if (cachedSynIndex && cachedSynPlotsLen === plots.length && cachedSynSig === sig) {
+    return cachedSynIndex;
+  }
+  cachedSynSig = sig;
+  cachedSynPlotsLen = plots.length;
+  cachedSynIndex = buildSynergySpatialIndex(plots, clusters);
+  return cachedSynIndex;
+}
+
 export function evaluateSynergyForPlotAndType(
   plots: Plot[],
   targetPlot: Plot,
-  targetType: BuildingType
+  targetType: BuildingType,
+  clusters?: NetworkClusterMap
+): SynergyComputationResult {
+  const index = getSynergySpatialIndexCached(plots, clusters);
+  return evaluateSynergyWithIndex(index, targetPlot, targetType, clusters);
+}
+
+function evaluateSynergyWithIndex(
+  index: SynergySpatialIndex,
+  targetPlot: Plot,
+  targetType: BuildingType,
+  clusters?: NetworkClusterMap
 ): SynergyComputationResult {
   const items: SynergyBreakdownItem[] = [];
   let retailPercent = 0;
@@ -113,120 +206,138 @@ export function evaluateSynergyForPlotAndType(
   const seenClusterTypes = new Set<BuildingType>();
   const seenInnoTypes = new Set<BuildingType>();
 
+  const targetClusterId = clusters ? (clusters.clusterByPlotId.get(targetPlot.id) ?? 0) : 0;
+  const targetClusterHasAirportOrPort =
+    clusters && targetClusterId !== 0 ? index.airportOrPortClusterIds.has(targetClusterId) : false;
+
+  const hasGlobalTrain = clusters
+    ? targetClusterId !== 0 && index.trainClusterIds.has(targetClusterId)
+    : index.hasAnyTrain;
+  const hasGlobalAirportVip = clusters
+    ? index.hasAnyAirportVip &&
+      (targetClusterHasAirportOrPort || (targetClusterId !== 0 && index.airportVipClusterIds.has(targetClusterId)))
+    : index.hasAnyAirportVip;
+
   let hasBus = false;
   let hasMetro = false;
   let hasLocalTrain = false;
-  let hasGlobalTrain = false;
   let hasLocalAirportVip = false;
-  let hasGlobalAirportVip = false;
   let nearbyApartments = 0;
 
-  for (const other of plots) {
-    const ob = other.building;
-    if (!ob || !ob.isActive || ob.destroyedRuins) continue;
-    const ot = ob.type;
-    const dist = Math.hypot(other.gridX - targetPlot.gridX, other.gridY - targetPlot.gridY);
+  for (let y = targetPlot.gridY - 6; y <= targetPlot.gridY + 6; y++) {
+    const row = index.rows.get(y);
+    if (!row) continue;
 
-    if (ot === 'trainStation') hasGlobalTrain = true;
-    if (ot === 'passengerTerminal') hasGlobalAirportVip = true;
+    for (let i = 0; i < row.length; i++) {
+      const other = row[i];
+      if (other.id === targetPlot.id) continue;
+      if (Math.abs(other.gridX - targetPlot.gridX) > 6) continue;
 
-    if (other.id === targetPlot.id) continue;
+      const ob = other.building!;
+      const ot = ob.type;
+      const dist = Math.hypot(other.gridX - targetPlot.gridX, other.gridY - targetPlot.gridY);
+      if (dist > 6.2) continue;
 
-    if (ot === 'busDepot' && dist <= 4.3 && (targetPlot.distanceToRoad <= 2 || other.distanceToRoad <= 2)) {
-      hasBus = true;
-    }
-    if (ot === 'metroStation' && dist <= 5.2) {
-      hasMetro = true;
-    }
-    if (ot === 'trainStation' && dist <= 5.2) {
-      hasLocalTrain = true;
-    }
-    if (ot === 'passengerTerminal' && dist <= 6.2) {
-      hasLocalAirportVip = true;
-    }
-    if (ot === 'apartmentComplex' && dist <= 3.1) {
-      nearbyApartments++;
-    }
+      const otherClusterId = clusters ? (clusters.clusterByPlotId.get(other.id) ?? 0) : 0;
+      const sameCluster =
+        clusters && targetClusterId !== 0 && otherClusterId === targetClusterId;
 
-    // Promień 1-2 pola (maks ~2.4 euklidesowo obejmuje skosy 2x2 / 3x3)
-    if (dist <= 2.35) {
-      // 1. Strefa Kupujących
-      if (RETAIL_ZONE_TYPES.has(targetType) && RETAIL_ZONE_TYPES.has(ot) && ot !== targetType && !seenRetailTypes.has(ot)) {
-        seenRetailTypes.add(ot);
-        const add = 14;
-        retailPercent += add;
-        items.push({
-          kind: 'retail_zone',
-          label: `Strefa Kupujących (${BUILDING_DEFINITIONS[ot].shortName})`,
-          percentDelta: add,
-          sourcePlotId: other.id,
-        });
+      if (ot === 'busDepot' && dist <= 4.3 && (!clusters || sameCluster) && (targetPlot.distanceToRoad <= 2 || other.distanceToRoad <= 2)) {
+        hasBus = true;
+      }
+      if (ot === 'metroStation' && dist <= 5.2 && (!clusters || sameCluster)) {
+        hasMetro = true;
+      }
+      if (ot === 'trainStation' && dist <= 5.2 && (!clusters || sameCluster)) {
+        hasLocalTrain = true;
+      }
+      if (ot === 'passengerTerminal' && dist <= 6.2 && (!clusters || sameCluster || targetClusterHasAirportOrPort)) {
+        hasLocalAirportVip = true;
+      }
+      if (ot === 'apartmentComplex' && dist <= 3.1) {
+        nearbyApartments++;
       }
 
-      // 2. Dzielnica Rozrywki i Turystyki
-      if (
-        TOURISM_RECIPIENTS.has(targetType) &&
-        ENTERTAINMENT_ANCHORS.has(ot) &&
-        ot !== targetType &&
-        !seenEntTypes.has(ot)
-      ) {
-        seenEntTypes.add(ot);
-        const add = ot === 'arenaStadium' || ot === 'casino' || ot === 'marinaPromenade' ? 16 : 11;
-        entertainmentPercent += add;
-        items.push({
-          kind: 'entertainment_district',
-          label: `Dzielnica Rozrywki (${BUILDING_DEFINITIONS[ot].shortName})`,
-          percentDelta: add,
-          sourcePlotId: other.id,
-        });
-      }
+      // Promień 1-2 pola (maks ~2.4 euklidesowo obejmuje skosy 2x2 / 3x3)
+      if (dist <= 2.35) {
+        // 1. Strefa Kupujących
+        if (RETAIL_ZONE_TYPES.has(targetType) && RETAIL_ZONE_TYPES.has(ot) && ot !== targetType && !seenRetailTypes.has(ot)) {
+          seenRetailTypes.add(ot);
+          const add = 14;
+          retailPercent += add;
+          items.push({
+            kind: 'retail_zone',
+            label: `Strefa Kupujących (${BUILDING_DEFINITIONS[ot].shortName})`,
+            percentDelta: add,
+            sourcePlotId: other.id,
+          });
+        }
 
-      // 3. Kampus Innowacji
-      if (INNOVATION_TYPES.has(targetType) && INNOVATION_TYPES.has(ot) && ot !== targetType && !seenInnoTypes.has(ot)) {
-        seenInnoTypes.add(ot);
-        const add = 15;
-        innovationPercent += add;
-        items.push({
-          kind: 'innovation_campus',
-          label: `Kampus Innowacji (${BUILDING_DEFINITIONS[ot].shortName})`,
-          percentDelta: add,
-          sourcePlotId: other.id,
-        });
-      }
+        // 2. Dzielnica Rozrywki i Turystyki
+        if (
+          TOURISM_RECIPIENTS.has(targetType) &&
+          ENTERTAINMENT_ANCHORS.has(ot) &&
+          ot !== targetType &&
+          !seenEntTypes.has(ot)
+        ) {
+          seenEntTypes.add(ot);
+          const add = ot === 'arenaStadium' || ot === 'casino' || ot === 'marinaPromenade' ? 16 : 11;
+          entertainmentPercent += add;
+          items.push({
+            kind: 'entertainment_district',
+            label: `Dzielnica Rozrywki (${BUILDING_DEFINITIONS[ot].shortName})`,
+            percentDelta: add,
+            sourcePlotId: other.id,
+          });
+        }
 
-      // 4. Klaster Przemysłowy
-      if (isClusterIndustrial(targetType) && isClusterIndustrial(ot) && !seenClusterTypes.has(ot)) {
-        seenClusterTypes.add(ot);
-        const add = 8;
-        industrialPercent += add;
-        items.push({
-          kind: 'industrial_cluster',
-          label: `Klaster Przemysłowy (${BUILDING_DEFINITIONS[ot].shortName})`,
-          percentDelta: add,
-          sourcePlotId: other.id,
-        });
-      }
+        // 3. Kampus Innowacji
+        if (INNOVATION_TYPES.has(targetType) && INNOVATION_TYPES.has(ot) && ot !== targetType && !seenInnoTypes.has(ot)) {
+          seenInnoTypes.add(ot);
+          const add = 15;
+          innovationPercent += add;
+          items.push({
+            kind: 'innovation_campus',
+            label: `Kampus Innowacji (${BUILDING_DEFINITIONS[ot].shortName})`,
+            percentDelta: add,
+            sourcePlotId: other.id,
+          });
+        }
 
-      // 5. Park Miejski / Ogród Botaniczny (neutralizuje smog i dodaje urok)
-      if (ot === 'cityPark' && SMOG_SENSITIVE_TYPES.has(targetType)) {
-        parkCount++;
-      }
+        // 4. Klaster Przemysłowy
+        if (isClusterIndustrial(targetType) && isClusterIndustrial(ot) && !seenClusterTypes.has(ot)) {
+          seenClusterTypes.add(ot);
+          const add = 8;
+          industrialPercent += add;
+          items.push({
+            kind: 'industrial_cluster',
+            label: `Klaster Przemysłowy (${BUILDING_DEFINITIONS[ot].shortName})`,
+            percentDelta: add,
+            sourcePlotId: other.id,
+          });
+        }
 
-      // 6. Konflikty sąsiedztwa (Smog, Zapach Składowiska i Hałas)
-      if (SMOG_SENSITIVE_TYPES.has(targetType) && HEAVY_SMOG_TYPES.has(ot)) {
-        const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
-        const rawPen = dist <= 1.5 ? 16 : 11;
-        smogPenalty += Math.round(rawPen * (hasFilter ? 0.35 : 1));
-      } else if (SMOG_SENSITIVE_TYPES.has(targetType) && ot === 'wasteLandfill') {
-        const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
-        const rawPen = dist <= 1.5 ? 9 : 6;
-        smogPenalty += Math.round(rawPen * (hasFilter ? 0.45 : 1));
+        // 5. Park Miejski / Ogród Botaniczny (neutralizuje smog i dodaje urok)
+        if (ot === 'cityPark' && SMOG_SENSITIVE_TYPES.has(targetType)) {
+          parkCount++;
+        }
+
+        // 6. Konflikty sąsiedztwa (Smog, Zapach Składowiska i Hałas)
+        if (SMOG_SENSITIVE_TYPES.has(targetType) && HEAVY_SMOG_TYPES.has(ot)) {
+          const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
+          const rawPen = dist <= 1.5 ? 16 : 11;
+          smogPenalty += Math.round(rawPen * (hasFilter ? 0.35 : 1));
+        } else if (SMOG_SENSITIVE_TYPES.has(targetType) && ot === 'wasteLandfill') {
+          const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
+          const rawPen = dist <= 1.5 ? 9 : 6;
+          smogPenalty += Math.round(rawPen * (hasFilter ? 0.45 : 1));
+        }
       }
     }
   }
 
-  retailPercent = Math.min(40, retailPercent);
-  entertainmentPercent = Math.min(38, entertainmentPercent);
+  retailPercent = Math.min(36, retailPercent);
+  entertainmentPercent = Math.min(34, entertainmentPercent);
   industrialPercent = Math.min(24, industrialPercent);
   innovationPercent = Math.min(35, innovationPercent);
 
@@ -250,16 +361,16 @@ export function evaluateSynergyForPlotAndType(
     smogPenalty = finalSmog;
   }
 
-  // Napływ Konsumentów / Popyt Lokalny (100% -> do 220%)
+  // Napływ Konsumentów / Popyt Lokalny (100% -> do 185%, zablokowana teleportacja przez wodę)
   let passengerDemandPercent = 100;
-  if (hasBus) passengerDemandPercent += 24;
-  if (hasMetro) passengerDemandPercent += 42;
-  if (hasGlobalTrain) passengerDemandPercent += 14;
-  if (hasLocalTrain) passengerDemandPercent += 16;
-  if (hasGlobalAirportVip) passengerDemandPercent += TOURISM_RECIPIENTS.has(targetType) ? 24 : 12;
-  if (hasLocalAirportVip) passengerDemandPercent += 22;
-  if (nearbyApartments > 0) passengerDemandPercent += Math.min(24, nearbyApartments * 12);
-  passengerDemandPercent = Math.min(220, passengerDemandPercent);
+  if (hasBus) passengerDemandPercent += 18;
+  if (hasMetro) passengerDemandPercent += 28;
+  if (hasGlobalTrain) passengerDemandPercent += 12;
+  if (hasLocalTrain) passengerDemandPercent += 12;
+  if (hasGlobalAirportVip) passengerDemandPercent += TOURISM_RECIPIENTS.has(targetType) ? 16 : 10;
+  if (hasLocalAirportVip) passengerDemandPercent += 14;
+  if (nearbyApartments > 0) passengerDemandPercent += Math.min(20, nearbyApartments * 10);
+  passengerDemandPercent = Math.min(185, passengerDemandPercent);
 
   if (passengerDemandPercent > 100 && (RETAIL_ZONE_TYPES.has(targetType) || TOURISM_RECIPIENTS.has(targetType))) {
     items.push({
@@ -286,16 +397,21 @@ export function evaluateSynergyForPlotAndType(
 }
 
 export function recalculateSynergiesAndPassengerDemand(state: GameState): void {
+  const clusters = computeNetworkClusters(state);
+  const index = getSynergySpatialIndexCached(state.plots, clusters);
   for (const plot of state.plots) {
     if (!plot.building || plot.building.destroyedRuins) {
       plot.synergyPercent = 0;
       plot.activeSynergies = [];
-      // Nadal wylicz bazowy popyt pasażerski dla podglądu działki komercyjnej
-      const probe = evaluateSynergyForPlotAndType(state.plots, plot, 'shoppingMall');
-      plot.passengerDemandPercent = probe.passengerDemandPercent;
+      if (plot.terrain === 'water' || (plot.irradiatedTicks ?? 0) > 0) {
+        plot.passengerDemandPercent = 100;
+      } else {
+        const probe = evaluateSynergyWithIndex(index, plot, 'shoppingMall', clusters);
+        plot.passengerDemandPercent = probe.passengerDemandPercent;
+      }
       continue;
     }
-    const res = evaluateSynergyForPlotAndType(state.plots, plot, plot.building.type);
+    const res = evaluateSynergyWithIndex(index, plot, plot.building.type, clusters);
     plot.synergyPercent = res.netPercent;
     plot.passengerDemandPercent = res.passengerDemandPercent;
     plot.activeSynergies = res.items;
@@ -311,7 +427,8 @@ export function previewBuildingSynergyAtPlot(
   passengerDemandPercent: number;
   items: SynergyBreakdownItem[];
 } {
-  const res = evaluateSynergyForPlotAndType(state.plots, plot, buildingType);
+  const clusters = computeNetworkClusters(state);
+  const res = evaluateSynergyForPlotAndType(state.plots, plot, buildingType, clusters);
   return {
     netPercent: res.netPercent,
     passengerDemandPercent: res.passengerDemandPercent,

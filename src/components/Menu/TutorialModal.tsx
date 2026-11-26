@@ -137,7 +137,7 @@ const CHAPTERS: TutorialChapter[] = [
     id: 'tech_trees',
     icon: '🌳',
     title: '6. Drzewko Prezesa, Patenty i Poziom EKSTRA',
-    subtitle: 'Nowe interaktywne drzewko do przesuwania (Pan & Zoom) i elitarne ulepszenia APEX.',
+    subtitle: 'Nowe interaktywne drzewko do przesuwania (Pan & Zoom) i elitarne Projekty Flagowe.',
     sections: [
       {
         heading: 'Drzewko Prezesa (40 umiejętności, 5 gałęzi)',
@@ -147,10 +147,10 @@ const CHAPTERS: TutorialChapter[] = [
         ],
       },
       {
-        heading: 'Wyłączne Patenty i Wersje EKSTRA / APEX (Tier 4)',
+        heading: 'Wyłączne Patenty i Projekty Flagowe / EKSTRA (Tier 4)',
         points: [
           'Kto pierwszy ukończy przełomową technologię globalną (np. Litografia EUV, Recykling, Reaktor Fuzyjny), zdobywa wyłączny Patent generujący stałe tantiemy przez 140 tur.',
-          'Każdy kluczowy budynek posiada końcowy moduł "EKSTRA / APEX" (Tier 4) oznaczony złotą aurą na mapie.',
+          'Każdy kluczowy budynek posiada końcowy moduł "Projekt Flagowy / EKSTRA" (Tier 4) oznaczony złotą aurą na mapie.',
         ],
       },
     ],
@@ -172,7 +172,7 @@ const CHAPTERS: TutorialChapter[] = [
       {
         heading: 'Baza PMC, Rakiety 3×3 i Broń Jądrowa 5×5',
         points: [
-          'Budowa Bazy Wojskowej PMC wymaga min. 75% poparcia społecznego. Ulepszenie APEX Bazy PMC odblokowuje taktyczne uderzenie rakietowe 3×3 zamieniające cel w ruiny.',
+          'Budowa Bazy Wojskowej PMC wymaga min. 75% poparcia społecznego. Projekt Flagowy Bazy PMC odblokowuje taktyczne uderzenie rakietowe 3×3 zamieniające cel w ruiny.',
           'Posiadanie jednocześnie Kopalni Uranu, Wzbogacania Uranu, Uniwersytetu, R&D i Bazy PMC ujawnia Tajny Program Jądrowy. Budowa głowicy może zostać wykryta przez wrogie Centra Wywiadu, a wybuch 5×5 niszczy wszystko i skaża teren na 180 tur!',
         ],
       },

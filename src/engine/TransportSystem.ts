@@ -961,32 +961,43 @@ export function processTollsAndLogisticsTick(state: GameState): void {
   if (state.plots.length === 0) return;
 
   const plotsByCoord = getPlotsByCoordCached(state);
+  const playerById = new Map<string, Player>();
+  for (const pl of state.players) playerById.set(pl.id, pl);
 
-  const urbanAnchor = state.plots.find((p) => p.terrain === 'urban');
+  let urbanAnchor: Plot | undefined;
+  const hqOrWarehouseAnchor = new Map<string, Plot>();
+  const supplyByOwner = new Map<string, Plot[]>();
+
+  for (const p of state.plots) {
+    if (!urbanAnchor && p.terrain === 'urban') urbanAnchor = p;
+    if (!p.ownerId || !p.building || !p.building.isActive || p.building.destroyedRuins) continue;
+    const b = p.building;
+    if (b.type === 'corporateHQ' || b.type === 'warehouse') {
+      const prev = hqOrWarehouseAnchor.get(p.ownerId);
+      if (!prev || b.type === 'corporateHQ') hqOrWarehouseAnchor.set(p.ownerId, p);
+    }
+    if (
+      b.logisticsMode === 'road' &&
+      (Object.keys(b.productionPerTick).length > 0 || Object.keys(b.consumptionPerTick).length > 0)
+    ) {
+      let arr = supplyByOwner.get(p.ownerId);
+      if (!arr) {
+        arr = [];
+        supplyByOwner.set(p.ownerId, arr);
+      }
+      arr.push(p);
+    }
+  }
   if (!urbanAnchor) return;
 
   for (const player of state.players) {
     if (player.isEliminated) continue;
-    const targetAnchor =
-      state.plots.find(
-        (p) =>
-          p.ownerId === player.id &&
-          (p.building?.type === 'corporateHQ' || p.building?.type === 'warehouse') &&
-          p.building.isActive
-      ) ?? urbanAnchor;
+    const targetAnchor = hqOrWarehouseAnchor.get(player.id) ?? urbanAnchor;
+    const supplyBuildings = supplyByOwner.get(player.id);
+    if (!supplyBuildings || supplyBuildings.length === 0) continue;
 
-    const supplyBuildings = state.plots.filter(
-      (p) =>
-        p.ownerId === player.id &&
-        p.building &&
-        p.building.isActive &&
-        p.building.logisticsMode === 'road' &&
-        (Object.keys(p.building.productionPerTick).length > 0 ||
-          Object.keys(p.building.consumptionPerTick).length > 0)
-    );
-
-    const chargedRoadsThisTick = new Set<string>();
-    for (const srcPlot of supplyBuildings.slice(0, 5)) {
+    const roadPassesThisTick = new Map<string, number>();
+    for (const srcPlot of supplyBuildings.slice(0, 8)) {
       const route = computeWeightedRoadRouteWithIndex(
         srcPlot,
         targetAnchor,
@@ -998,11 +1009,12 @@ export function processTollsAndLogisticsTick(state: GameState): void {
       if (!route || route.rivalTollPlots.length === 0) continue;
 
       for (const rp of route.rivalTollPlots) {
-        if (chargedRoadsThisTick.has(rp.id)) continue;
-        chargedRoadsThisTick.add(rp.id);
+        const passes = roadPassesThisTick.get(rp.id) ?? 0;
+        if (passes >= 3) continue;
+        roadPassesThisTick.set(rp.id, passes + 1);
 
-        const owner = state.players.find((o) => o.id === rp.ownerId);
-        if (!owner || owner.id === player.id) continue;
+        const owner = rp.ownerId ? playerById.get(rp.ownerId) : undefined;
+        if (!owner || owner.id === player.id || owner.isEliminated) continue;
         if (arePlayersAllied(state, player.id, owner.id)) continue;
         const tollCfg = TOLL_RATE_CONFIG[rp.tollRate ?? 'free'];
         const tollArchMult = getArchetypeDefinition(owner.archetype).modifiers.tollRevenueMult;
@@ -1015,6 +1027,9 @@ export function processTollsAndLogisticsTick(state: GameState): void {
           owner.cash += actualFee;
           owner.totalRevenueEarned += actualFee;
           rp.tollRevenueTotal = (rp.tollRevenueTotal ?? 0) + actualFee;
+          if (owner.statsAccum) {
+            owner.statsAccum.tollEarned = (owner.statsAccum.tollEarned ?? 0) + actualFee;
+          }
 
           owner.lastTickRevenueByCategory['Opłaty Drogowe (Myto)'] =
             (owner.lastTickRevenueByCategory['Opłaty Drogowe (Myto)'] ?? 0) + actualFee;

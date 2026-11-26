@@ -176,10 +176,10 @@ export const TOLL_RATE_CONFIG: Record<
   { label: string; feePerPass: number; weightPenalty: number }
 > = {
   free: { label: 'Darmowa (0 zł)', feePerPass: 0, weightPenalty: 0 },
-  low: { label: 'Niska (450 zł)', feePerPass: 450, weightPenalty: 0.35 },
-  standard: { label: 'Standardowa (1 200 zł)', feePerPass: 1_200, weightPenalty: 1.0 },
-  high: { label: 'Wysoka (2 800 zł)', feePerPass: 2_800, weightPenalty: 2.5 },
-  prohibitive: { label: 'Zaporowa (6 500 zł)', feePerPass: 6_500, weightPenalty: 6.0 },
+  low: { label: 'Niska (750 zł)', feePerPass: 750, weightPenalty: 0.3 },
+  standard: { label: 'Standardowa (1 800 zł)', feePerPass: 1_800, weightPenalty: 0.9 },
+  high: { label: 'Wysoka (3 800 zł)', feePerPass: 3_800, weightPenalty: 2.2 },
+  prohibitive: { label: 'Zaporowa (7 500 zł)', feePerPass: 7_500, weightPenalty: 5.5 },
 };
 
 export const SERVICE_VEHICLE_COST: Record<EmergencyServiceKind, number> = {
@@ -268,15 +268,15 @@ export const DIFFICULTY_PRESETS: Record<DifficultyPreset, DifficultyPresetConfig
     id: 'przetrwanie',
     label: 'Przetrwanie (Hardkor)',
     badge: '🔴',
-    description: '-30% gotówki na start, drogie kredyty, silna zmienność giełdy i bezlitosne kary za brak służb i mediów.',
-    startingCashMult: 0.7,
-    taxMult: 1.25,
-    maintenanceMult: 1.22,
-    interestDelta: 0.035,
-    utilityPenaltyMult: 1.5,
-    marketVolatilityMult: 1.45,
-    bailiffGraceTicks: 7,
-    crashFreqMult: 1.6,
+    description: '-22% gotówki na start, drogie kredyty, wysoka zmienność giełdy i surowe kary za brak służb i mediów.',
+    startingCashMult: 0.78,
+    taxMult: 1.2,
+    maintenanceMult: 1.18,
+    interestDelta: 0.03,
+    utilityPenaltyMult: 1.38,
+    marketVolatilityMult: 1.35,
+    bailiffGraceTicks: 9,
+    crashFreqMult: 1.4,
   },
 };
 

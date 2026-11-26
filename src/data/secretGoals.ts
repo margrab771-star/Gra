@@ -91,8 +91,8 @@ const SECRET_GOAL_TEMPLATES: SecretGoalTemplate[] = [
   {
     templateId: 'goal_toll_transport_500k',
     title: 'Król Arterii i Myta',
-    description: 'Zarób łącznie $500 000 z myta autostradowego i ruchu pasażerskiego.',
-    targetValue: 500_000,
+    description: 'Zarób łącznie 140 000 zł z myta autostradowego i ruchu pasażerskiego.',
+    targetValue: 140_000,
     unitLabel: 'zł z myta',
     rewardCash: 600_000,
     rewardInfluence: 14,
@@ -108,7 +108,7 @@ const SECRET_GOAL_TEMPLATES: SecretGoalTemplate[] = [
   {
     templateId: 'goal_rival_bailiff',
     title: 'Bezwzględna Presja Rynkowa',
-    description: 'Doprowadź do licytacji komorniczej u rywala lub wygraj aukcję zajęcia.',
+    description: 'Doprowadź do licytacji komorniczej rywala po Twojej presji lub wygraj aukcję zajęcia.',
     targetValue: 1,
     unitLabel: 'egzekucji',
     rewardCash: 750_000,
@@ -116,11 +116,15 @@ const SECRET_GOAL_TEMPLATES: SecretGoalTemplate[] = [
     rewardDominanceBonus: 5,
     rewardXp: 140,
     eligible: (s) => s.players.length > 1,
-    evaluate: (s) => {
-      const hasBailiffNews = s.news.some(
-        (n) => n.id.startsWith('bailiff_seize_') || n.id.startsWith('bankrupt_')
-      );
-      return hasBailiffNews ? 1 : 0;
+    evaluate: (s, p) => {
+      if ((p.statsAccum?.auctionsWon ?? 0) >= 1) return 1;
+      if ((p.statsAccum?.hostilePressuresCount ?? 0) >= 1) {
+        const hasBailiffNews = s.news.some(
+          (n) => n.id.startsWith('bailiff_seize_') || n.id.startsWith('bankrupt_')
+        );
+        if (hasBailiffNews) return 1;
+      }
+      return 0;
     },
   },
   {

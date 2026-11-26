@@ -266,8 +266,9 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
   // 4. Kadry, naprawy i opłacalne ulepszenia (wstrzymaj płatne ulepszenia/szkolenia przy aktywnym deficycie mediów)
   maintainAndUpgradeBuildings(state, ai, difficulty, ownedBuildings, cashReserve, !stillHasDeficit);
 
-  // Gdy media są zagrożone lub właśnie zbudowano elektrownię/stację, wstrzymaj dalszą ekspansję w tej turze
+  // Gdy media są zagrożone lub właśnie zbudowano elektrownię/stację, najpierw spróbuj spiąć odizolowane klastry mostem i zabezpiecz paliwo
   if (utilityBlocked || stillHasDeficit) {
+    tryBridgeSeparatedClusters(state, ai, ownedPlots, cashReserve, true);
     return;
   }
 
@@ -581,13 +582,55 @@ function ensureUtilitiesSurvival(
     }
   }
 
-  // Zbuduj grupy według pilności: realne deficyty (< 0) zawsze przed buforami ostrzegawczymi, prąd pierwszy
+  const plotsByCoord = new Map<string, Plot>();
+  for (const p of state.plots) plotsByCoord.set(`${p.gridX}_${p.gridY}`, p);
+
+  const getDeficitClustersForKind = (kind: 'elec' | 'water' | 'sewage' | 'waste'): Set<number> => {
+    if (kind === 'elec') return elecDeficitClusters;
+    if (kind === 'water') return waterDeficitClusters;
+    if (kind === 'sewage') return sewageDeficitClusters;
+    return wasteDeficitClusters;
+  };
+
+  // Zbuduj grupy według pilności: realne deficyty (globalne lub lokalne klastry < 0) przed buforami; prąd pierwszy
+  const kindOrder: Record<'elec' | 'water' | 'sewage' | 'waste', number> = {
+    elec: 0,
+    water: 1,
+    waste: 2,
+    sewage: 3,
+  };
   const utilityGroups: { activeDeficit: boolean; kind: 'elec' | 'water' | 'sewage' | 'waste'; list: BuildingType[] }[] = [];
-  if (needElec) utilityGroups.push({ activeDeficit: util.electricityNet < 0, kind: 'elec', list: elecCandidates });
-  if (needWater) utilityGroups.push({ activeDeficit: util.waterNet < 0, kind: 'water', list: waterCandidates });
-  if (needSewage) utilityGroups.push({ activeDeficit: util.sewageNet < 0, kind: 'sewage', list: sewageCandidates });
-  if (needWaste) utilityGroups.push({ activeDeficit: util.wasteNet < 0, kind: 'waste', list: wasteCandidates });
-  utilityGroups.sort((a, b) => Number(b.activeDeficit) - Number(a.activeDeficit));
+  if (needElec) {
+    utilityGroups.push({
+      activeDeficit: util.electricityNet < 0 || elecDeficitClusters.size > 0,
+      kind: 'elec',
+      list: elecCandidates,
+    });
+  }
+  if (needWater) {
+    utilityGroups.push({
+      activeDeficit: util.waterNet < 0 || waterDeficitClusters.size > 0,
+      kind: 'water',
+      list: waterCandidates,
+    });
+  }
+  if (needSewage) {
+    utilityGroups.push({
+      activeDeficit: util.sewageNet < 0 || sewageDeficitClusters.size > 0,
+      kind: 'sewage',
+      list: sewageCandidates,
+    });
+  }
+  if (needWaste) {
+    utilityGroups.push({
+      activeDeficit: util.wasteNet < 0 || wasteDeficitClusters.size > 0,
+      kind: 'waste',
+      list: wasteCandidates,
+    });
+  }
+  utilityGroups.sort(
+    (a, b) => Number(b.activeDeficit) - Number(a.activeDeficit) || kindOrder[a.kind] - kindOrder[b.kind]
+  );
 
   // Jeśli mamy tylko ostrzeżenie o zapasie (bez ujemnego salda), najpierw spróbuj ulepszyć istniejący obiekt
   if (!hasDeficit) {
@@ -610,14 +653,29 @@ function ensureUtilitiesSurvival(
     }
   }
 
-  // Działki puste posortowane inteligentnie (najwyższy priorytet: bezpośredni dostęp do drogi/HQ!)
+  const plotTouchesDeficitCluster = (p: Plot, deficitClusters: Set<number>): boolean => {
+    if (deficitClusters.size === 0) return false;
+    const directCid = clusters.clusterByPlotId.get(p.id) ?? 0;
+    if (directCid > 0 && deficitClusters.has(directCid)) return true;
+    for (const [dx, dy] of ROAD_DIRS) {
+      const nb = plotsByCoord.get(`${p.gridX + dx}_${p.gridY + dy}`);
+      if (!nb) continue;
+      const nbCid = clusters.clusterByPlotId.get(nb.id) ?? 0;
+      if (nbCid > 0 && deficitClusters.has(nbCid)) return true;
+    }
+    return false;
+  };
+
+  // Działki puste posortowane inteligentnie (najwyższy priorytet: klaster z deficytem + dostęp do drogi/HQ!)
   const rankPlotForUtility = (p: Plot, bType: BuildingType): number => {
     let s = 0;
     const isWasteOrSewage = BUILDING_DEFINITIONS[bType].category === 'waste';
-    const bCid = clusters.clusterByPlotId.get(p.id) ?? 0;
-    if (BUILDING_DEFINITIONS[bType].electricityUsage < 0 && elecDeficitClusters.has(bCid)) s += 160;
-    if (bType === 'waterPlant' && waterDeficitClusters.has(bCid)) s += 160;
-    if (isWasteOrSewage && (sewageDeficitClusters.has(bCid) || wasteDeficitClusters.has(bCid))) s += 140;
+    const isPower = BUILDING_DEFINITIONS[bType].electricityUsage < 0;
+    if (isPower && plotTouchesDeficitCluster(p, elecDeficitClusters)) s += 380;
+    if ((bType === 'waterPlant' || bType === 'closedLoopSewagePlant') && plotTouchesDeficitCluster(p, waterDeficitClusters)) s += 380;
+    if (isWasteOrSewage && (plotTouchesDeficitCluster(p, sewageDeficitClusters) || plotTouchesDeficitCluster(p, wasteDeficitClusters))) {
+      s += 340;
+    }
     if (hasRoadAccess(state, p, ai.id)) s += 110;
     else if (p.distanceToRoad <= 1) s += 45;
     else if (p.distanceToRoad <= 2) s += 20;
@@ -633,11 +691,21 @@ function ensureUtilitiesSurvival(
     return s;
   };
 
+  const maxUtilOwned = state.settings.mapSize >= 28 ? 88 : 48;
+
   for (const grp of utilityGroups) {
     // Gdy brakuje prądu, nie spamuj kolejnych pomp wody/oczyszczalni (one stoją przez blackout), ale spalarnia śmieci (+42 MW) wręcz pomaga!
     if ((grp.kind === 'water' || grp.kind === 'sewage') && util.electricityNet < -4 && ownedBuildings.length >= 2) {
       continue;
     }
+
+    const grpDeficitClusters = getDeficitClustersForKind(grp.kind);
+    const localOnlyDeficit =
+      grpDeficitClusters.size > 0 &&
+      ((grp.kind === 'elec' && util.electricityNet >= 0) ||
+        (grp.kind === 'water' && util.waterNet >= 0) ||
+        (grp.kind === 'sewage' && util.sewageNet >= 0) ||
+        (grp.kind === 'waste' && util.wasteNet >= 0));
 
     for (const bType of grp.list) {
       const def = BUILDING_DEFINITIONS[bType];
@@ -658,8 +726,10 @@ function ensureUtilitiesSurvival(
         if (!windSolarBanned && !hasCoalMine && ai.cash < 850_000) continue;
       }
 
-      // 1) Najpierw własna pusta działka pasująca terenem i warunkami
-      const ranked = [...emptyOwned].sort((a, b) => rankPlotForUtility(b, bType) - rankPlotForUtility(a, bType));
+      // 1) Najpierw własna pusta działka pasująca terenem i warunkami (przy lokalnym deficycie: wyłącznie w/przy brakującym klastrze!)
+      const ranked = [...emptyOwned]
+        .filter((p) => !localOnlyDeficit || plotTouchesDeficitCluster(p, grpDeficitClusters))
+        .sort((a, b) => rankPlotForUtility(b, bType) - rankPlotForUtility(a, bType));
       for (const plot of ranked) {
         if (checkBuildingRequirements(ai, plot, bType, state).ok) {
           if (constructBuildingOnPlot(state, ai, plot, bType).ok) {
@@ -668,8 +738,8 @@ function ensureUtilitiesSurvival(
         }
       }
 
-      // 2) Jeśli brak odpowiedniej własnej działki → kup najtańszą działkę (preferując te przylegające do drogi/HQ)
-      if (ownedPlots.length < 36) {
+      // 2) Jeśli brak odpowiedniej własnej działki → kup działkę (priorytet: granicząca z brakującym klastrem lub drogą/HQ)
+      if (ownedPlots.length < maxUtilOwned) {
         const buildCost = getBuildingConstructionCost(bType, state, ai);
         const matchingPlots = state.plots
           .filter(
@@ -679,6 +749,7 @@ function ensureUtilitiesSurvival(
               p.terrain !== 'water' &&
               (p.irradiatedTicks ?? 0) <= 0 &&
               def.requiredTerrain.includes(p.terrain) &&
+              (!localOnlyDeficit || plotTouchesDeficitCluster(p, grpDeficitClusters)) &&
               ai.cash >= p.price + buildCost + (hasRoadAccess(state, p, ai.id) ? 0 : 35_000)
           )
           .sort((a, b) => {
@@ -920,6 +991,70 @@ const ROAD_DIRS: ReadonlyArray<readonly [number, number]> = [
   [-1, 0],
 ];
 
+function tryBridgeSeparatedClusters(
+  state: GameState,
+  ai: Player,
+  ownedPlots: Plot[],
+  cashReserve: number,
+  allowDeficitRescue: boolean
+): boolean {
+  const minCashForOneBridge = allowDeficitRescue
+    ? GAME_CONFIG.bridgeCost + 25_000
+    : cashReserve + GAME_CONFIG.bridgeCost + 45_000;
+  if (ai.cash < minCashForOneBridge) return false;
+
+  const clusters = computeNetworkClusters(state);
+  const ownedCids = new Set<number>();
+  for (const op of ownedPlots) {
+    const cid = clusters.clusterByPlotId.get(op.id) ?? 0;
+    if (cid > 0) ownedCids.add(cid);
+  }
+  if (!allowDeficitRescue && ownedCids.size < 2) return false;
+
+  const byCoord = new Map<string, Plot>();
+  for (const p of state.plots) byCoord.set(`${p.gridX}_${p.gridY}`, p);
+
+  for (const requireOwnedTarget of [true, false]) {
+    if (!requireOwnedTarget && !allowDeficitRescue) break;
+    for (const op of ownedPlots) {
+      const c1 = clusters.clusterByPlotId.get(op.id) ?? 0;
+      if (c1 === 0) continue;
+      for (const [dx, dy] of ROAD_DIRS) {
+        const w1 = byCoord.get(`${op.gridX + dx}_${op.gridY + dy}`);
+        if (!w1 || w1.terrain !== 'water' || w1.hasRoad || (w1.irradiatedTicks ?? 0) > 0) continue;
+        const b1 = byCoord.get(`${op.gridX + dx * 2}_${op.gridY + dy * 2}`);
+        if (b1 && b1.terrain !== 'water') {
+          const c2 = clusters.clusterByPlotId.get(b1.id) ?? 0;
+          const validTarget =
+            c2 > 0 &&
+            c2 !== c1 &&
+            (requireOwnedTarget ? ownedCids.has(c2) : ownedCids.has(c2) || b1.terrain === 'urban');
+          if (validTarget && buildPlayerRoadOnPlot(state, ai, w1, 'bridge').ok) {
+            return true;
+          }
+        } else if (b1 && b1.terrain === 'water' && !b1.hasRoad && (b1.irradiatedTicks ?? 0) <= 0) {
+          const b2 = byCoord.get(`${op.gridX + dx * 3}_${op.gridY + dy * 3}`);
+          const c2 = b2 ? clusters.clusterByPlotId.get(b2.id) ?? 0 : 0;
+          const validTarget =
+            c2 > 0 &&
+            c2 !== c1 &&
+            (requireOwnedTarget ? ownedCids.has(c2) : ownedCids.has(c2) || b2?.terrain === 'urban');
+          const minCashTwo = allowDeficitRescue
+            ? GAME_CONFIG.bridgeCost * 2 + 25_000
+            : cashReserve + GAME_CONFIG.bridgeCost * 2 + 45_000;
+          if (validTarget && ai.cash >= minCashTwo) {
+            if (buildPlayerRoadOnPlot(state, ai, w1, 'bridge').ok) {
+              buildPlayerRoadOnPlot(state, ai, b1, 'bridge');
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function findRoadPathFromDisconnectedPlot(
   state: GameState,
   targetPlot: Plot,
@@ -1140,42 +1275,8 @@ function ensureContinuousRoads(
   }
 
   // Jeśli wyspy/klastry gracza są rozdzielone wąską rzeką (1-2 pola wody), wybuduj Most Drogowy!
-  if (!isPriorityPass && ai.cash > cashReserve + GAME_CONFIG.bridgeCost * 2 + 100_000) {
-    const clusters = computeNetworkClusters(state);
-    const ownedCids = new Set<number>();
-    for (const op of ownedPlots) {
-      const cid = clusters.clusterByPlotId.get(op.id) ?? 0;
-      if (cid > 0) ownedCids.add(cid);
-    }
-    if (ownedCids.size >= 2) {
-      const byCoord = new Map<string, Plot>();
-      for (const p of state.plots) byCoord.set(`${p.gridX}_${p.gridY}`, p);
-      for (const op of ownedPlots) {
-        const c1 = clusters.clusterByPlotId.get(op.id) ?? 0;
-        if (c1 === 0) continue;
-        for (const [dx, dy] of ROAD_DIRS) {
-          const w1 = byCoord.get(`${op.gridX + dx}_${op.gridY + dy}`);
-          if (!w1 || w1.terrain !== 'water' || w1.hasRoad || (w1.irradiatedTicks ?? 0) > 0) continue;
-          const b1 = byCoord.get(`${op.gridX + dx * 2}_${op.gridY + dy * 2}`);
-          if (b1 && b1.terrain !== 'water') {
-            const c2 = clusters.clusterByPlotId.get(b1.id) ?? 0;
-            if (c2 > 0 && c2 !== c1) {
-              buildPlayerRoadOnPlot(state, ai, w1, 'bridge');
-              return;
-            }
-          } else if (b1 && b1.terrain === 'water' && !b1.hasRoad && (b1.irradiatedTicks ?? 0) <= 0) {
-            const b2 = byCoord.get(`${op.gridX + dx * 3}_${op.gridY + dy * 3}`);
-            const c2 = b2 ? clusters.clusterByPlotId.get(b2.id) ?? 0 : 0;
-            if (c2 > 0 && c2 !== c1 && ai.cash >= cashReserve + GAME_CONFIG.bridgeCost * 2) {
-              if (buildPlayerRoadOnPlot(state, ai, w1, 'bridge').ok) {
-                buildPlayerRoadOnPlot(state, ai, b1, 'bridge');
-                return;
-              }
-            }
-          }
-        }
-      }
-    }
+  if (!isPriorityPass && tryBridgeSeparatedClusters(state, ai, ownedPlots, cashReserve, false)) {
+    return;
   }
 
   if (isPriorityPass) return;

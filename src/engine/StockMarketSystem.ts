@@ -38,6 +38,7 @@ export function syncCorporateStocks(state: GameState): void {
       dividendPerShareTick: dividendPerShare,
       totalDividendsPaid: existing?.totalDividendsPaid ?? 0,
       holdings: existing?.holdings ?? { [p.id]: 100 },
+      buybackReserve: existing?.buybackReserve ?? 0,
     });
   }
 
@@ -63,7 +64,7 @@ export function tradeCorporateStock(
   const currentStake = stock.holdings[buyer.id] ?? 0;
   const issuerStake = stock.holdings[targetCompanyId] ?? 100;
 
-  // Zakup akcji (+5% lub +10%)
+  // Zakup akcji (+5% lub +10%): rozliczenie kapitałowe 1:1 z prowizją maklerską (zero tworzenia gotówki!)
   if (shareDeltaPercent > 0) {
     const buyPct = Math.min(shareDeltaPercent, issuerStake);
     if (buyPct <= 0) {
@@ -77,8 +78,14 @@ export function tradeCorporateStock(
       };
     }
 
+    const brokerFee = Math.round(cost * 0.04);
+    const netInflow = cost - brokerFee;
+    const toIssuer = Math.round(netInflow * 0.5);
+    const toReserve = Math.max(0, netInflow - toIssuer);
+
     buyer.cash -= cost;
-    targetPlayer.cash += cost;
+    targetPlayer.cash += toIssuer;
+    stock.buybackReserve = (stock.buybackReserve ?? 0) + toReserve;
     stock.holdings[buyer.id] = currentStake + buyPct;
     stock.holdings[targetCompanyId] = Math.max(0, issuerStake - buyPct);
 
@@ -88,16 +95,35 @@ export function tradeCorporateStock(
 
     return {
       ok: true,
-      message: `Kupiono ${buyPct}% akcji ${targetPlayer.companyName} za ${cost.toLocaleString('pl-PL')} zł.`,
+      message: `Kupiono ${buyPct}% akcji ${targetPlayer.companyName} za ${cost.toLocaleString('pl-PL')} zł (prowizja 4%).`,
     };
   }
 
-  // Sprzedaż posiadanych akcji (-5% lub -10%)
-  const sellPct = Math.min(Math.abs(shareDeltaPercent), currentStake);
-  if (sellPct <= 0) {
+  // Sprzedaż posiadanych akcji (-5% lub -10%): wykup wyłącznie z rezerwy giełdowej i realnej gotówki emitenta
+  const requestedSell = Math.min(Math.abs(shareDeltaPercent), currentStake);
+  if (requestedSell <= 0) {
     return { ok: false, message: 'Nie posiadasz udziałów tej firmy do sprzedaży.' };
   }
-  const proceeds = Math.round(sellPct * stock.sharePrice * 440);
+
+  const pricePerPct = Math.max(1, stock.sharePrice * 425);
+  const availReserve = Math.max(0, stock.buybackReserve ?? 0);
+  const availIssuerCash = Math.max(0, targetPlayer.cash - 50_000);
+  const totalLiquidity = availReserve + availIssuerCash;
+  const maxAffordablePct = Math.floor(totalLiquidity / pricePerPct);
+  const sellPct = Math.min(requestedSell, maxAffordablePct);
+  if (sellPct <= 0) {
+    return {
+      ok: false,
+      message: `${targetPlayer.companyName} nie posiada obecnie płynnej gotówki na odkup udziałów (rezerwa: ${availReserve.toLocaleString('pl-PL')} zł).`,
+    };
+  }
+
+  const proceeds = Math.round(sellPct * pricePerPct);
+  const fromReserve = Math.min(availReserve, proceeds);
+  const fromIssuer = Math.max(0, proceeds - fromReserve);
+
+  stock.buybackReserve = Math.max(0, availReserve - fromReserve);
+  targetPlayer.cash -= fromIssuer;
   buyer.cash += proceeds;
   stock.holdings[buyer.id] = Math.max(0, currentStake - sellPct);
   stock.holdings[targetCompanyId] = issuerStake + sellPct;

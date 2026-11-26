@@ -1,5 +1,7 @@
+import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { hasActiveEmbargo } from './CoalitionSystem';
+import { getPowerPlantFuelSpec } from './BuildingSystem';
 import { getResourcePrice } from './EconomyEngine';
 import {
   addPlotWarehouseStock,
@@ -91,7 +93,17 @@ export function proposeB2BContract(
   const buyer = isSelling ? partner : proposer;
 
   const initialStatus = partner.isAI
-    ? evaluateAIContractAcceptance(state, partner, resource, pricePerUnit, isSelling, kind)
+    ? evaluateAIContractAcceptance(
+        state,
+        partner,
+        resource,
+        pricePerUnit,
+        quantityPerTick,
+        isSelling,
+        kind,
+        opts.barterResource,
+        opts.barterQtyPerTick
+      )
     : 'proposed';
 
   const contract: B2BContract = {
@@ -136,20 +148,75 @@ export function proposeB2BContract(
   return { ok: true, contract };
 }
 
+function getAIResourceConsumptionAndOutput(
+  state: GameState,
+  ai: Player,
+  resource: ResourceType
+): { needPerTick: number; ownOutputPerTick: number } {
+  let needPerTick = 0;
+  let ownOutputPerTick = 0;
+  for (const pl of state.plots) {
+    if (pl.ownerId !== ai.id || !pl.building || !pl.building.isActive || pl.building.destroyedRuins) continue;
+    const def = BUILDING_DEFINITIONS[pl.building.type];
+    const eff = Math.max(0.25, (pl.building.efficiency || 65) / 100);
+    const inQty = def?.inputs?.[resource] ?? 0;
+    if (inQty > 0) needPerTick += inQty * eff;
+    const fuelSpec = getPowerPlantFuelSpec(pl.building.type);
+    if (fuelSpec && fuelSpec.acceptedResources.includes(resource) && !(def?.inputs?.[resource] ?? 0)) {
+      needPerTick += fuelSpec.consumptionPerTick * eff;
+    }
+    const outQty = pl.building.productionPerTick?.[resource] ?? def?.outputs?.[resource] ?? 0;
+    if (outQty > 0) ownOutputPerTick += outQty;
+  }
+  return { needPerTick, ownOutputPerTick };
+}
+
 function evaluateAIContractAcceptance(
   state: GameState,
   ai: Player,
   resource: ResourceType,
   offeredPrice: number,
+  quantityPerTick: number,
   playerIsSelling: boolean,
-  kind: 'recurring' | 'spot' | 'barter'
+  kind: 'recurring' | 'spot' | 'barter',
+  barterResource?: ResourceType,
+  barterQtyPerTick?: number
 ): 'active' | 'cancelled' {
-  if (kind === 'barter') return (ai.warehouseStockpile[resource] ?? 0) >= 0 ? 'active' : 'cancelled';
   const mkt = getResourcePrice(state, resource);
-  if (playerIsSelling) {
-    return offeredPrice <= mkt * 1.1 ? 'active' : 'cancelled';
+  const { needPerTick, ownOutputPerTick } = getAIResourceConsumptionAndOutput(state, ai, resource);
+  const currentStock = ai.warehouseStockpile[resource] ?? 0;
+
+  if (kind === 'barter') {
+    if (!barterResource || !barterQtyPerTick || barterQtyPerTick <= 0) return 'cancelled';
+    const wantBarterVal = barterQtyPerTick * getResourcePrice(state, barterResource);
+    const giveVal = quantityPerTick * mkt;
+    const aiGivesNeed = getAIResourceConsumptionAndOutput(state, ai, barterResource).needPerTick;
+    const aiGivesStock = ai.warehouseStockpile[barterResource] ?? 0;
+    return (needPerTick > 0.05 || wantBarterVal <= giveVal * 1.1) &&
+      aiGivesStock >= barterQtyPerTick &&
+      (aiGivesNeed <= 0.01 || aiGivesStock > aiGivesNeed * 4)
+      ? 'active'
+      : 'cancelled';
   }
-  return offeredPrice >= mkt * 0.92 ? 'active' : 'cancelled';
+
+  if (playerIsSelling) {
+    // AI kupuje wyłącznie surowce, których faktycznie potrzebuje (wsad produkcyjny lub paliwo), w rozsądnej ilości i budżecie!
+    if (needPerTick <= 0.01) return 'cancelled';
+    if (offeredPrice > mkt * 1.06) return 'cancelled';
+    const maxUsefulQty = Math.max(2, needPerTick * 1.6);
+    if (quantityPerTick > maxUsefulQty) return 'cancelled';
+    if (currentStock >= needPerTick * 10 + 12) return 'cancelled';
+    const tickCost = offeredPrice * quantityPerTick;
+    if (ai.cash < 220_000 + tickCost * 4 || tickCost > Math.max(8_000, ai.cash * 0.04)) {
+      return 'cancelled';
+    }
+    return 'active';
+  }
+
+  // AI sprzedaje tylko realną nadwyżkę ponad potrzeby własnych fabryk i elektrowni
+  if (offeredPrice < mkt * 0.94) return 'cancelled';
+  const hasRealSurplus = ownOutputPerTick > needPerTick + 0.5 || currentStock > needPerTick * 6 + 6;
+  return hasRealSurplus ? 'active' : 'cancelled';
 }
 
 export function acceptB2BContract(
@@ -296,49 +363,73 @@ function executeContractSettlement(
     return { settled: true, qty: qtyA, arrivalPlotId: arrivalPlot.id, fromPlotId: departurePlot.id, mode: route.mode };
   }
 
-  const sellerOutput =
-    c.kind === 'spot'
-      ? 0
-      : state.plots
-          .filter(
-            (p) =>
-              p.ownerId === seller.id &&
-              p.building?.isActive &&
-              !p.building.destroyedRuins &&
-              (p.building.productionPerTick[c.resource] ?? 0) > 0 &&
-              canTransportGoodsBetweenPlots(state, p, arrivalPlot, seller.id, buyer.id).reachable
-          )
-          .reduce((sum, p) => sum + (p.building?.productionPerTick[c.resource] ?? 0), 0);
-
-  let reachableSellerStock = 0;
+  // Wyłącznie realny, fizyczny towar znajdujący się w magazynach lub dedykowanym składowisku budynków (zero dublowania sprzedaży rynkowej!)
+  let reachableWarehouseStock = 0;
+  const hasLocMap = Boolean(seller.stockLocations && Object.keys(seller.stockLocations).length > 0);
   if (seller.stockLocations) {
     for (const [locId, map] of Object.entries(seller.stockLocations)) {
       const amt = map[c.resource] ?? 0;
-      if (amt <= 0) continue;
+      if (amt <= 0.001) continue;
       const locPlot = state.plots.find((p) => p.id === locId);
       if (locPlot && canTransportGoodsBetweenPlots(state, locPlot, arrivalPlot, seller.id, buyer.id).reachable) {
-        reachableSellerStock += amt;
+        reachableWarehouseStock += amt;
       }
     }
-  } else {
-    reachableSellerStock = seller.warehouseStockpile[c.resource] ?? 0;
+  }
+  if (!hasLocMap) {
+    reachableWarehouseStock = seller.warehouseStockpile[c.resource] ?? 0;
   }
 
-  const maxAvailable = c.kind === 'spot' ? reachableSellerStock : sellerOutput * 0.65 + reachableSellerStock;
+  const reachableBuildingStoragePlots = state.plots.filter(
+    (p) =>
+      p.ownerId === seller.id &&
+      p.building?.isActive &&
+      !p.building.destroyedRuins &&
+      (p.building.storage[c.resource] ?? 0) > 0.001 &&
+      canTransportGoodsBetweenPlots(state, p, arrivalPlot, seller.id, buyer.id).reachable
+  );
+  const reachableBuildingStorage = reachableBuildingStoragePlots.reduce(
+    (sum, p) => sum + (p.building?.storage[c.resource] ?? 0),
+    0
+  );
+
+  const maxAvailable = reachableWarehouseStock + reachableBuildingStorage;
   const deliverable = Number(Math.min(c.quantityPerTick, maxAvailable).toFixed(2));
   const value = Math.round(deliverable * c.pricePerUnit);
 
   if (deliverable > 0 && buyer.cash >= value) {
-    if (seller.stockLocations) {
-      consumeReachableWarehouseStock(state, seller, arrivalPlot, c.resource, deliverable, buyer.id);
-    } else {
-      const sellerStock = seller.warehouseStockpile[c.resource] ?? 0;
-      seller.warehouseStockpile[c.resource] = Math.max(0, sellerStock - deliverable);
+    let remainingToDeduct = deliverable;
+    if (hasLocMap) {
+      const taken = consumeReachableWarehouseStock(state, seller, arrivalPlot, c.resource, remainingToDeduct, buyer.id);
+      remainingToDeduct = Math.max(0, Number((remainingToDeduct - taken.consumed).toFixed(2)));
+    } else if (reachableWarehouseStock > 0) {
+      const legacyTake = Math.min(remainingToDeduct, seller.warehouseStockpile[c.resource] ?? 0);
+      seller.warehouseStockpile[c.resource] = Math.max(
+        0,
+        Number(((seller.warehouseStockpile[c.resource] ?? 0) - legacyTake).toFixed(2))
+      );
+      remainingToDeduct = Math.max(0, Number((remainingToDeduct - legacyTake).toFixed(2)));
     }
-    addPlotWarehouseStock(buyer, arrivalPlot.id, c.resource, deliverable);
-    buyer.cash -= value;
-    seller.cash += value * 1.04;
-    c.totalValueDelivered += value;
+
+    for (const bp of reachableBuildingStoragePlots) {
+      if (remainingToDeduct <= 0.001 || !bp.building) break;
+      const avail = bp.building.storage[c.resource] ?? 0;
+      const take = Math.min(avail, remainingToDeduct);
+      if (take > 0) {
+        bp.building.storage[c.resource] = Math.max(0, Number((avail - take).toFixed(2)));
+        remainingToDeduct = Math.max(0, Number((remainingToDeduct - take).toFixed(2)));
+      }
+    }
+
+    const actuallyDelivered = Number((deliverable - remainingToDeduct).toFixed(2));
+    if (actuallyDelivered <= 0.001) {
+      return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
+    }
+    const settledValue = Math.round(actuallyDelivered * c.pricePerUnit);
+    addPlotWarehouseStock(buyer, arrivalPlot.id, c.resource, actuallyDelivered);
+    buyer.cash -= settledValue;
+    seller.cash += settledValue;
+    c.totalValueDelivered += settledValue;
     if (!state.b2bRoutes) state.b2bRoutes = [];
     state.b2bRoutes.push({
       contractId: c.id,
@@ -350,7 +441,7 @@ function executeContractSettlement(
     });
     return {
       settled: true,
-      qty: deliverable,
+      qty: actuallyDelivered,
       arrivalPlotId: arrivalPlot.id,
       fromPlotId: departurePlot.id,
       mode: route.mode,

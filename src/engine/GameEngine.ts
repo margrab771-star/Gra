@@ -47,6 +47,7 @@ import {
   calculateCoalitionNetWorthSum,
   calculatePlayerNetWorth,
   createInitialMarketCycles,
+  getCoalitionDominanceScore,
   getOverallDominanceScore,
   getPlayerEntrepreneurModifiers,
   getResourcePrice,
@@ -519,11 +520,13 @@ function applyScenarioSetup(state: GameState): void {
 function createBaseGameState(settings: GameSettings, players: Player[], currentPlayerId: string): GameState {
   const plots = generateMap(settings.mapSize, settings.mapSeed, {
     goldRush: settings.scenarioId === 'gold_rush',
+    playerCount: players.length,
   });
   const resourcePrices = createInitialResourcePrices();
   const domThreshold = settings.dominationThreshold ?? 75;
   const normalizedSettings: GameSettings = {
     ...settings,
+    economyMultiplier: settings.economyMultiplier ?? 1,
     dominationThreshold: domThreshold,
   };
 
@@ -610,6 +613,9 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
   applyScenarioSetup(state);
   assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
+  for (const st of state.stocks ?? []) {
+    st.buybackReserve = st.buybackReserve ?? 0;
+  }
   recalculateSpatialNetwork(state.plots);
   refreshBuildingsRoadStatus(state);
   recalculateSynergiesAndPassengerDemand(state);
@@ -661,6 +667,23 @@ export function stepGameSimulation(state: GameState): void {
         wasteNet: c.wasteNet,
       };
     }
+    const b2bDivertRemaining: Partial<Record<ResourceType, number>> = {};
+    for (const c of state.contracts) {
+      if (
+        c.status === 'active' &&
+        c.sellerId === player.id &&
+        c.kind !== 'spot' &&
+        c.kind !== 'barter' &&
+        c.transportMode !== 'blocked' &&
+        c.quantityPerTick > 0
+      ) {
+        const buyer = state.players.find((bp) => bp.id === c.buyerId && !bp.isEliminated);
+        if (buyer && buyer.cash >= c.quantityPerTick * c.pricePerUnit * 0.25) {
+          b2bDivertRemaining[c.resource] = (b2bDivertRemaining[c.resource] ?? 0) + c.quantityPerTick;
+        }
+      }
+    }
+
     utilityByPlayer.set(player.id, {
       elecRatio: util.electricityCoverageRatio,
       waterRatio: util.waterCoverageRatio,
@@ -668,6 +691,7 @@ export function stepGameSimulation(state: GameState): void {
       wasteNet: util.wasteNet,
       byCluster,
       producedLots: allProducedLots,
+      b2bDivertRemaining,
     });
 
     player.lastTickRevenueByCategory = {};
@@ -684,8 +708,8 @@ export function stepGameSimulation(state: GameState): void {
       if (player.actionCooldowns[k] <= 0) delete player.actionCooldowns[k];
     }
 
-    // Spowolniony pasywny przyrost pkt Prezesa (-65%) — główne punkty płyną z kamieni milowych
-    if (state.time.tick % 75 === 0) {
+    // Pasywny przyrost pkt Prezesa (1 pkt / 36 tur) + kamienie milowe korporacji
+    if (state.time.tick % 36 === 0) {
       player.skillPoints += 1;
     }
 
@@ -974,15 +998,12 @@ function checkVictoryConditions(state: GameState): void {
         const combinedBuildings = state.plots.filter(
           (pl) => pl.ownerId && activeMembers.includes(pl.ownerId) && pl.building && !pl.building.destroyedRuins
         ).length;
-        const avgDominance = Math.min(
-          100,
-          Math.round(activeMembers.reduce((sum, id) => sum + getOverallDominanceScore(state, id), 0) * 0.85)
-        );
+        const coalitionDominance = getCoalitionDominanceScore(state, activeMembers);
 
-        if ((wealthPct >= domThreshold || avgDominance >= domThreshold) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
+        if ((wealthPct >= domThreshold || coalitionDominance >= domThreshold) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
           state.winningCoalitionId = col.id;
           state.winnerId = col.leaderId;
-          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.max(Math.round(wealthPct), avgDominance)}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;
+          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.max(Math.round(wealthPct), coalitionDominance)}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;
           if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
             state.phase = 'GameOver';
           }
@@ -1845,6 +1866,9 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.news = (state.news ?? []).filter((n) => !String(n.id).startsWith('sse_'));
   assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
+  for (const st of state.stocks ?? []) {
+    st.buybackReserve = st.buybackReserve ?? 0;
+  }
   recalculateSpatialNetwork(state.plots);
   refreshBuildingsRoadStatus(state);
   recalculateSynergiesAndPassengerDemand(state);

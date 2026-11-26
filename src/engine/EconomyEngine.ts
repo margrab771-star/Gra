@@ -356,13 +356,34 @@ export function calculatePlayerNetWorth(player: Player, state: GameState): numbe
     if (st.companyId === player.id) continue;
     const pct = st.holdings[player.id] ?? 0;
     if (pct > 0) {
-      stockPortfolioValue += pct * st.sharePrice * 440;
+      stockPortfolioValue += pct * st.sharePrice * 425;
     }
+  }
+
+  // Odejmij zewnętrzny akcjonariat emitenta (ponad gotówkę w rezerwie wykupu), aby nie dublować wyceny kapitału
+  const ownStock = (state.stocks ?? []).find((s) => s.companyId === player.id);
+  let externalDilutionValue = 0;
+  if (ownStock) {
+    const externalPct = Object.entries(ownStock.holdings)
+      .filter(([holderId]) => holderId !== player.id)
+      .reduce((sum, [, pct]) => sum + Math.max(0, pct ?? 0), 0);
+    externalDilutionValue = Math.max(
+      0,
+      externalPct * ownStock.sharePrice * 425 - (ownStock.buybackReserve ?? 0)
+    );
   }
 
   const loanDebt = player.loans.reduce((sum, l) => sum + l.remainingAmount, 0);
   const bondDebt = (player.bonds ?? []).reduce((sum, b) => sum + b.remainingAmount, 0);
-  const raw = player.cash + plotValue + buildingValue + stockpileValue + stockPortfolioValue - loanDebt - bondDebt;
+  const raw =
+    player.cash +
+    plotValue +
+    buildingValue +
+    stockpileValue +
+    stockPortfolioValue -
+    externalDilutionValue -
+    loanDebt -
+    bondDebt;
   return Number.isFinite(raw) ? Math.round(raw) : Math.round(player.cash);
 }
 
@@ -451,6 +472,74 @@ export function getOverallDominanceScore(state: GameState, playerId: string): nu
   const secretBonus = player.secretGoalDominanceBonus ?? 0;
 
   return Math.min(100, Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus + secretBonus));
+}
+
+export function getCoalitionDominanceScore(state: GameState, memberIds: string[]): number {
+  const activeSet = new Set(
+    memberIds.filter((id) => state.players.some((p) => p.id === id && !p.isEliminated))
+  );
+  if (activeSet.size === 0) return 0;
+
+  const trackedResources: ResourceType[] = [
+    'steel',
+    'copper',
+    'gold',
+    'jewelry',
+    'fuel',
+    'semiconductors',
+    'coal',
+    'oil',
+    'uranium',
+    'weapons',
+  ];
+
+  const prodByCoalition: Partial<Record<ResourceType, number>> = {};
+  const totalByRes: Partial<Record<ResourceType, number>> = {};
+
+  for (const plot of state.plots) {
+    const b = plot.building;
+    if (!b || !b.isActive) continue;
+    for (const [resKey, amt] of Object.entries(b.productionPerTick)) {
+      const res = resKey as ResourceType;
+      const val = amt ?? 0;
+      totalByRes[res] = (totalByRes[res] ?? 0) + val;
+      if (activeSet.has(b.ownerId)) {
+        prodByCoalition[res] = (prodByCoalition[res] ?? 0) + val;
+      }
+    }
+  }
+
+  let activeMarketsCount = 0;
+  let topMarketShare = 0;
+  for (const res of trackedResources) {
+    const total = totalByRes[res] ?? 0;
+    const colAmt = prodByCoalition[res] ?? 0;
+    if (colAmt > 0) activeMarketsCount++;
+    const share = total > 0 ? Math.round((colAmt / total) * 100) : 0;
+    if (share > topMarketShare) topMarketShare = share;
+  }
+
+  const totalNetWorth = state.players.reduce((sum, p) => sum + Math.max(0, p.netWorth), 0);
+  let combinedNW = 0;
+  let combinedInf = 0;
+  let secretBonusSum = 0;
+  for (const p of state.players) {
+    if (!activeSet.has(p.id)) continue;
+    combinedNW += Math.max(0, p.netWorth);
+    combinedInf += p.influence.financial + p.influence.military + p.influence.social;
+    secretBonusSum += p.secretGoalDominanceBonus ?? 0;
+  }
+
+  const wealthShare = totalNetWorth > 0 ? (combinedNW / totalNetWorth) * 100 : 0;
+  const infScale = 0.7 + activeSet.size * 0.3;
+  const influenceBonus = Math.min(22, combinedInf / (25 * infScale));
+  const breadthBonus = Math.min(18, activeMarketsCount * 1.8);
+  const secretBonus = Math.min(12, secretBonusSum * 0.65);
+
+  return Math.min(
+    100,
+    Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus + secretBonus)
+  );
 }
 
 export function takeBankLoan(

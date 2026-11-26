@@ -39,9 +39,11 @@ function smoothNoise(x: number, y: number, seed: number): number {
 export function generateMap(
   size: number,
   seed = Math.floor(Math.random() * 10000),
-  opts?: { goldRush?: boolean }
+  opts?: { goldRush?: boolean; playerCount?: number }
 ): Plot[] {
   const goldRush = Boolean(opts?.goldRush);
+  const playerCount = opts?.playerCount ?? 2;
+  const crowdedBonus = playerCount >= 6 ? 0.08 : 0;
   const plots: Plot[] = [];
   const center = size / 2;
 
@@ -87,15 +89,15 @@ export function generateMap(
             discovered: false,
           });
         }
-        if (rRoll2 > (goldRush ? 0.56 : 0.8)) {
+        if (rRoll2 > (goldRush ? 0.56 : 0.8 - crowdedBonus)) {
           deposits.push({
-            type: rRoll2 > (goldRush ? 0.82 : 0.9) ? 'uranium' : 'gold',
+            type: rRoll2 > (goldRush ? 0.82 : 0.9 - crowdedBonus * 0.5) ? 'uranium' : 'gold',
             amount: goldRush ? 3800 : 2600,
             richness: goldRush ? 1.45 : 1.25,
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 177) > 0.78) {
+        if (hash2D(x, y, seed + 177) > 0.78 - crowdedBonus) {
           deposits.push({
             type: 'rareMetals',
             amount: 2800,
@@ -103,7 +105,7 @@ export function generateMap(
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 241) > (goldRush ? 0.68 : 0.87)) {
+        if (hash2D(x, y, seed + 241) > (goldRush ? 0.68 : 0.87 - crowdedBonus * 0.75)) {
           deposits.push({
             type: 'diamonds',
             amount: Math.round((goldRush ? 1500 : 900) + rRoll2 * 1100),
@@ -120,15 +122,15 @@ export function generateMap(
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 205) > (goldRush ? 0.62 : 0.82)) {
+        if (hash2D(x, y, seed + 205) > (goldRush ? 0.62 : 0.82 - crowdedBonus)) {
           deposits.push({
-            type: rRoll2 > (goldRush ? 0.35 : 0.5) ? 'gold' : 'uranium',
+            type: rRoll2 > (goldRush ? 0.35 : 0.5 - crowdedBonus * 0.5) ? 'gold' : 'uranium',
             amount: goldRush ? 3200 : 2300,
             richness: goldRush ? 1.38 : 1.18,
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 263) > (goldRush ? 0.68 : 0.77)) {
+        if (hash2D(x, y, seed + 263) > (goldRush ? 0.68 : 0.77 - crowdedBonus * 0.75)) {
           deposits.push({
             type: 'lithium',
             amount: Math.round(2400 + rRoll * 2600),
@@ -137,7 +139,7 @@ export function generateMap(
           });
         }
       } else if (terrain === 'grass' || terrain === 'forest') {
-        if (rRoll > 0.74) {
+        if (rRoll > 0.74 - crowdedBonus * 0.5) {
           const types: ResourceType[] = ['coal', 'ironOre', 'copper', 'oil', 'rareMetals', 'lithium'];
           const chosen = types[Math.floor(hash2D(x, y, seed + 303) * types.length)];
           deposits.push({
@@ -147,7 +149,7 @@ export function generateMap(
             discovered: false,
           });
         }
-        if (terrain === 'forest' && hash2D(x, y, seed + 319) > (goldRush ? 0.76 : 0.91)) {
+        if (terrain === 'forest' && hash2D(x, y, seed + 319) > (goldRush ? 0.76 : 0.91 - crowdedBonus * 0.75)) {
           deposits.push({
             type: 'diamonds',
             amount: goldRush ? 1550 : 1050,
@@ -164,7 +166,7 @@ export function generateMap(
             discovered: false,
           });
         }
-        if (hash2D(x, y, seed + 347) > 0.84) {
+        if (hash2D(x, y, seed + 347) > 0.84 - crowdedBonus * 0.75) {
           deposits.push({
             type: 'lithium',
             amount: 2400,
