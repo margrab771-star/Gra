@@ -104,6 +104,7 @@ import { recalculateSynergiesAndPassengerDemand } from './SynergySystem';
 import {
   computeEmergencyResponseEtaGrid,
   processTollsAndLogisticsTick,
+  refreshBuildingsRoadStatus,
   syncVehiclesForWorld,
 } from './TransportSystem';
 import type {
@@ -311,6 +312,7 @@ export function initializeMultiplayerGame(lobby: LobbyState, localPlayerId: stri
     economyMultiplier: isFast ? 2.4 : 1.0,
     disastersEnabled: lobby.disastersEnabled ?? true,
     victoryMode: lobby.victoryMode ?? 'solo',
+    dominationThreshold: lobby.dominationThreshold ?? 75,
     difficultyPreset: diffPreset,
     scenarioId: lobby.scenarioId ?? 'sandbox',
     mutators: lobby.mutators ? { ...lobby.mutators } : { ...DEFAULT_MUTATORS },
@@ -512,6 +514,11 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     goldRush: settings.scenarioId === 'gold_rush',
   });
   const resourcePrices = createInitialResourcePrices();
+  const domThreshold = settings.dominationThreshold ?? 75;
+  const normalizedSettings: GameSettings = {
+    ...settings,
+    dominationThreshold: domThreshold,
+  };
 
   const state: GameState = {
     phase: 'Playing',
@@ -520,7 +527,7 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     elapsedSeconds: 0,
     lastSyncTimestamp: Date.now(),
     speedRequest: null,
-    settings,
+    settings: normalizedSettings,
     challengeTimeRemaining:
       settings.mode === 'challenge1h' || settings.mode === 'mp_fast'
         ? settings.challengeDurationSeconds
@@ -576,7 +583,7 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     voterMood: 10,
     laborShortageIndex: 10,
     activeLaws: [],
-    monopolyThreshold: GAME_CONFIG.monopolyVictoryShare,
+    monopolyThreshold: domThreshold,
     disconnectAlert: null,
     notifications: [],
     government: {
@@ -595,6 +602,7 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
   assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   recalculateSynergiesAndPassengerDemand(state);
   computeEmergencyResponseEtaGrid(state, currentPlayerId);
   syncVehiclesForWorld(state);
@@ -831,6 +839,7 @@ export function stepGameSimulation(state: GameState): void {
 
   if (state.time.tick % 5 === 0) {
     recalculateSpatialNetwork(state.plots);
+    refreshBuildingsRoadStatus(state);
     recalculateSynergiesAndPassengerDemand(state);
     computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
     syncVehiclesForWorld(state);
@@ -900,6 +909,8 @@ function checkVictoryConditions(state: GameState): void {
     return;
   }
 
+  const domThreshold = state.settings.dominationThreshold ?? state.monopolyThreshold ?? 75;
+
   if (state.time.tick >= 40 && state.players.length > 1) {
     if (state.settings.victoryMode === 'coalition' && state.coalitions && state.coalitions.length > 0) {
       const totalMarketNetWorth = state.players.reduce((s, p) => s + Math.max(0, p.netWorth), 0);
@@ -911,13 +922,15 @@ function checkVictoryConditions(state: GameState): void {
         const combinedBuildings = state.plots.filter(
           (pl) => pl.ownerId && activeMembers.includes(pl.ownerId) && pl.building && !pl.building.destroyedRuins
         ).length;
-        const avgDominance =
-          activeMembers.reduce((sum, id) => sum + getOverallDominanceScore(state, id), 0) * 0.85;
+        const avgDominance = Math.min(
+          100,
+          Math.round(activeMembers.reduce((sum, id) => sum + getOverallDominanceScore(state, id), 0) * 0.85)
+        );
 
-        if ((wealthPct >= 70 || avgDominance >= 82) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
+        if ((wealthPct >= domThreshold || avgDominance >= domThreshold) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
           state.winningCoalitionId = col.id;
           state.winnerId = col.leaderId;
-          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.round(wealthPct)}% kapitału) i zwyciężyła jako sojusz!`;
+          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.max(Math.round(wealthPct), avgDominance)}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;
           if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
             state.phase = 'GameOver';
           }
@@ -929,13 +942,13 @@ function checkVictoryConditions(state: GameState): void {
     for (const p of activePlayers) {
       const dominance = getOverallDominanceScore(state, p.id);
       const ownedBuildings = state.plots.filter((pl) => pl.ownerId === p.id && pl.building && !pl.building.destroyedRuins).length;
-      if (dominance >= 78 && ownedBuildings >= 5 && p.netWorth > 12_000_000) {
+      if (dominance >= domThreshold && ownedBuildings >= 5 && p.netWorth > 12_000_000) {
         const col = state.settings.victoryMode === 'coalition' ? getPlayerCoalition(state, p.id) : undefined;
         state.winningCoalitionId = col?.id ?? null;
         state.winnerId = p.id;
         state.victoryReason = col
-          ? `Koalicja [${col.tag}] ${col.name} zdominowała rynek dzięki potędze ${p.companyName} (${dominance}%)!`
-          : `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}%) na mapie i kontroluje rynek!`;
+          ? `Koalicja [${col.tag}] ${col.name} zdominowała rynek dzięki potędze ${p.companyName} (${dominance}% / cel ${domThreshold}%)!`
+          : `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}% przy progu ${domThreshold}%) na mapie i kontroluje rynek!`;
         if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
           state.phase = 'GameOver';
         }
@@ -1567,6 +1580,8 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.networkRevision = state.networkRevision ?? 1;
   state.settings.disastersEnabled = state.settings.disastersEnabled ?? true;
   state.settings.victoryMode = state.settings.victoryMode ?? 'solo';
+  state.settings.dominationThreshold = state.settings.dominationThreshold ?? 75;
+  state.monopolyThreshold = state.settings.dominationThreshold;
   state.settings.difficultyPreset = state.settings.difficultyPreset ?? 'standard';
   state.settings.scenarioId = state.settings.scenarioId ?? 'sandbox';
   state.settings.mutators = state.settings.mutators ?? { ...DEFAULT_MUTATORS };
@@ -1694,10 +1709,17 @@ export function migrateGameStateInPlace(state: GameState): void {
     }
     pl.synergyPercent = pl.synergyPercent ?? 0;
     pl.passengerDemandPercent = pl.passengerDemandPercent ?? 100;
-    pl.activeSynergies = pl.activeSynergies ?? [];
+    pl.activeSynergies = (pl.activeSynergies ?? []).filter((s) => (s.kind as string) !== 'sse_zone');
+    // Wyczyść przestarzałe pola usuniętej mechaniki SSE z dawnych zapisów
+    const rawPlot = pl as unknown as Record<string, unknown>;
+    if ('isSseZone' in rawPlot) delete rawPlot.isSseZone;
+    if ('sseExpiresTick' in rawPlot) delete rawPlot.sseExpiresTick;
   }
+  state.news = (state.news ?? []).filter((n) => !String(n.id).startsWith('sse_'));
   assignSecretGoalsForPlayers(state);
   syncCorporateStocks(state);
+  recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   recalculateSynergiesAndPassengerDemand(state);
 }
 

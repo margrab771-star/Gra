@@ -3,12 +3,69 @@ import { getArchetypeDefinition } from '../data/archetypes';
 import { arePlayersAllied, hasActiveEmbargo } from './CoalitionSystem';
 import type {
   Building,
+  BuildingType,
   GameState,
   Plot,
   ResourceType,
   TransportRouteLine,
   Vehicle,
 } from './types';
+
+const ROAD_EXEMPT_BUILDINGS = new Set<BuildingType>(['corporateHQ', 'cityPark']);
+
+export function isRoadExemptBuilding(type: BuildingType): boolean {
+  return ROAD_EXEMPT_BUILDINGS.has(type);
+}
+
+/**
+ * Twarda zasada dostępu do drogi:
+ * Budynek ma dostęp do drogi wtedy, gdy na przynajmniej jednym z 4 sąsiednich pól (N/S/E/W)
+ * znajduje się przejezdna droga lub autostrada (albo pole graniczy z aktywną Siedzibą Główną HQ właściciela).
+ * Wyjątki: corporateHQ i cityPark.
+ */
+export function hasRoadAccess(
+  state: GameState,
+  plot: Plot,
+  playerId?: string
+): boolean {
+  if (plot.building && ROAD_EXEMPT_BUILDINGS.has(plot.building.type)) {
+    return true;
+  }
+  if ((plot.irradiatedTicks ?? 0) > 0) return false;
+  if (plot.hasRoad) return true;
+
+  const ownerId = playerId ?? plot.ownerId ?? plot.building?.ownerId ?? '';
+  const plotsByCoord = getPlotsByCoordCached(state);
+  for (const [dx, dy] of DIRS) {
+    const nb = plotsByCoord.get(`${plot.gridX + dx}_${plot.gridY + dy}`);
+    if (!nb || (nb.irradiatedTicks ?? 0) > 0) continue;
+    if (isRoadPassableFor(nb, ownerId, state)) {
+      return true;
+    }
+    if (
+      nb.building &&
+      !nb.building.destroyedRuins &&
+      nb.building.type === 'corporateHQ' &&
+      (!ownerId || nb.ownerId === ownerId || arePlayersAllied(state, nb.ownerId ?? '', ownerId))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function refreshBuildingsRoadStatus(state: GameState): void {
+  for (const plot of state.plots) {
+    const b = plot.building;
+    if (!b || b.destroyedRuins) continue;
+    const ownerId = plot.ownerId ?? b.ownerId;
+    const roadOk = isRoadExemptBuilding(b.type) || hasRoadAccess(state, plot, ownerId);
+    const logiMode = evaluatePlotLogisticsMode(state, ownerId, plot);
+    b.hasRoadConnection = roadOk;
+    b.status.noRoadLink = !roadOk;
+    b.logisticsMode = !roadOk ? 'isolated' : logiMode === 'isolated' ? 'road' : logiMode;
+  }
+}
 
 const DIRS = [
   [0, -1],
@@ -246,17 +303,43 @@ export function evaluatePlotLogisticsMode(
   plot: Plot
 ): Building['logisticsMode'] {
   if ((plot.irradiatedTicks ?? 0) > 0) return 'isolated';
-  // Strefa miejska zawsze posiada lokalną infrastrukturę dystrybucyjną
-  if (plot.terrain === 'urban') {
+  if (plot.building && ROAD_EXEMPT_BUILDINGS.has(plot.building.type)) {
     return 'road';
   }
 
   const plotsByCoord = getPlotsByCoordCached(state);
 
-  // Połączenie drogowe ważne, jeśli przejezdna sieć dróg dociera do strefy miejskiej lub HQ/Portu/Lotniska gracza
+  // Twarde sprawdzenie przyległości do drogi/autostrady lub HQ na 4 sąsiednich polach
+  const directAccess = hasRoadAccess(state, plot, playerId);
+  if (!directAccess) {
+    return 'isolated';
+  }
+
+  // Połączenie drogowe z siecią (preferencja dla połączeń do strefy miejskiej / HQ / Portu / Lotniska / Magazynu)
   const startRoads = isRoadPassableFor(plot, playerId, state)
     ? [plot]
     : getAdjacentPassableRoads(plot, plotsByCoord, playerId, state);
+
+  // Jeśli sąsiaduje bezpośrednio z HQ, od razu uznajemy połączenie drogowe
+  if (startRoads.length === 0) {
+    return 'road';
+  }
+
+  // Lotnisko Cargo dodaje tryb lotniczy pod warunkiem posiadania drogi dojazdowej przy budynku
+  const hasAirport = state.plots.some(
+    (p) => p.ownerId === playerId && p.building?.type === 'cargoAirport' && p.building.isActive
+  );
+  if (hasAirport) return 'air';
+
+  // Port Towarowy obsługuje ładunki przy brzegu lub w pobliżu portu morskiego (również z drogą dojazdową)
+  const hasPort = state.plots.some(
+    (p) =>
+      p.ownerId === playerId &&
+      p.building?.type === 'cargoPort' &&
+      p.building.isActive &&
+      (plot.terrain === 'coastal' || plot.hasWater || Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 4)
+  );
+  if (hasPort) return 'sea';
 
   if (startRoads.length > 0) {
     const visited = new Set<string>();
@@ -269,7 +352,6 @@ export function evaluatePlotLogisticsMode(
       for (const [dx, dy] of DIRS) {
         const nb = plotsByCoord.get(`${cur.gridX + dx}_${cur.gridY + dy}`);
         if (!nb || (nb.irradiatedTicks ?? 0) > 0) continue;
-        // Sprawdź, czy sąsiadująca działka przy drodze to strefa miejska lub węzeł docelowy gracza
         if (
           nb.terrain === 'urban' ||
           (nb.ownerId === playerId &&
@@ -287,23 +369,7 @@ export function evaluatePlotLogisticsMode(
     }
   }
 
-  // Fallback wielomodalny: Lotnisko Cargo omija wszelkie blokady i brak dróg!
-  const hasAirport = state.plots.some(
-    (p) => p.ownerId === playerId && p.building?.type === 'cargoAirport' && p.building.isActive
-  );
-  if (hasAirport) return 'air';
-
-  // Port Towarowy obsługuje ładunki przy brzegu lub w pobliżu portu morskiego
-  const hasPort = state.plots.some(
-    (p) =>
-      p.ownerId === playerId &&
-      p.building?.type === 'cargoPort' &&
-      p.building.isActive &&
-      (plot.terrain === 'coastal' || plot.hasWater || Math.hypot(p.gridX - plot.gridX, p.gridY - plot.gridY) <= 4)
-  );
-  if (hasPort) return 'sea';
-
-  return 'isolated';
+  return 'road';
 }
 
 /**

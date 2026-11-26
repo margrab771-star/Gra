@@ -14,7 +14,13 @@ import { calculateBuildingHRPayroll } from './HRSystem';
 import { hasPlayerDiscoveredPlot, recalculateSpatialNetwork } from './PlotSystem';
 import { consumeRequiredResources, evaluateNonFinancialRequirements } from './RequirementsSystem';
 import { evaluateSynergyForPlotAndType, recalculateSynergiesAndPassengerDemand } from './SynergySystem';
-import { evaluatePlotLogisticsMode } from './TransportSystem';
+import {
+  evaluatePlotLogisticsMode,
+  hasRoadAccess,
+  isRoadExemptBuilding,
+  refreshBuildingsRoadStatus,
+} from './TransportSystem';
+export { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
 import type {
   Building,
   BuildingTechNode,
@@ -171,7 +177,13 @@ export function constructBuildingOnPlot(
   }));
 
   const initialWorkers = Math.max(1, Math.round(def.maxWorkers * 0.65));
-  const logiMode = evaluatePlotLogisticsMode(state, player.id, plot);
+  const roadOk = isRoadExemptBuilding(buildingType) || hasRoadAccess(state, plot, player.id);
+  const rawLogiMode = roadOk ? evaluatePlotLogisticsMode(state, player.id, plot) : 'isolated';
+  const logiMode: Building['logisticsMode'] = !roadOk
+    ? 'isolated'
+    : rawLogiMode === 'isolated'
+      ? 'road'
+      : rawLogiMode;
 
   const isFleetStation =
     buildingType === 'fireStation' ||
@@ -249,7 +261,7 @@ export function constructBuildingOnPlot(
       boycotted: false,
       onFire: false,
       hazmatIncident: false,
-      noRoadLink: logiMode === 'isolated',
+      noRoadLink: !roadOk,
       robberyActive: false,
       missingInputs: false,
       sewageCrisis: false,
@@ -257,7 +269,7 @@ export function constructBuildingOnPlot(
       disasterStruck: false,
     },
     activeHazard: null,
-    hasRoadConnection: logiMode === 'road',
+    hasRoadConnection: roadOk,
     logisticsMode: logiMode,
     fleetSize: isFleetStation ? 2 : undefined,
     maxFleetSize: isFleetStation ? 3 : undefined,
@@ -270,6 +282,7 @@ export function constructBuildingOnPlot(
   plot.building = building;
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   recalculateSynergiesAndPassengerDemand(state);
   return { ok: true, building };
 }
@@ -682,11 +695,17 @@ export function processBuildingTick(
   const econMult = state.settings.economyMultiplier;
   const safetyCov = getSafetyCoverageForPlot(state, player.id, plot);
 
-  // Sprawdź logistykę wielomodalną i aktualizuj warstwę wizualną (visualTier 0..4 Apex)
-  const logiMode = evaluatePlotLogisticsMode(state, player.id, plot);
+  // Twarde sprawdzenie dostępu do drogi (N/S/E/W droga/autostrada lub HQ; wyjątki: corporateHQ i cityPark)
+  const roadAccessOk = isRoadExemptBuilding(building.type) || hasRoadAccess(state, plot, player.id);
+  const rawLogiMode = roadAccessOk ? evaluatePlotLogisticsMode(state, player.id, plot) : 'isolated';
+  const logiMode: Building['logisticsMode'] = !roadAccessOk
+    ? 'isolated'
+    : rawLogiMode === 'isolated'
+      ? 'road'
+      : rawLogiMode;
   building.logisticsMode = logiMode;
-  building.hasRoadConnection = logiMode === 'road';
-  building.status.noRoadLink = logiMode === 'isolated';
+  building.hasRoadConnection = roadAccessOk;
+  building.status.noRoadLink = !roadAccessOk;
   building.crimeLevel = plot.crimeScore;
   if ((building.upgradeFlashTicks ?? 0) > 0) {
     building.upgradeFlashTicks = (building.upgradeFlashTicks ?? 0) - 1;
@@ -1000,7 +1019,7 @@ export function processBuildingTick(
   const disasterPlotFactor = (plot.disasterDamagedTicks ?? 0) > 0 ? 0.78 : 1.0;
 
   const rawEfficiency =
-    utilityFactor <= 0.001
+    !roadAccessOk || utilityFactor <= 0.001
       ? 0
       : staffingRatio *
         skillFactor *
@@ -1079,7 +1098,7 @@ export function processBuildingTick(
     : 1;
 
   let grossRevenue =
-    rawEfficiency <= 0.001
+    !roadAccessOk || rawEfficiency <= 0.001
       ? 0
       : def.baseRevenue *
         rawEfficiency *
@@ -1092,7 +1111,9 @@ export function processBuildingTick(
   for (const [resKey, baseOut] of Object.entries(def.outputs)) {
     const res = resKey as ResourceType;
     const produced =
-      rawEfficiency <= 0.001 ? 0 : (baseOut ?? 0) * rawEfficiency * depositRichness * inputFulfillment * econMult;
+      !roadAccessOk || rawEfficiency <= 0.001
+        ? 0
+        : (baseOut ?? 0) * rawEfficiency * depositRichness * inputFulfillment * econMult;
     productionPerTick[res] = Number(produced.toFixed(2));
     if (produced <= 0) continue;
 
@@ -1137,6 +1158,7 @@ export function processBuildingTick(
 
   // 8. Punkty badań (zrebalansowane pod realne placówki + Kampus Innowacji), nastroje i wpływy
   if (
+    roadAccessOk &&
     (building.category === 'education' ||
       building.type === 'spaceCenter' ||
       building.type === 'intelligenceCenter' ||
@@ -1168,18 +1190,18 @@ export function processBuildingTick(
       grantMult;
   }
 
-  if ((building.category === 'attractions' && building.type !== 'casino') || building.type === 'biotechLab' || building.type === 'verticalFarm') {
+  if (roadAccessOk && ((building.category === 'attractions' && building.type !== 'casino') || building.type === 'biotechLab' || building.type === 'verticalFarm')) {
     state.voterMood = Math.min(100, state.voterMood + 0.18);
     player.reputation = Math.min(100, player.reputation + 0.15);
   }
-  if (building.type === 'wasteIncinerator' && archMods.incineratorApprovalPenalty > 0) {
+  if (roadAccessOk && building.type === 'wasteIncinerator' && archMods.incineratorApprovalPenalty > 0) {
     player.influence.voterApproval = Math.max(0, player.influence.voterApproval - archMods.incineratorApprovalPenalty);
   }
-  if (building.type === 'hospital') {
+  if (roadAccessOk && building.type === 'hospital') {
     state.voterMood = Math.min(100, state.voterMood + 0.22);
     player.reputation = Math.min(100, player.reputation + 0.2);
   }
-  if (building.type === 'casino') {
+  if (roadAccessOk && building.type === 'casino') {
     player.influence.churchSupport = Math.max(0, player.influence.churchSupport - 0.35);
     state.voterMood = Math.max(-100, state.voterMood - 0.14);
     const nearbyLuxury = state.plots.some(
@@ -1200,26 +1222,26 @@ export function processBuildingTick(
     player.researchPoints += 0.45 * archMods.researchSpeedMult;
     player.influence.financial += 0.35;
   }
-  if (building.type === 'jewelryWorkshop' || building.type === 'jewelryLuxury') {
+  if (roadAccessOk && (building.type === 'jewelryWorkshop' || building.type === 'jewelryLuxury')) {
     player.reputation = Math.min(100, player.reputation + (building.type === 'jewelryLuxury' ? 0.25 : 0.12));
   }
-  if (building.type === 'coldStorage') {
+  if (roadAccessOk && building.type === 'coldStorage') {
     state.voterMood = Math.min(100, state.voterMood + 0.1);
   }
-  if (building.type === 'lobbyOffice' || building.type === 'investmentBank') {
+  if (roadAccessOk && (building.type === 'lobbyOffice' || building.type === 'investmentBank')) {
     player.influence.financial += 0.65 * Math.min(1.5, rawEfficiency);
   }
-  if (building.type === 'mediaAgency') {
+  if (roadAccessOk && building.type === 'mediaAgency') {
     player.influence.mediaControl = Math.min(100, player.influence.mediaControl + 0.55);
     player.influence.social += 0.5;
     player.influence.voterApproval = Math.min(100, player.influence.voterApproval + 0.15);
   }
-  if (building.type === 'churchFoundation') {
+  if (roadAccessOk && building.type === 'churchFoundation') {
     player.influence.churchSupport = Math.min(100, player.influence.churchSupport + 0.6);
     player.influence.social += 0.55;
     state.voterMood = Math.min(100, state.voterMood + 0.25);
   }
-  if (building.type === 'weaponsComplex' || building.type === 'intelligenceCenter' || building.type === 'militaryBase') {
+  if (roadAccessOk && (building.type === 'weaponsComplex' || building.type === 'intelligenceCenter' || building.type === 'militaryBase')) {
     const milMult = building.type === 'militaryBase' ? 1.65 : 1.0;
     player.influence.military += 0.65 * milMult * Math.min(1.5, rawEfficiency);
     player.militaryPower = Math.min(350, player.militaryPower + 0.6 * milMult);
@@ -1310,18 +1332,15 @@ export function processBuildingTick(
   );
   const operatingCosts = inputCost + hr.wages + hr.zus + energyCost + waterCost + transportCost + maintenance + environmentalFine;
   const taxableProfit = Math.max(0, grossRevenue - operatingCosts);
-  const effectiveCIT = plot.isSseZone
-    ? 0
-    : Math.max(
-        0.04,
-        state.taxRate *
-          (1 - entMods.taxReduction - techMods.taxReduction - (hasLawFirm ? 0.1 : 0)) *
-          (player.activeTaxReliefTicks > 0 ? 0.6 : 1)
-      );
+  const effectiveCIT = Math.max(
+    0.04,
+    state.taxRate *
+      (1 - entMods.taxReduction - techMods.taxReduction - (hasLawFirm ? 0.1 : 0)) *
+      (player.activeTaxReliefTicks > 0 ? 0.6 : 1)
+  );
   const taxes =
-    plot.isSseZone
-      ? 0
-      : taxableProfit * effectiveCIT + (building.category === 'processing' ? grossRevenue * GAME_CONFIG.vatExciseRate * 0.25 : 0);
+    taxableProfit * effectiveCIT +
+    (building.category === 'processing' ? grossRevenue * GAME_CONFIG.vatExciseRate * 0.25 : 0);
 
   const totalCosts = operatingCosts + taxes;
   const netProfit = grossRevenue - totalCosts;

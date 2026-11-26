@@ -10,6 +10,7 @@ import { checkBuildingRequirements, getBuildingConstructionCost } from '../../en
 import { hasPlayerDiscoveredPlot } from '../../engine/PlotSystem';
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
 import { previewBuildingSynergyAtPlot } from '../../engine/SynergySystem';
+import { hasRoadAccess, isRoadExemptBuilding } from '../../engine/TransportSystem';
 import type {
   BuildingCategory,
   BuildingType,
@@ -81,6 +82,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
 
     const lockedCount = categoryFiltered.length - buildableNow.length;
     const filtered = showLockedTiers ? categoryFiltered : buildableNow;
+    const plotHasRoadAccess = hasRoadAccess(gameState, plot, currentPlayer.id);
 
     return (
       <div id="build-selector" className="space-y-3 animate-fadeIn">
@@ -104,6 +106,16 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
             ← Wróć
           </button>
         </div>
+
+        {/* Ostrzeżenie o braku drogi przy działce */}
+        {!plotHasRoadAccess && (
+          <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/60 text-rose-200 text-[11px] leading-snug flex items-start gap-2">
+            <span className="shrink-0">🚫🛣️</span>
+            <span>
+              Na sąsiednich polach (N/S/E/W) brakuje drogi lub HQ. Nowe budynki (poza Siedzibą Główną HQ i Parkiem Miejskim) wygenerują <strong>0 zł</strong> i <strong>0</strong> produkcji, dopóki nie doprowadzisz drogi!
+            </span>
+          </div>
+        )}
 
         {/* Status Etapu Korporacji i ciemny przełącznik podglądu przyszłych struktur */}
         <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2 text-[11px]">
@@ -239,6 +251,11 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                           {def.type === 'corporateHQ' && (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] font-semibold text-sky-300">
                               Maks. 1 / firma
+                            </span>
+                          )}
+                          {!plotHasRoadAccess && !isRoadExemptBuilding(def.type) && (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-500/15 border border-rose-500/50 text-[10px] font-semibold text-rose-300">
+                              🚫 Brak drogi obok
                             </span>
                           )}
                           {synPreview.netPercent !== 0 && (

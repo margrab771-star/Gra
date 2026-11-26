@@ -1489,6 +1489,12 @@ export class BuildingRenderer {
   }
 
   private drawStatusIcons(ctx: CanvasRenderingContext2D, scale: number, building: Building): void {
+    const noRoad =
+      !building.destroyedRuins &&
+      building.type !== 'corporateHQ' &&
+      building.type !== 'cityPark' &&
+      (building.status.noRoadLink || building.logisticsMode === 'isolated');
+
     const icons: string[] = [];
     if (building.status.onFire || building.activeHazard?.kind === 'fire') icons.push('🔥');
     if (building.status.robberyActive || building.activeHazard?.kind === 'robbery') icons.push('🚨');
@@ -1501,7 +1507,6 @@ export class BuildingRenderer {
     ) {
       icons.push('☣️');
     }
-    if (building.status.noRoadLink || building.logisticsMode === 'isolated') icons.push('🛣️');
     if (building.status.missingInputs) icons.push('⛔');
     if (building.status.sewageCrisis) icons.push('🚰');
     if (building.status.wasteCrisis) icons.push('🗑️');
@@ -1513,10 +1518,49 @@ export class BuildingRenderer {
     if (building.status.upgradeActive) icons.push('✨');
     if (building.status.boycotted) icons.push('📢');
 
+    if (noRoad) {
+      const pulseWave = 0.5 + 0.5 * Math.sin(this.frameCount * 0.22);
+      const badgeY = -36 * scale - pulseWave * 1.6 * scale;
+      const radius = (6.8 + pulseWave * 1.1) * scale;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, badgeY, radius + 2.2 * scale, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(239, 68, 68, ${(0.22 + pulseWave * 0.25).toFixed(2)})`;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(0, badgeY, radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fill();
+      ctx.strokeStyle = pulseWave > 0.5 ? '#fca5a5' : '#ef4444';
+      ctx.lineWidth = 1.6 * scale;
+      ctx.stroke();
+
+      ctx.font = `${Math.max(7, Math.round(7 * scale))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🛣️', 0, badgeY + 0.4 * scale);
+
+      // Przekreślenie zakazu wjazdu (brak połączenia drogowego)
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2.1 * scale;
+      ctx.beginPath();
+      ctx.moveTo(-radius * 0.62, badgeY + radius * 0.62);
+      ctx.lineTo(radius * 0.62, badgeY - radius * 0.62);
+      ctx.stroke();
+
+      // Czerwony wykrzyknik w narożniku
+      ctx.fillStyle = '#fef2f2';
+      ctx.font = `900 ${Math.max(6, Math.round(6 * scale))}px sans-serif`;
+      ctx.fillText('!', radius * 0.72, badgeY - radius * 0.72);
+      ctx.restore();
+    }
+
     if (icons.length === 0) return;
 
     const bounce = Math.sin(this.frameCount * 0.1) * 1.4 * scale;
-    const y = -34 * scale + bounce;
+    const y = (noRoad ? -48 : -34) * scale + bounce;
     const spacing = 8 * scale;
     const startX = -((icons.length - 1) * spacing) / 2;
 

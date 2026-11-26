@@ -196,7 +196,7 @@ const CHAPTERS: TutorialChapter[] = [
         heading: 'Finanse i Zwycięstwo',
         points: [
           'W trybie Multiplayer limit zadłużenia to twarde 3 aktywne kredyty (spłać istniejący w całości, aby wziąć kolejny).',
-          'Wygrywasz poprzez Dominację Solową (78% wskaźnika dominacji + wycena netto), wygaśnięcie zegara wyzwania z najwyższym wynikiem, bankructwo rywali lub wspólne zwycięstwo w trybie Dominacji Koalicji!',
+          'Wygrywasz poprzez Dominację Solową (osiągnięcie wybranego progu dominacji 65–85%, domyślnie 75% + wycena netto), wygaśnięcie zegara wyzwania z najwyższym wynikiem, bankructwo rywali lub wspólne zwycięstwo w trybie Dominacji Koalicji!',
         ],
       },
     ],

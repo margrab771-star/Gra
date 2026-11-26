@@ -39,7 +39,7 @@ export const GAME_CONFIG = {
   baseTransportCostPerTile: 3.5,
   surveyCost: 8_500,
   baseLoanInterestRate: 0.068,
-  monopolyVictoryShare: 62,
+  monopolyVictoryShare: 75,
   theme: {
     bgPrimary: '#0b0f17',
     bgSecondary: '#111827',
@@ -53,6 +53,9 @@ export const GAME_CONFIG = {
 } as const;
 
 export const GAME_TITLE = GAME_CONFIG.title;
+
+export const DOMINATION_THRESHOLD_OPTIONS = [65, 70, 75, 80, 85] as const;
+export const DEFAULT_DOMINATION_THRESHOLD = 75;
 
 export const CORPORATION_LEVELS: Record<
   CorporationLevel,

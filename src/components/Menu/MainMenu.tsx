@@ -269,7 +269,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
             <div className="font-bold text-slate-200">Do 8 Graczy</div>
-            <div>Koalicje · Wykresy · SSE</div>
+            <div>Koalicje · Wykresy · B2B</div>
           </div>
         </div>
       </div>

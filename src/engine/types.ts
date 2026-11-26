@@ -350,7 +350,7 @@ export interface ResourceDeposit {
 // ─── Plot, Offers & Spatial Grid ──────────────────────────────────────────────
 
 export interface SynergyBreakdownItem {
-  kind: 'retail_zone' | 'entertainment_district' | 'innovation_campus' | 'industrial_cluster' | 'passenger_hub' | 'smog_penalty' | 'park_mitigation' | 'sse_zone';
+  kind: 'retail_zone' | 'entertainment_district' | 'innovation_campus' | 'industrial_cluster' | 'passenger_hub' | 'smog_penalty' | 'park_mitigation';
   label: string;
   percentDelta: number;
   sourcePlotId?: string;
@@ -383,8 +383,6 @@ export interface Plot {
   synergyPercent?: number;
   passengerDemandPercent?: number;
   activeSynergies?: SynergyBreakdownItem[];
-  isSseZone?: boolean;
-  sseExpiresTick?: number;
   crimeScore: number;
   responseEta?: number;
   purchasable: boolean;
@@ -1231,6 +1229,8 @@ export interface GameTime {
   minute: number;
 }
 
+export type DominationThreshold = 65 | 70 | 75 | 80 | 85;
+
 export interface GameSettings {
   mode: GameMode;
   playerCount: number;
@@ -1240,6 +1240,7 @@ export interface GameSettings {
   economyMultiplier: number;
   disastersEnabled?: boolean;
   victoryMode?: 'solo' | 'coalition';
+  dominationThreshold?: number;
   difficultyPreset?: DifficultyPreset;
   scenarioId?: ScenarioId;
   mutators?: MutatorFlags;
@@ -1354,6 +1355,7 @@ export interface LobbyState {
   gameStarted: boolean;
   disastersEnabled: boolean;
   victoryMode: 'solo' | 'coalition';
+  dominationThreshold?: number;
   difficultyPreset?: DifficultyPreset;
   scenarioId?: ScenarioId;
   mutators?: MutatorFlags;

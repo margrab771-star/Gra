@@ -269,20 +269,11 @@ export function evaluateSynergyForPlotAndType(
     });
   }
 
-  if (targetPlot.isSseZone) {
-    items.push({
-      kind: 'sse_zone',
-      label: 'Specjalna Strefa Ekonomiczna (0% CIT i podatku gruntowego)',
-      percentDelta: 15,
-    });
-  }
-
   const netPercent =
     retailPercent +
     entertainmentPercent +
     industrialPercent +
-    innovationPercent +
-    (targetPlot.isSseZone ? 15 : 0) -
+    innovationPercent -
     smogPenalty;
 
   return {

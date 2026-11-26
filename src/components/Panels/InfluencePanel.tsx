@@ -197,13 +197,8 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
             {PILLAR_TABS.find((t) => t.key === pillar)?.desc}
           </div>
 
-          {/* Karta Rządu, Wyborów i Specjalnej Strefy Ekonomicznej (SSE) */}
+          {/* Karta Rządu i Wyborów */}
           {pillar === 'financial' && (() => {
-            const ssePlots = gameState.plots.filter((p) => p.isSseZone);
-            const sseMinX = ssePlots.reduce((m, p) => Math.min(m, p.gridX), 999);
-            const sseMaxX = ssePlots.reduce((m, p) => Math.max(m, p.gridX), -1);
-            const sseMinY = ssePlots.reduce((m, p) => Math.min(m, p.gridY), 999);
-            const sseMaxY = ssePlots.reduce((m, p) => Math.max(m, p.gridY), -1);
             const currentGov = gameState.government?.currentGov ?? 'free_market';
 
             return (
@@ -225,11 +220,6 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         {Math.max(0, (gameState.government?.nextElectionTick ?? 90) - gameState.time.tick)}T
                       </span>
                     </div>
-                    {ssePlots.length > 0 && (
-                      <div className="text-amber-300">
-                        ⭐ SSE ({sseMinX}..{sseMaxX}, {sseMinY}..{sseMaxY})
-                      </div>
-                    )}
                   </div>
                 </div>
 

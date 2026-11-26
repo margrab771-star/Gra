@@ -53,6 +53,8 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
     winningCoalition && winningCoalition.memberIds.includes(currentPlayer.id)
   );
   const isChallengeDone = gameState.challengeCompleted && !winner;
+  const domThreshold =
+    gameState.settings.dominationThreshold ?? gameState.monopolyThreshold ?? 75;
 
   const funAwards = useMemo(() => computeMatchFunAwards(gameState), [gameState]);
   const samples = useMemo(() => gameState.matchStatsHistory ?? [], [gameState.matchStatsHistory]);
@@ -125,6 +127,11 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
             {gameState.victoryReason ??
               'Twój wynik wyceny netto oraz wypracowana strategia zostały zapisane w Twoim Profilu i Tabeli Wyników!'}
           </p>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#0b0f17] border border-amber-500/35 text-[11px] font-mono text-amber-300">
+            <span>🎯 Próg dominacji w tym meczu: {domThreshold}%</span>
+            <span>·</span>
+            <span>{gameState.settings.victoryMode === 'coalition' ? '🤝 Dominacja Koalicji' : '👑 Dominacja Solowa'}</span>
+          </div>
         </div>
 
         {/* Nagroda XP i Odblokowane Osiągnięcia z sesji */}

@@ -1,6 +1,7 @@
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_LIST } from '../data/resources';
 import { getAggregatedBuildingModifiers } from './BuildingSystem';
+import { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
 import type { GameState, Player, ResourceType, UtilityBalanceReport } from './types';
 
 export function computePlayerUtilityAndResourceBalance(
@@ -32,16 +33,23 @@ export function computePlayerUtilityAndResourceBalance(
     const b = plot.building;
     const def = BUILDING_DEFINITIONS[b.type];
     const mods = getAggregatedBuildingModifiers(b);
+    const roadAccessOk = isRoadExemptBuilding(b.type) || hasRoadAccess(state, plot, player.id);
 
     // Energia elektryczna (MWh/MW)
-    const elecOutput = b.productionPerTick.electricity ?? (def.electricityUsage < 0 ? Math.abs(def.electricityUsage) * (b.efficiency / 100) : 0);
+    const elecOutput = roadAccessOk
+      ? (b.productionPerTick.electricity ?? (def.electricityUsage < 0 ? Math.abs(def.electricityUsage) * (b.efficiency / 100) : 0))
+      : 0;
     if (def.electricityUsage < 0 || b.type === 'copperCablePlant') {
-      const prodMW = Math.round(Math.max(elecOutput, Math.abs(def.electricityUsage) * 0.4 * (b.efficiency / 100)));
+      const prodMW = roadAccessOk
+        ? Math.round(Math.max(elecOutput, Math.abs(def.electricityUsage) * 0.4 * (b.efficiency / 100)))
+        : 0;
       electricityProduced += prodMW;
-      electricityByPlant.push({
-        label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
-        produced: prodMW,
-      });
+      if (prodMW > 0) {
+        electricityByPlant.push({
+          label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+          produced: prodMW,
+        });
+      }
     } else if (def.electricityUsage > 0) {
       const consMW = Math.round(def.electricityUsage * Math.max(0.2, 1 + mods.electricityDelta));
       electricityConsumed += consMW;
@@ -53,12 +61,16 @@ export function computePlayerUtilityAndResourceBalance(
 
     // Woda przemysłowa (m3)
     if (b.type === 'waterPlant' || def.waterUsage < 0) {
-      const prodW = Math.round(Math.max(b.productionPerTick.water ?? 0, Math.abs(def.waterUsage) * (b.efficiency / 100)));
+      const prodW = roadAccessOk
+        ? Math.round(Math.max(b.productionPerTick.water ?? 0, Math.abs(def.waterUsage) * (b.efficiency / 100)))
+        : 0;
       waterProduced += prodW;
-      waterSources.push({
-        label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
-        produced: prodW,
-      });
+      if (prodW > 0) {
+        waterSources.push({
+          label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+          produced: prodW,
+        });
+      }
     } else if (def.waterUsage > 0) {
       const consW = Math.round(def.waterUsage * Math.max(0.2, 1 + mods.waterDelta));
       waterConsumed += consW;
@@ -71,7 +83,9 @@ export function computePlayerUtilityAndResourceBalance(
     // Ścieki przemysłowe (m3)
     const rawSewage = def.sewageUsage ?? 0;
     if (rawSewage < 0) {
-      sewageTreated += Math.round(Math.abs(rawSewage) * (1 + mods.sewageTreatmentBonus) * Math.max(0.25, b.efficiency / 100));
+      if (roadAccessOk) {
+        sewageTreated += Math.round(Math.abs(rawSewage) * (1 + mods.sewageTreatmentBonus) * Math.max(0.25, b.efficiency / 100));
+      }
     } else if (rawSewage > 0) {
       sewageProduced += Math.round(rawSewage * Math.max(0.2, 1 + mods.sewageDelta));
     }
@@ -79,7 +93,9 @@ export function computePlayerUtilityAndResourceBalance(
     // Odpady i śmieci (t)
     const rawWaste = def.wasteUsage ?? 0;
     if (rawWaste < 0) {
-      wasteProcessed += Math.round(Math.abs(rawWaste) * (1 + mods.wasteProcessingBonus) * Math.max(0.25, b.efficiency / 100));
+      if (roadAccessOk) {
+        wasteProcessed += Math.round(Math.abs(rawWaste) * (1 + mods.wasteProcessingBonus) * Math.max(0.25, b.efficiency / 100));
+      }
     } else if (rawWaste > 0) {
       wasteProduced += Math.round(rawWaste * Math.max(0.2, 1 + mods.wasteDelta));
     }

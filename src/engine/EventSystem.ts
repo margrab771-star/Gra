@@ -108,9 +108,8 @@ export function processEventsTick(state: GameState): void {
     triggerNewEventOrForecast(state);
   }
 
-  // 4. Wybory rządowe, Specjalne Strefy Ekonomiczne (4x4), Zielona Transformacja & Licytacje na Żywo
+  // 4. Wybory rządowe, Zielona Transformacja & Licytacje na Żywo
   processGovernmentElectionsTick(state);
-  processSseZonesTick(state);
   processGreenTransitionScenarioTick(state);
   processLiveAuctionTick(state);
 }
@@ -637,65 +636,6 @@ export function lobbyGovernmentElection(
     ok: true,
     message: `Zasilono kampanię ugrupowania ${cfg.name} (+3 głosy poparcia do najbliższych wyborów)!`,
   };
-}
-
-export function processSseZonesTick(state: GameState): void {
-  let changed = false;
-  for (const p of state.plots) {
-    if (p.isSseZone && (p.sseExpiresTick ?? 0) <= state.time.tick) {
-      p.isSseZone = false;
-      p.sseExpiresTick = undefined;
-      changed = true;
-    }
-  }
-
-  const anyActive = state.plots.some((p) => p.isSseZone);
-  if (!anyActive && state.time.tick >= 6 && state.time.tick % 50 === 6) {
-    const size = Math.max(8, state.settings.mapSize || Math.round(Math.sqrt(state.plots.length)));
-    if (size >= 8) {
-      const startX = Math.floor(Math.random() * Math.max(1, size - 4));
-      const startY = Math.floor(Math.random() * Math.max(1, size - 4));
-      let focusId: string | undefined;
-      let count = 0;
-      for (const p of state.plots) {
-        if (
-          p.terrain !== 'water' &&
-          p.gridX >= startX &&
-          p.gridX < startX + 4 &&
-          p.gridY >= startY &&
-          p.gridY < startY + 4
-        ) {
-          p.isSseZone = true;
-          p.sseExpiresTick = state.time.tick + 60;
-          if (!focusId) focusId = p.id;
-          count++;
-        }
-      }
-      if (count > 0) {
-        changed = true;
-        state.news = [
-          {
-            id: `sse_${state.time.tick}`,
-            headline: `✨ Ogłoszono Specjalną Strefę Ekonomiczną 4×4 (${startX},${startY})!`,
-            brief: `Rząd ustanowił strefę 0% podatku CIT i 0% podatku gruntowego na sektorze (${startX}..${startX + 3}, ${startY}..${startY + 3}) na 2 lata gry!`,
-            fullText: `Budynki postawione w złotej strefie SSE nie płacą CIT ani podatku gruntowego przez 60 cykli.`,
-            analysis: 'Kliknij newsa, aby wyśrodkować mapę na nowej strefie inwestycyjnej SSE.',
-            hints: ['Przenieś nowe fabryki lub biurowce w obszar złotej ramki SSE!'],
-            type: 'opportunity' as const,
-            dateLabel: formatGameDate(state.time),
-            tick: state.time.tick,
-            read: false,
-            focusPlotId: focusId,
-          },
-          ...state.news,
-        ].slice(0, 40);
-      }
-    }
-  }
-
-  if (changed) {
-    state.networkRevision = (state.networkRevision ?? 0) + 1;
-  }
 }
 
 export function processGreenTransitionScenarioTick(state: GameState): void {

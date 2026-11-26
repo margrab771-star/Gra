@@ -465,6 +465,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         economyMultiplier: 1.0,
         disastersEnabled: false,
         victoryMode: 'solo',
+        dominationThreshold: 75,
       },
       'Prezes',
       'Akademia Biznesu S.A.',

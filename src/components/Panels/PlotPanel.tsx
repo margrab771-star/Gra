@@ -95,11 +95,6 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
             )}
             <h3 className="text-base font-semibold text-slate-100 flex items-center gap-2 flex-wrap">
               <span>Działka · {TERRAIN_NAMES[plot.terrain]}</span>
-              {plot.isSseZone && (
-                <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono text-[10px]">
-                  ⭐ SSE 0% CIT
-                </span>
-              )}
             </h3>
           </div>
           <button

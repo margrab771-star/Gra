@@ -2,6 +2,7 @@ import { DIFFICULTY_PRESETS, GAME_CONFIG, GOVERNMENT_CONFIGS } from '../config/g
 import { getArchetypeDefinition } from '../data/archetypes';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { formatGameDate } from '../utils/formatters';
+export { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
 import type {
   Building,
   GameState,

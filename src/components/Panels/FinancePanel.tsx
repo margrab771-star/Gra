@@ -69,6 +69,8 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
 
   const monopolyShares = calculateMonopolyShares(gameState, currentPlayer.id);
   const dominance = getOverallDominanceScore(gameState, currentPlayer.id);
+  const domThreshold =
+    gameState.settings.dominationThreshold ?? gameState.monopolyThreshold ?? 75;
 
   const revEntries = Object.entries(currentPlayer.lastTickRevenueByCategory);
   const costEntries = Object.entries(currentPlayer.lastTickCostsByCategory);
@@ -741,9 +743,9 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
               <div className="p-4 rounded-lg bg-[#0b0f17] border border-amber-500/40">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-semibold text-slate-100 text-sm">
-                    Wskaźnik Dominacji Rynkowej (Cel Monopolu: 78%)
+                    Wskaźnik Dominacji Rynkowej (Cel Monopolu: {domThreshold}%)
                   </span>
-                  <span className="font-mono text-lg font-bold text-amber-300">{dominance}%</span>
+                  <span className="font-mono text-lg font-bold text-amber-300">{dominance}% / {domThreshold}%</span>
                 </div>
                 <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
                   <div

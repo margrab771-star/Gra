@@ -84,17 +84,16 @@ export class IsometricRenderer {
     }
     this.cachedQuickKey = quickKey;
 
-    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + SSE + Mgły Wojny + heatmapy
+    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + Mgły Wojny + heatmapy
     let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_${state.settings.mutators?.fogOfWar ? 1 : 0}_`;
     const viewer = state.players.find((pl) => pl.id === curPid);
     for (let i = 0; i < state.plots.length; i++) {
       const p = state.plots[i];
       const surv = p.surveyedBy?.[curPid] ? 1 : 0;
       const rad = (p.irradiatedTicks ?? 0) > 0 ? 1 : 0;
-      const sse = p.isSseZone ? 1 : 0;
       const fogVis = isPlotBuildingVisibleToViewer(p, curPid, viewer, state) ? 1 : 0;
-      if (p.ownerId || p.hasRoad || p.building || surv || rad || sse || heatmapMode !== 'standard') {
-        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${rad}:${sse}:${fogVis}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
+      if (p.ownerId || p.hasRoad || p.building || surv || rad || heatmapMode !== 'standard') {
+        sig += `${i}:${p.ownerId ?? ''}:${p.roadType}:${p.tollRate}:${p.roadBlocked ? 1 : 0}:${p.building?.type ?? ''}:${surv}:${rad}:${fogVis}:${heatmapMode === 'response_time' ? p.responseEta ?? 99 : ''}:${heatmapMode === 'security' ? p.crimeScore : ''};`;
       }
     }
 

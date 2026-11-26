@@ -236,11 +236,6 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   {owner?.companyName}
                 </span>{' '}
                 · ({plot.gridX}, {plot.gridY})
-                {plot.isSseZone && (
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px]">
-                    SSE 0% CIT
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -268,6 +263,19 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             </button>
           </div>
         </div>
+
+        {/* Czerwony baner twardej blokady przy braku drogi */}
+        {!building.destroyedRuins &&
+          building.type !== 'corporateHQ' &&
+          building.type !== 'cityPark' &&
+          (building.status.noRoadLink || building.logisticsMode === 'isolated') && (
+            <div className="p-2.5 rounded-xl bg-rose-950/80 border-2 border-rose-500 text-rose-100 text-xs font-semibold flex items-start gap-2 shadow-[0_0_16px_rgba(244,63,94,0.25)]">
+              <span className="text-base shrink-0 animate-pulse">🚫🛣️</span>
+              <span>
+                Brak dostępu do drogi — budynek nie zarabia i nie produkuje. Podłącz drogę lub autostradę do sąsiedniego pola.
+              </span>
+            </div>
+          )}
 
         {/* Widok RUIN po pożarze lub katastrofie */}
         {building.destroyedRuins && (
@@ -301,8 +309,6 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             building.status.sewageCrisis ||
             building.status.wasteCrisis ||
             building.status.disasterStruck ||
-            building.status.noRoadLink ||
-            building.logisticsMode === 'isolated' ||
             building.status.noPower ||
             building.status.noWater ||
             building.status.breakdown ||
@@ -384,11 +390,6 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               )}
               {building.status.disasterStruck && (
                 <div className="text-amber-300">🌪️ Skutki katastrofy naturalnej obniżają efektywność!</div>
-              )}
-              {(building.status.noRoadLink || building.logisticsMode === 'isolated') && (
-                <div className="text-amber-300">
-                  🛣️ Zakład odcięty od sieci miejskiej (brak własnej drogi lub blokada rywala)! Połóż drogę/autostradę albo postaw Port/Lotnisko Cargo.
-                </div>
               )}
               {building.status.breakdown && <div>⚠️ Poważna awaria — wymagany natychmiastowy remont!</div>}
               {building.status.noPower && <div>⚡ Krytyczny deficyt prądu w sieci — sprawdź bilans MW!</div>}

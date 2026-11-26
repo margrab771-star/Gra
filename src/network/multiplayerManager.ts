@@ -338,6 +338,23 @@ export class StateChunkAssembler {
   }
 }
 
+function stripLegacySseFromPlot(pl: Plot): Plot {
+  const raw = pl as unknown as Record<string, unknown>;
+  const hasLegacySynergy = pl.activeSynergies?.some((s) => (s.kind as string) === 'sse_zone');
+  if (!('isSseZone' in raw) && !('sseExpiresTick' in raw) && !hasLegacySynergy) {
+    return pl;
+  }
+  const rest = { ...raw };
+  delete rest.isSseZone;
+  delete rest.sseExpiresTick;
+  if (Array.isArray(rest.activeSynergies)) {
+    rest.activeSynergies = (rest.activeSynergies as { kind?: string }[]).filter(
+      (s) => s.kind !== 'sse_zone'
+    );
+  }
+  return rest as unknown as Plot;
+}
+
 /**
  * Tworzy lekki, w pełni serializowalny JSON snapshot stanu gry bez zbędnej historii wykresów
  * ani struktur nienatywnych dla WebRTC DataConnection (Set/Map/funkcje/cykle).
@@ -359,8 +376,17 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     priceHistory: s.priceHistory.slice(-24),
   }));
 
+  const cleanedPlots = state.plots.map(stripLegacySseFromPlot);
+  const domThresh = state.settings?.dominationThreshold ?? state.monopolyThreshold ?? 75;
+
   const trimmed: GameState = {
     ...state,
+    settings: {
+      ...state.settings,
+      dominationThreshold: domThresh,
+    },
+    monopolyThreshold: domThresh,
+    plots: cleanedPlots,
     players: compactPlayers,
     resourcePrices: compactResourcePrices,
     news: state.news.slice(-16),
@@ -406,7 +432,6 @@ export function buildStateDelta(prev: GameState, next: GameState): GameStateDelt
       pp.hasWater === np.hasWater &&
       (pp.irradiatedTicks ?? 0) === (np.irradiatedTicks ?? 0) &&
       (pp.disasterDamagedTicks ?? 0) === (np.disasterDamagedTicks ?? 0) &&
-      Boolean(pp.isSseZone) === Boolean(np.isSseZone) &&
       (pp.synergyPercent ?? 0) === (np.synergyPercent ?? 0) &&
       (pp.passengerDemandPercent ?? 100) === (np.passengerDemandPercent ?? 100) &&
       pp.building === null &&
@@ -445,7 +470,7 @@ export function applyStateDelta(current: GameState, delta: GameStateDelta): Game
     for (const cp of delta.changedPlots) {
       const idx = idxById.get(cp.id);
       if (idx !== undefined) {
-        updatedPlots[idx] = cp;
+        updatedPlots[idx] = stripLegacySseFromPlot(cp);
       }
     }
   }
@@ -767,6 +792,7 @@ export class MultiplayerManager {
       maxPlayers: 8,
       disastersEnabled: true,
       victoryMode: 'solo',
+      dominationThreshold: 75,
       difficultyPreset: 'standard',
       scenarioId: 'sandbox',
       mutators: { ...DEFAULT_MUTATORS },
@@ -1099,13 +1125,17 @@ export class MultiplayerManager {
               clearTimeout(timeout);
             }
             this.localPlayerId = msg.assignedPlayerId;
-            this.lobby = msg.lobby;
+            const normalizedLobby: LobbyState = {
+              ...msg.lobby,
+              dominationThreshold: msg.lobby.dominationThreshold ?? 75,
+            };
+            this.lobby = normalizedLobby;
             this.startHeartbeat();
             this.setStage('connected', `Połączono z pokojem ${normalizedCode}.`);
-            this.callbacks.onLobbyChange?.(msg.lobby);
-            resolve({ lobby: msg.lobby, playerId: msg.assignedPlayerId });
-            if (msg.lobby.gameStarted) {
-              this.callbacks.onGameStartSignal?.(msg.lobby, this.localPlayerId);
+            this.callbacks.onLobbyChange?.(normalizedLobby);
+            resolve({ lobby: normalizedLobby, playerId: msg.assignedPlayerId });
+            if (normalizedLobby.gameStarted) {
+              this.callbacks.onGameStartSignal?.(normalizedLobby, this.localPlayerId);
               this.requestFullSync();
             }
           } else if (msg.kind === 'join_rejected') {
@@ -1164,10 +1194,14 @@ export class MultiplayerManager {
 
   private handleClientIncoming(msg: NetworkMessage): void {
     if (msg.kind === 'lobby_update') {
-      this.lobby = msg.lobby;
-      this.callbacks.onLobbyChange?.(msg.lobby);
-      if (msg.lobby.gameStarted && !this.hasReceivedInitialSync) {
-        this.callbacks.onGameStartSignal?.(msg.lobby, this.localPlayerId);
+      const normalizedLobby: LobbyState = {
+        ...msg.lobby,
+        dominationThreshold: msg.lobby.dominationThreshold ?? 75,
+      };
+      this.lobby = normalizedLobby;
+      this.callbacks.onLobbyChange?.(normalizedLobby);
+      if (normalizedLobby.gameStarted && !this.hasReceivedInitialSync) {
+        this.callbacks.onGameStartSignal?.(normalizedLobby, this.localPlayerId);
         this.requestFullSync();
       }
     } else if (msg.kind === 'GAME_START') {
@@ -1175,7 +1209,11 @@ export class MultiplayerManager {
         this.localPlayerId = msg.assignedPlayerId;
       }
       this.lastStartTimestamp = msg.startedAt;
-      this.lobby = { ...msg.lobby, gameStarted: true };
+      this.lobby = {
+        ...msg.lobby,
+        dominationThreshold: msg.lobby.dominationThreshold ?? 75,
+        gameStarted: true,
+      };
       this.callbacks.onLobbyChange?.(this.lobby);
       this.callbacks.onGameStartSignal?.(this.lobby, this.localPlayerId);
       if (this.hasReceivedInitialSync && this.ackedStartTimestamp !== msg.startedAt) {
@@ -1255,6 +1293,7 @@ export class MultiplayerManager {
         | 'aiDifficulty'
         | 'disastersEnabled'
         | 'victoryMode'
+        | 'dominationThreshold'
         | 'difficultyPreset'
         | 'scenarioId'
         | 'mutators'

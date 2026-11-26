@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   AI_STRATEGY_LABELS,
+  DEFAULT_DOMINATION_THRESHOLD,
   DEFAULT_MUTATORS,
   DIFFICULTY_LABELS,
   DIFFICULTY_PRESETS,
+  DOMINATION_THRESHOLD_OPTIONS,
   MAP_SIZES,
   PLAYER_COLORS,
   SCENARIO_DEFINITIONS,
@@ -357,24 +359,51 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 </div>
                 <InfoTooltip {...getDisastersTooltip(lobbyState.disastersEnabled ?? true)} />
               </div>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-slate-400 flex items-center gap-1.5">
                   <span>Warunek zwycięstwa:</span>
-                  <InfoTooltip {...getVictoryTooltip(lobbyState.victoryMode ?? 'solo')} />
+                  <InfoTooltip
+                    {...getVictoryTooltip(
+                      lobbyState.victoryMode ?? 'solo',
+                      lobbyState.dominationThreshold ?? DEFAULT_DOMINATION_THRESHOLD
+                    )}
+                  />
                 </span>
-                <select
-                  disabled={!isHost}
-                  value={lobbyState.victoryMode ?? 'solo'}
-                  onChange={(e) =>
-                    multiplayerManager.updateLobbySettings({
-                      victoryMode: e.target.value as 'solo' | 'coalition',
-                    })
-                  }
-                  className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
-                >
-                  <option value="solo">👑 Dominacja Solowa</option>
-                  <option value="coalition">🤝 Dominacja Koalicji</option>
-                </select>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <select
+                    disabled={!isHost}
+                    value={lobbyState.victoryMode ?? 'solo'}
+                    onChange={(e) =>
+                      multiplayerManager.updateLobbySettings({
+                        victoryMode: e.target.value as 'solo' | 'coalition',
+                      })
+                    }
+                    className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
+                  >
+                    <option value="solo">👑 Dominacja Solowa</option>
+                    <option value="coalition">🤝 Dominacja Koalicji</option>
+                  </select>
+                  <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                    <span>Próg dominacji:</span>
+                    <select
+                      aria-label="Próg dominacji"
+                      disabled={!isHost}
+                      value={lobbyState.dominationThreshold ?? DEFAULT_DOMINATION_THRESHOLD}
+                      onChange={(e) =>
+                        multiplayerManager.updateLobbySettings({
+                          dominationThreshold: Number(e.target.value),
+                        })
+                      }
+                      className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-amber-300 font-mono font-semibold disabled:opacity-70"
+                    >
+                      {DOMINATION_THRESHOLD_OPTIONS.map((pct) => (
+                        <option key={pct} value={pct}>
+                          {pct}%
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { getArchetypeDefinition } from '../data/archetypes';
 import type { ArchetypeId, DifficultyPreset, ScenarioId } from '../engine/types';
-import { DIFFICULTY_PRESETS, GAME_CONFIG, SCENARIO_DEFINITIONS } from './gameConfig';
+import { DIFFICULTY_PRESETS, SCENARIO_DEFINITIONS } from './gameConfig';
 
 export interface TooltipSpec {
   title: string;
@@ -23,7 +23,7 @@ export function getTempoTooltip(mode: 'mp_fast' | 'mp_long' | 'challenge1h' | 'e
       return {
         title: '🏛️ Kampania Długa (Głęboka)',
         description:
-          'Pełnoskalowa rozgrywka bez limitu czasowego — do osiągnięcia progu monopolu (62%) lub eliminacji rywali.',
+          'Pełnoskalowa rozgrywka bez limitu czasowego — do osiągnięcia wybranego progu dominacji (domyślnie 75%) lub eliminacji rywali.',
         bullets: ['Czas: bez limitu', 'Pełny rozwój Etapu 5 i koalicji'],
       };
     case 'challenge1h':
@@ -134,23 +134,24 @@ export function getDisastersTooltip(enabled: boolean): TooltipSpec {
       };
 }
 
-export function getVictoryTooltip(victoryMode: 'solo' | 'coalition'): TooltipSpec {
+export function getVictoryTooltip(
+  victoryMode: 'solo' | 'coalition',
+  dominationThreshold = 75
+): TooltipSpec {
   return victoryMode === 'coalition'
     ? {
         title: '🤝 Dominacja Koalicji',
-        description:
-          'Członkowie sojuszu łączą wynik Dominacji Rynkowej i odnoszą wspólne zwycięstwo przy przekroczeniu progu.',
+        description: `Wygrywa koalicja, która osiągnie ${dominationThreshold}% dominacji rynkowej i zbuduje wspólne zaplecze kapitałowe.`,
         bullets: [
-          `Próg dominacji: ${GAME_CONFIG.monopolyVictoryShare}%`,
-          '0% myta między sojusznikami i opcjonalne wspólne mapy złóż',
+          `Próg dominacji koalicji: ${dominationThreshold}%`,
+          '0% myta między sojusznikami i wspólne zwycięstwo sojuszu',
         ],
       }
     : {
         title: '👑 Dominacja Solowa',
-        description:
-          'Tylko jeden zwycięzca — pierwsza korporacja, która samodzielnie przekroczy próg dominacji rynkowej.',
+        description: `Wygrywa gracz, który samodzielnie osiągnie ${dominationThreshold}% dominacji rynkowej.`,
         bullets: [
-          `Próg dominacji: ${GAME_CONFIG.monopolyVictoryShare}%`,
+          `Próg dominacji: ${dominationThreshold}%`,
           'Sojusze ułatwiają handel i bezpieczeństwo, ale wygrywa lider',
         ],
       };

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import {
+  DEFAULT_DOMINATION_THRESHOLD,
   DEFAULT_MUTATORS,
   DIFFICULTY_LABELS,
   DIFFICULTY_PRESETS,
+  DOMINATION_THRESHOLD_OPTIONS,
   GAME_CONFIG,
   MAP_SIZES,
   PLAYER_COLORS,
@@ -86,6 +88,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
   const [mapSize, setMapSize] = useState(24);
   const [disastersEnabled, setDisastersEnabled] = useState(true);
   const [victoryMode, setVictoryMode] = useState<'solo' | 'coalition'>('solo');
+  const [dominationThreshold, setDominationThreshold] = useState<number>(DEFAULT_DOMINATION_THRESHOLD);
   const [withTutorial, setWithTutorial] = useState(false);
 
   const selectedArchetype = ARCHETYPE_LIST.find((a) => a.id === archetype) ?? ARCHETYPE_LIST[0];
@@ -103,6 +106,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
       economyMultiplier: 1.0,
       disastersEnabled,
       victoryMode,
+      dominationThreshold,
       difficultyPreset,
       scenarioId,
       mutators,
@@ -400,19 +404,36 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
             </div>
             <InfoTooltip {...getDisastersTooltip(disastersEnabled)} />
           </div>
-          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2">
+          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] flex flex-wrap items-center justify-between gap-2">
             <span className="text-slate-300 flex items-center gap-1.5">
               <span>Warunek zwycięstwa:</span>
-              <InfoTooltip {...getVictoryTooltip(victoryMode)} />
+              <InfoTooltip {...getVictoryTooltip(victoryMode, dominationThreshold)} />
             </span>
-            <select
-              value={victoryMode}
-              onChange={(e) => setVictoryMode(e.target.value as 'solo' | 'coalition')}
-              className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1 text-slate-100"
-            >
-              <option value="solo">👑 Dominacja Solowa</option>
-              <option value="coalition">🤝 Dominacja Koalicji</option>
-            </select>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <select
+                value={victoryMode}
+                onChange={(e) => setVictoryMode(e.target.value as 'solo' | 'coalition')}
+                className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1 text-slate-100"
+              >
+                <option value="solo">👑 Dominacja Solowa</option>
+                <option value="coalition">🤝 Dominacja Koalicji</option>
+              </select>
+              <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                <span>Próg:</span>
+                <select
+                  aria-label="Próg dominacji"
+                  value={dominationThreshold}
+                  onChange={(e) => setDominationThreshold(Number(e.target.value))}
+                  className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1 text-amber-300 font-mono font-semibold"
+                >
+                  {DOMINATION_THRESHOLD_OPTIONS.map((pct) => (
+                    <option key={pct} value={pct}>
+                      {pct}%
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         </div>
 

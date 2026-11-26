@@ -7,6 +7,7 @@ import {
   SPEED_OPTIONS,
 } from '../../config/gameConfig';
 import { computePlayerUtilityAndResourceBalance } from '../../engine/BalanceSystem';
+import { getOverallDominanceScore } from '../../engine/EconomyEngine';
 import type {
   GameSpeed,
   GameState,
@@ -138,6 +139,13 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     const anyUtilityDeficit =
       elecBalance < 0 || waterBalance < 0 || sewageBalance < 0 || wasteBalance < 0;
 
+    const domThreshold =
+      gameState.settings.dominationThreshold ?? gameState.monopolyThreshold ?? 75;
+    const dominancePct = useMemo(
+      () => getOverallDominanceScore(gameState, currentPlayer.id),
+      [gameState, currentPlayer.id]
+    );
+
     const tickerItems = useMemo(() => {
       const pinned = gameState.resourcePrices.filter((rp) => pinnedResources.includes(rp.type));
       const others = gameState.resourcePrices.filter((rp) => !pinnedResources.includes(rp.type));
@@ -193,6 +201,16 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 <span className="text-[10px] text-slate-400 uppercase">Wycena Netto</span>
                 <span className="font-mono font-semibold text-amber-300">
                   {formatCompactMoney(currentPlayer.netWorth)}
+                </span>
+              </div>
+
+              <div
+                className="hidden md:flex flex-col leading-tight shrink-0"
+                title={`Aktualny wskaźnik Dominacji Rynkowej względem ustawionego celu (${domThreshold}%)`}
+              >
+                <span className="text-[10px] text-slate-400 uppercase">Dominacja</span>
+                <span className="font-mono font-semibold text-sky-300">
+                  👑 {dominancePct}%/{domThreshold}%
                 </span>
               </div>
 

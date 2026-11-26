@@ -3,6 +3,7 @@ import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { getPlayerCoalition } from './CoalitionSystem';
 import { getPlayerEntrepreneurModifiers } from './EconomyEngine';
+import { refreshBuildingsRoadStatus } from './TransportSystem';
 import type {
   GameState,
   Player,
@@ -569,6 +570,7 @@ export function buyPlotForPlayer(
   }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   return { ok: true };
 }
 
@@ -592,6 +594,7 @@ export function sellPlotForPlayer(
   plot.purchasable = plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0;
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   return { ok: true };
 }
 
@@ -686,6 +689,7 @@ export function buildPlayerRoadOnPlot(
   }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   return { ok: true };
 }
 
@@ -1162,6 +1166,7 @@ export function batchBuildRoadForPlayer(
 
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   return { ok: true, builtCount, totalCost };
 }
 

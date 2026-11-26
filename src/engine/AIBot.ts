@@ -20,6 +20,7 @@ import { executeInfluenceAction } from './InfluenceSystem';
 import {
   buildPlayerRoadOnPlot,
   buyPlotForPlayer,
+  getRoadBuildCostForPlot,
   getSuggestedPlotBuyoutValuation,
   hasPlayerDiscoveredPlot,
   hasPlayerSurveyedPlot,
@@ -30,6 +31,7 @@ import {
 } from './PlotSystem';
 import { tradeCorporateStock } from './StockMarketSystem';
 import { previewBuildingSynergyAtPlot } from './SynergySystem';
+import { hasRoadAccess, isRoadExemptBuilding, isRoadPassableFor } from './TransportSystem';
 import type {
   AIStrategy,
   Building,
@@ -229,14 +231,17 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
     emptyOwned
   );
 
-  // Odśwież po ewentualnych działaniach na mediach
+  // Odśwież działki i natychmiast doprowadź drogi do odizolowanych stacji/fabryk (bez drogi dają 0 produkcji!)
+  ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
+  ensureContinuousRoads(state, ai, difficulty, ownedPlots, getEmptyOwnedPlots(ownedPlots), cashReserve, true);
+
   ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
   ownedBuildings = ownedPlots
     .filter((p) => p.building !== null && !p.building.destroyedRuins)
     .map((p) => p.building!);
   emptyOwned = getEmptyOwnedPlots(ownedPlots);
 
-  const postUtil = utilityBlocked ? computePlayerUtilityAndResourceBalance(state, ai) : util;
+  const postUtil = computePlayerUtilityAndResourceBalance(state, ai);
   const stillHasDeficit =
     postUtil.electricityNet < 0 ||
     postUtil.waterNet < 0 ||
@@ -254,13 +259,13 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
   // 5. Globalne badania R&D i Drzewko Prezesa
   researchTechAndSkills(state, ai, difficulty, strategy, cashReserve);
 
-  // 6. Ciągła sieć dróg i autostrady dla izolowanych obiektów
-  ensureContinuousRoads(state, ai, difficulty, ownedPlots, emptyOwned, cashReserve);
+  // 6. Ciągła sieć dróg, arterie startowe i autostrady dla obiektów
+  ensureContinuousRoads(state, ai, difficulty, ownedPlots, emptyOwned, cashReserve, false);
 
   ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
   emptyOwned = getEmptyOwnedPlots(ownedPlots);
 
-  // 7. Geologia i mądry zakup działek (złoża, SSE 0%, przyległość do sieci)
+  // 7. Geologia i mądry zakup działek (złoża, przyległość do drogi i sieci)
   runGeologyAndExpansion(state, ai, difficulty, strategy, ownedPlots, emptyOwned, cashReserve);
 
   ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
@@ -269,7 +274,7 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
     .map((p) => p.building!);
   emptyOwned = getEmptyOwnedPlots(ownedPlots);
 
-  // 8. Budowa najbardziej opłacalnego obiektu (Utility Score + Synergie + Łańcuchy dostaw)
+  // 8. Budowa najbardziej opłacalnego obiektu (Utility Score + Synergie + Łańcuchy dostaw + Dostęp do drogi)
   if (emptyOwned.length > 0 && ai.cash > cashReserve + 80_000) {
     evaluateAndBuildBestStructure(
       state,
@@ -282,6 +287,8 @@ export function executeAITurn(state: GameState, ai: Player, slotOffset = 0): voi
       emptyOwned,
       cashReserve
     );
+    ownedPlots = state.plots.filter((p) => p.ownerId === ai.id);
+    ensureContinuousRoads(state, ai, difficulty, ownedPlots, getEmptyOwnedPlots(ownedPlots), cashReserve, true);
   }
 
   // 9. Aukcje na żywo, przetargi rządowe, kontrakty B2B, giełda i lobbing wyborczy
@@ -321,7 +328,6 @@ function manageFinancialSafety(
     const minRatio = difficulty >= 3 ? 1.25 : 1.1;
     const fairVal = getSuggestedPlotBuyoutValuation(plot, offer.includeBuilding);
     const isCriticalAsset =
-      plot.isSseZone ||
       plot.building?.type === 'corporateHQ' ||
       plot.building?.category === 'energy' ||
       plot.building?.category === 'waste';
@@ -505,17 +511,19 @@ function ensureUtilitiesSurvival(
     }
   }
 
-  // Działki puste posortowane inteligentnie (preferuj las/pustkowia dla ścieków/odpadów, oszczędzaj miasto)
+  // Działki puste posortowane inteligentnie (najwyższy priorytet: bezpośredni dostęp do drogi/HQ!)
   const rankPlotForUtility = (p: Plot, bType: BuildingType): number => {
     let s = 0;
     const isWasteOrSewage = BUILDING_DEFINITIONS[bType].category === 'waste';
+    if (hasRoadAccess(state, p, ai.id)) s += 110;
+    else if (p.distanceToRoad <= 1) s += 45;
+    else if (p.distanceToRoad <= 2) s += 20;
     if (isWasteOrSewage && (p.terrain === 'forest' || p.terrain === 'desert')) s += 45;
     if (bType === 'waterPlant' && (p.terrain === 'coastal' || p.terrain === 'grass')) s += 30;
     if ((bType === 'solarFarm' || bType === 'windFarm') && (p.terrain === 'desert' || p.terrain === 'grass' || p.terrain === 'coastal')) {
       s += 25;
     }
     if (p.terrain === 'urban' && (isWasteOrSewage || bType === 'coalPowerPlant')) s -= 35;
-    if (p.distanceToRoad <= 2) s += 15;
     if ((bType === 'wasteLandfill' || bType === 'wasteIncinerator') && hasNearbySensitivePlot(state.plots, p)) {
       s -= 40;
     }
@@ -554,8 +562,8 @@ function ensureUtilitiesSurvival(
         }
       }
 
-      // 2) Jeśli brak odpowiedniej własnej działki → kup najtańszą działkę dla TEGO priorytetu zanim zejdziesz do droższych/węglowych
-      if (ownedPlots.length < 32) {
+      // 2) Jeśli brak odpowiedniej własnej działki → kup najtańszą działkę (preferując te przylegające do drogi/HQ)
+      if (ownedPlots.length < 36) {
         const buildCost = getBuildingConstructionCost(bType, state, ai);
         const matchingPlots = state.plots
           .filter(
@@ -565,13 +573,13 @@ function ensureUtilitiesSurvival(
               p.terrain !== 'water' &&
               (p.irradiatedTicks ?? 0) <= 0 &&
               def.requiredTerrain.includes(p.terrain) &&
-              ai.cash >= p.price + buildCost
+              ai.cash >= p.price + buildCost + (hasRoadAccess(state, p, ai.id) ? 0 : 35_000)
           )
           .sort((a, b) => {
-            const adjA = ownedPlots.some((op) => Math.abs(op.gridX - a.gridX) + Math.abs(op.gridY - a.gridY) <= 2) ? 18 : 0;
-            const adjB = ownedPlots.some((op) => Math.abs(op.gridX - b.gridX) + Math.abs(op.gridY - b.gridY) <= 2) ? 18 : 0;
-            const scoreA = rankPlotForUtility(a, bType) + adjA - a.price / 8_000;
-            const scoreB = rankPlotForUtility(b, bType) + adjB - b.price / 8_000;
+            const adjOwnA = ownedPlots.some((op) => Math.abs(op.gridX - a.gridX) + Math.abs(op.gridY - a.gridY) <= 2) ? 24 : 0;
+            const adjOwnB = ownedPlots.some((op) => Math.abs(op.gridX - b.gridX) + Math.abs(op.gridY - b.gridY) <= 2) ? 24 : 0;
+            const scoreA = rankPlotForUtility(a, bType) + adjOwnA - a.price / 8_000;
+            const scoreB = rankPlotForUtility(b, bType) + adjOwnB - b.price / 8_000;
             return scoreB - scoreA;
           });
 
@@ -799,51 +807,256 @@ function researchTechAndSkills(
   }
 }
 
+const ROAD_DIRS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+];
+
+function findRoadPathFromDisconnectedPlot(
+  state: GameState,
+  targetPlot: Plot,
+  aiId: string
+): Plot[] {
+  const byCoord = new Map<string, Plot>();
+  let anyPassableOrHQ = false;
+  for (const p of state.plots) {
+    byCoord.set(`${p.gridX}_${p.gridY}`, p);
+    if (
+      isRoadPassableFor(p, aiId, state) ||
+      (p.ownerId === aiId && p.building && !p.building.destroyedRuins && p.building.type === 'corporateHQ')
+    ) {
+      anyPassableOrHQ = true;
+    }
+  }
+
+  // Gdy na mapie nie ma jeszcze żadnej drogi ani HQ — postaw drogę bezpośrednio obok obiektu
+  if (!anyPassableOrHQ) {
+    const directCandidates: Plot[] = [];
+    for (const [dx, dy] of ROAD_DIRS) {
+      const nb = byCoord.get(`${targetPlot.gridX + dx}_${targetPlot.gridY + dy}`);
+      if (
+        nb &&
+        nb.terrain !== 'water' &&
+        (nb.irradiatedTicks ?? 0) <= 0 &&
+        !nb.building &&
+        (nb.ownerId === aiId || (nb.ownerId === null && nb.purchasable))
+      ) {
+        directCandidates.push(nb);
+      }
+    }
+    directCandidates.sort((a, b) => (a.ownerId === aiId ? -1 : b.ownerId === aiId ? 1 : a.price - b.price));
+    return directCandidates[0] ? [directCandidates[0]] : [];
+  }
+
+  // BFS od sąsiednich pól budynku do najbliższej drogi lub HQ (preferuje własne działki i istniejące arterie)
+  interface SearchNode {
+    plot: Plot;
+    cost: number;
+  }
+  const dist = new Map<string, number>();
+  const parent = new Map<string, string | null>();
+  const plotById = new Map<string, Plot>();
+  const queue: SearchNode[] = [];
+
+  for (const [dx, dy] of ROAD_DIRS) {
+    const nb = byCoord.get(`${targetPlot.gridX + dx}_${targetPlot.gridY + dy}`);
+    if (!nb || nb.terrain === 'water' || (nb.irradiatedTicks ?? 0) > 0) continue;
+    plotById.set(nb.id, nb);
+    if (isRoadPassableFor(nb, aiId, state) || (nb.ownerId === aiId && nb.building?.type === 'corporateHQ')) {
+      return [];
+    }
+    if (nb.building) continue;
+    if (nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
+    const stepCost = nb.ownerId === aiId ? 1 : 2.2 + nb.price / 55_000;
+    dist.set(nb.id, stepCost);
+    parent.set(nb.id, null);
+    queue.push({ plot: nb, cost: stepCost });
+  }
+
+  let bestAnchorId: string | null = null;
+  let bestAnchorCost = Infinity;
+
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.cost - b.cost);
+    const cur = queue.shift()!;
+    if (cur.cost >= bestAnchorCost) break;
+
+    for (const [dx, dy] of ROAD_DIRS) {
+      const nb = byCoord.get(`${cur.plot.gridX + dx}_${cur.plot.gridY + dy}`);
+      if (!nb || nb.terrain === 'water' || (nb.irradiatedTicks ?? 0) > 0) continue;
+      plotById.set(nb.id, nb);
+
+      if (
+        isRoadPassableFor(nb, aiId, state) ||
+        (nb.ownerId === aiId && nb.building && !nb.building.destroyedRuins && nb.building.type === 'corporateHQ')
+      ) {
+        if (cur.cost < bestAnchorCost) {
+          bestAnchorCost = cur.cost;
+          bestAnchorId = cur.plot.id;
+        }
+        continue;
+      }
+
+      if (nb.building) continue;
+      if (nb.ownerId !== aiId && (nb.ownerId !== null || !nb.purchasable)) continue;
+
+      const stepCost = nb.ownerId === aiId ? 1 : 2.2 + nb.price / 55_000;
+      const nextCost = cur.cost + stepCost;
+      if (nextCost > 26) continue;
+      const prevBest = dist.get(nb.id);
+      if (prevBest === undefined || nextCost < prevBest) {
+        dist.set(nb.id, nextCost);
+        parent.set(nb.id, cur.plot.id);
+        queue.push({ plot: nb, cost: nextCost });
+      }
+    }
+  }
+
+  if (bestAnchorId) {
+    const chain: Plot[] = [];
+    let curId: string | null = bestAnchorId;
+    while (curId !== null) {
+      const p = plotById.get(curId);
+      if (p) chain.unshift(p);
+      curId = parent.get(curId) ?? null;
+    }
+    return chain;
+  }
+
+  // Fallback awaryjny: jeśli brak dojścia przez tereny rywali/wodę, postaw co najmniej 1 odcinek drogi tuż przy obiekcie
+  for (const [dx, dy] of ROAD_DIRS) {
+    const nb = byCoord.get(`${targetPlot.gridX + dx}_${targetPlot.gridY + dy}`);
+    if (
+      nb &&
+      nb.terrain !== 'water' &&
+      (nb.irradiatedTicks ?? 0) <= 0 &&
+      !nb.building &&
+      (nb.ownerId === aiId || (nb.ownerId === null && nb.purchasable))
+    ) {
+      return [nb];
+    }
+  }
+  return [];
+}
+
 function ensureContinuousRoads(
   state: GameState,
   ai: Player,
   difficulty: number,
   ownedPlots: Plot[],
   emptyOwned: Plot[],
-  cashReserve: number
+  cashReserve: number,
+  isPriorityPass = false
 ): void {
   const disconnectedPlots = ownedPlots.filter(
     (p) =>
       p.building &&
       !p.building.destroyedRuins &&
-      (p.building.status.noRoadLink || p.building.logisticsMode === 'isolated' || p.distanceToRoad > 1)
+      !isRoadExemptBuilding(p.building.type) &&
+      !hasRoadAccess(state, p, ai.id)
   );
 
-  // Połóż do 2 odcinków drogi łączących odizolowane zakłady z siecią miejską
-  if (disconnectedPlots.length > 0 && emptyOwned.length > 0 && ai.cash > 25_000) {
-    let builtSegs = 0;
-    const remainingEmpty = [...emptyOwned];
-    for (let step = 0; step < 2 && remainingEmpty.length > 0; step++) {
-      const target = disconnectedPlots[0];
-      let bestBridge: Plot | null = null;
-      let bestScore = -9999;
-      for (const ep of remainingEmpty) {
-        if (ep.distanceToRoad > 1) continue;
-        const distToTarget = Math.abs(ep.gridX - target.gridX) + Math.abs(ep.gridY - target.gridY);
-        const s = 100 - distToTarget * 10 - (ep.terrain === 'urban' ? 12 : 0);
-        if (s > bestScore) {
-          bestScore = s;
-          bestBridge = ep;
+  // Połóż do 3 odcinków drogi łączących odizolowane zakłady z najbliższą drogą lub HQ (kupuje działki przelotowe w razie potrzeby!)
+  if (disconnectedPlots.length > 0) {
+    // Priorytet: najpierw odblokuj elektrownie, stacje wody/ścieków/odpadów i kopalnie
+    const sortedTargets = [...disconnectedPlots].sort((a, b) => {
+      const bA = a.building!;
+      const bB = b.building!;
+      const utilA = bA.category === 'energy' || bA.category === 'waste' || bA.type === 'waterPlant' ? 1 : 0;
+      const utilB = bB.category === 'energy' || bB.category === 'waste' || bB.type === 'waterPlant' ? 1 : 0;
+      return utilB - utilA;
+    });
+
+    let segmentsBuilt = 0;
+    for (const target of sortedTargets.slice(0, 2)) {
+      if (segmentsBuilt >= 3) break;
+      const path = findRoadPathFromDisconnectedPlot(state, target, ai.id);
+      for (const stepPlot of path) {
+        if (segmentsBuilt >= 3) break;
+        if (stepPlot.hasRoad) continue;
+
+        const wantHighway =
+          !isPriorityPass &&
+          difficulty >= 3 &&
+          ai.cash - 85_000 >= cashReserve &&
+          (target.building?.category === 'mining' || target.building?.category === 'processing');
+        const roadClass: 'local' | 'highway' = wantHighway ? 'highway' : 'local';
+        const roadCost = getRoadBuildCostForPlot(state, ai, stepPlot, roadClass);
+        const totalStepCost = (stepPlot.ownerId === null ? stepPlot.price : 0) + roadCost;
+
+        if (
+          ai.cash < totalStepCost &&
+          !state.settings.mutators?.noLoans &&
+          ai.loans.length < 2 &&
+          ai.netWorth > 320_000
+        ) {
+          takeBankLoan(state, ai, 250_000, 12);
+        }
+        if (ai.cash < totalStepCost) break;
+
+        if (stepPlot.ownerId === null) {
+          const bought = buyPlotForPlayer(state, ai, stepPlot);
+          if (!bought.ok) break;
+        }
+        const r = buildPlayerRoadOnPlot(state, ai, stepPlot, roadClass);
+        if (!r.ok) break;
+        if (roadClass === 'highway') {
+          stepPlot.tollRate = difficulty >= 4 ? 'high' : 'standard';
+        }
+        segmentsBuilt++;
+      }
+    }
+    if (segmentsBuilt > 0) return;
+  }
+
+  if (isPriorityPass) return;
+
+  // Wybuduj startową arterię drogową wokół HQ / obiektów (żeby odblokować kolejne działki przylegające do drogi)
+  const ownedRoadsCount = ownedPlots.filter((p) => p.hasRoad).length;
+  const activeBuildingsCount = ownedPlots.filter((p) => p.building && !p.building.destroyedRuins).length;
+  if (ownedRoadsCount < 2 && activeBuildingsCount >= 2 && ai.cash > 45_000) {
+    const anchor =
+      ownedPlots.find((p) => p.building?.type === 'corporateHQ' && !p.building.destroyedRuins) ??
+      ownedPlots.find((p) => p.building && !p.building.destroyedRuins);
+    if (anchor) {
+      const roadCandidates: Plot[] = [];
+      for (const ep of emptyOwned) {
+        if (Math.abs(ep.gridX - anchor.gridX) + Math.abs(ep.gridY - anchor.gridY) <= 2) {
+          roadCandidates.push(ep);
         }
       }
-      if (!bestBridge) break;
-      const roadClass =
-        difficulty >= 3 && ai.cash - 75_000 >= cashReserve && target.building?.category === 'mining'
-          ? 'highway'
-          : 'local';
-      const r = buildPlayerRoadOnPlot(state, ai, bestBridge, roadClass);
-      if (!r.ok) break;
-      if (roadClass === 'highway') bestBridge.tollRate = difficulty >= 4 ? 'high' : 'standard';
-      builtSegs++;
-      const idx = remainingEmpty.findIndex((p) => p.id === bestBridge!.id);
-      if (idx !== -1) remainingEmpty.splice(idx, 1);
+      if (roadCandidates.length === 0 && ownedPlots.length < 34) {
+        for (const [dx, dy] of ROAD_DIRS) {
+          const nb = state.plots.find((p) => p.gridX === anchor.gridX + dx && p.gridY === anchor.gridY + dy);
+          if (
+            nb &&
+            nb.terrain !== 'water' &&
+            (nb.irradiatedTicks ?? 0) <= 0 &&
+            !nb.building &&
+            !nb.hasRoad &&
+            ((nb.ownerId === null && nb.purchasable) || nb.ownerId === ai.id)
+          ) {
+            roadCandidates.push(nb);
+          }
+        }
+      }
+      roadCandidates.sort((a, b) => (a.ownerId === ai.id ? -1 : b.ownerId === ai.id ? 1 : a.price - b.price));
+      const starter = roadCandidates[0];
+      if (starter) {
+        const roadCost = getRoadBuildCostForPlot(state, ai, starter, 'local');
+        const totalCost = (starter.ownerId === null ? starter.price : 0) + roadCost;
+        if (ai.cash >= totalCost + Math.min(40_000, cashReserve * 0.4)) {
+          if (starter.ownerId !== ai.id) {
+            buyPlotForPlayer(state, ai, starter);
+          }
+          if (starter.ownerId === ai.id) {
+            buildPlayerRoadOnPlot(state, ai, starter, 'local');
+          }
+        }
+      }
     }
-    if (builtSegs > 0) return;
   }
 
   // Na trudniejszym AI ulepsza kluczowe własne drogi przy kopalniach/fabrykach do autostrad
@@ -928,24 +1141,15 @@ function runGeologyAndExpansion(
     }
   }
 
-  // Zakup najbardziej perspektywicznej działki jeśli potrzebujemy miejsca, złoża albo SSE
-  const maxPlots = difficulty === 1 ? 10 : difficulty === 2 ? 16 : difficulty === 3 ? 22 : 28;
+  // Zakup najbardziej perspektywicznej działki jeśli potrzebujemy miejsca lub złoża
+  const maxPlots = difficulty === 1 ? 12 : difficulty === 2 ? 18 : difficulty === 3 ? 24 : 32;
   const hasRichUnbuiltDeposit = emptyOwned.some(
     (p) => hasPlayerDiscoveredPlot(p, ai.id, ai, state) && p.deposits.length > 0
   );
-  const sseOpportunity =
-    difficulty >= 3 &&
-    state.plots.some(
-      (p) =>
-        p.isSseZone &&
-        p.purchasable &&
-        p.ownerId === null &&
-        ai.cash - p.price >= cashReserve
-    );
 
   if (
     ownedPlots.length < maxPlots &&
-    (emptyOwned.length < 2 || !hasRichUnbuiltDeposit || sseOpportunity) &&
+    (emptyOwned.length < 2 || !hasRichUnbuiltDeposit) &&
     ai.cash > cashReserve + 90_000
   ) {
     const candidate = pickBestPlotForAI(state, ai, difficulty, strategy, ownedPlots, cashReserve);
@@ -990,15 +1194,13 @@ function pickBestPlotForAI(
     const p = candidates[i];
     let score = 0;
 
-    if (p.distanceToRoad <= 1) score += 28;
-    else if (p.distanceToRoad <= 2) score += 14;
+    const roadAdjacent = hasRoadAccess(state, p, ai.id);
+    if (roadAdjacent) score += 85;
+    else if (p.distanceToRoad <= 1) score += 38;
+    else if (p.distanceToRoad <= 2) score += 16;
+    else score -= 18;
     if (p.hasElectricity) score += 12;
     if (p.hasWater) score += 10;
-
-    // Złota Strefa SSE 0%
-    if (p.isSseZone) {
-      score += difficulty >= 3 ? 115 : 55;
-    }
 
     // Odkryte złoża surowców (zwłaszcza cenne jak złoto, diamenty, uran, lit)
     const discovered = hasPlayerDiscoveredPlot(p, ai.id, ai, state);
@@ -1009,6 +1211,9 @@ function pickBestPlotForAI(
         else depBonus += 18;
       }
       score += depBonus;
+    } else if (!roadAdjacent && p.price + 60_000 > maxSpend * 0.72) {
+      // Jeśli brak dostępu do drogi i brak złoża, a budżet ledwo wystarcza — unikaj bezdroży
+      score -= 35;
     } else if (
       (strategy === 'industrialist' || strategy === 'supplyChain' || strategy === 'energyMagnate') &&
       (p.terrain === 'mountain' || p.terrain === 'desert')
@@ -1265,11 +1470,6 @@ function evaluateAndBuildBestStructure(
         }
       }
 
-      // Złota Strefa SSE 0% dla dochodowych struktur
-      if (plot.isSseZone && estNetTick > 500) {
-        totalScore += difficulty >= 3 ? 78 : 30;
-      }
-
       // Unikaj stawiania smogu/składowisk przy mieszkaniach i hotelach
       if (SMOG_EMITTING_TYPES.has(bType) && hasNearbySensitivePlot(state.plots, plot)) {
         totalScore -= 70;
@@ -1278,8 +1478,14 @@ function evaluateAndBuildBestStructure(
         totalScore += 14;
       }
 
-      // Dostęp do mediów i drogi
-      if (plot.distanceToRoad <= 1) totalScore += 14;
+      // Dostęp do drogi jest kluczowy do zarabiania — premiuj działki przy drodze/HQ lub rezerwuj budżet na drogę
+      const plotRoadReady = isRoadExemptBuilding(bType) || hasRoadAccess(state, plot, ai.id);
+      if (plotRoadReady) {
+        totalScore += 65;
+      } else {
+        if (ai.cash - buildCost < cashReserve + 55_000) continue;
+        totalScore -= 28;
+      }
       if (plot.hasElectricity) totalScore += 8;
       if (plot.hasWater) totalScore += 8;
 
@@ -1316,8 +1522,7 @@ function handleDiplomacyMarketAndAuctions(
     if (aucPlot) {
       const estValue =
         aucPlot.price +
-        (aucPlot.building ? BUILDING_DEFINITIONS[aucPlot.building.type].baseCost * 0.9 : 0) +
-        (aucPlot.isSseZone ? 250_000 : 0);
+        (aucPlot.building ? BUILDING_DEFINITIONS[aucPlot.building.type].baseCost * 0.9 : 0);
       const wtpMult = difficulty >= 4 ? 1.18 : difficulty === 3 ? 1.0 : 0.85;
       const nextBid = auc.currentBid + auc.minIncrement;
       if (nextBid <= estValue * wtpMult && ai.cash - nextBid >= cashReserve) {
