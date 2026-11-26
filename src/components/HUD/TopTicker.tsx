@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CORPORATION_LEVELS,
   GAME_CONFIG,
@@ -85,6 +86,24 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     const [showMarketModal, setShowMarketModal] = useState(false);
     const [showGoalsPopover, setShowGoalsPopover] = useState(false);
     const [showAuctionPopover, setShowAuctionPopover] = useState(false);
+
+    useEffect(() => {
+      if (!showMarketModal && !showGoalsPopover && !showAuctionPopover) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          if (showMarketModal) {
+            e.stopPropagation();
+            setShowMarketModal(false);
+          } else if (showAuctionPopover) {
+            setShowAuctionPopover(false);
+          } else if (showGoalsPopover) {
+            setShowGoalsPopover(false);
+          }
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown, true);
+      return () => window.removeEventListener('keydown', handleKeyDown, true);
+    }, [showMarketModal, showGoalsPopover, showAuctionPopover]);
 
     const secretGoals = currentPlayer.secretGoals ?? [];
     const doneGoalsCount = secretGoals.filter((g) => g.completed).length;
@@ -722,9 +741,13 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
         <div className="px-2 py-1 flex items-center gap-1.5 bg-[#0e1420]">
           <button
             type="button"
-            onClick={() => setShowMarketModal(true)}
-            className="px-2.5 py-1 rounded bg-sky-950/60 hover:bg-sky-900/70 border border-sky-500/45 text-[11px] font-semibold text-sky-200 shrink-0 whitespace-nowrap"
-            title="Otwórz pełną tabelę wszystkich surowców, cykle koniunkturalne i przypnij ulubione"
+            onClick={() => setShowMarketModal((v) => !v)}
+            className={`px-2.5 py-1 rounded border text-[11px] font-semibold shrink-0 whitespace-nowrap transition-colors ${
+              showMarketModal
+                ? 'bg-sky-600/35 border-sky-400 text-white'
+                : 'bg-sky-950/60 hover:bg-sky-900/70 border-sky-500/45 text-sky-200'
+            }`}
+            title="Otwórz lub zamknij pełną tabelę wszystkich surowców, cykle koniunkturalne i przypnij ulubione"
           >
             📈 Pełny Rynek & Indeksy
           </button>
@@ -761,27 +784,35 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
           </div>
         </div>
 
-        {/* Pełny Modal Rynku i Cykli Sektorowych */}
-        {showMarketModal && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-2 md:p-6">
-            <div className="w-full max-w-5xl max-h-[90vh] rounded-2xl bg-[#0e1420] border border-[#2d3b52] shadow-2xl flex flex-col overflow-hidden">
-              <div className="px-4 py-3 bg-[#0b0f17] border-b border-[#243044] flex items-center justify-between">
-                <div>
-                  <h3 className="text-base md:text-lg font-extrabold text-white">
-                    📈 Giełda Surowców & Indeksy Koniunkturalne
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Śledź fazy Hossa / Korekta / Bańka / Krach i przypinaj wybrane towary (★) na górny pasek
-                  </p>
+        {/* Pełny Modal Rynku i Cykli Sektorowych (renderowany przez Portal poza backdrop-filter nagłówka) */}
+        {showMarketModal &&
+          typeof document !== 'undefined' &&
+          createPortal(
+            <div
+              className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setShowMarketModal(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-5xl max-h-[85vh] rounded-2xl bg-[#0e1420] border border-[#2d3b52] shadow-2xl flex flex-col overflow-hidden"
+              >
+                <div className="sticky top-0 z-10 shrink-0 px-4 py-3 bg-[#0b0f17] border-b border-[#243044] flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base md:text-lg font-extrabold text-white">
+                      📈 Pełny Rynek & Indeksy
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Śledź fazy Hossa / Korekta / Bańka / Krach i przypinaj wybrane towary (★) na górny pasek
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowMarketModal(false)}
+                    className="px-3 py-1.5 rounded-lg bg-[#1a2438] hover:bg-[#25334f] border border-[#2d3b52] text-xs font-semibold text-slate-200 hover:text-white shrink-0"
+                  >
+                    ✕ Zamknij
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowMarketModal(false)}
-                  className="px-3 py-1.5 rounded-lg bg-[#1a2438] text-xs text-slate-200 hover:text-white"
-                >
-                  ✕ Zamknij
-                </button>
-              </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-5">
                 {/* Indeksy sektorowe */}
@@ -894,7 +925,8 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </header>
     );
