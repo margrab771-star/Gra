@@ -153,7 +153,12 @@ export type BuildingType =
   | 'dataCenter'
   | 'biotechLab'
   | 'verticalFarm'
-  | 'compositeShipyard';
+  | 'compositeShipyard'
+  // Rozbudowa Ścieki i Odpady
+  | 'wasteLandfill'
+  | 'bioSewagePlant'
+  | 'closedLoopSewagePlant'
+  | 'plasmaGasificationPlant';
 
 export type ArchetypeId =
   | 'standard'

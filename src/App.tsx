@@ -471,6 +471,7 @@ export function App() {
         onOpenOffersModal={() => actions.setActiveModal('contracts')}
         onOpenInfluenceModal={() => actions.setActiveModal('influence')}
         onPlaceAuctionBid={actions.placeAuctionBid}
+        onFocusPlot={actions.focusPlot}
         onOpenTutorial={() => actions.setShowTutorialModal(true)}
         onSetSpeed={actions.setSpeed}
         onRequestSpeed={actions.requestSpeedChange}

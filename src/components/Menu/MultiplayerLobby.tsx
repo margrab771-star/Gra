@@ -8,6 +8,16 @@ import {
   PLAYER_COLORS,
   SCENARIO_DEFINITIONS,
 } from '../../config/gameConfig';
+import {
+  getAiDifficultyTooltip,
+  getArchetypeTooltip,
+  getDifficultyPresetTooltip,
+  getDisastersTooltip,
+  getMapSizeTooltip,
+  getScenarioTooltip,
+  getTempoTooltip,
+  getVictoryTooltip,
+} from '../../config/lobbyTooltips';
 import { ACHIEVEMENTS, TITLES_CATALOG } from '../../data/achievements';
 import { ARCHETYPE_LIST, getArchetypeDefinition } from '../../data/archetypes';
 import { toPlayerCard } from '../../engine/profileManager';
@@ -29,6 +39,7 @@ import {
 } from '../../network/multiplayerManager';
 import type { ConnectionStage, P2PReadinessReport } from '../../network/multiplayerManager';
 import { DarkToggle } from '../HUD/DarkControls';
+import { InfoTooltip } from '../HUD/InfoTooltip';
 
 interface MultiplayerLobbyProps {
   activeProfile: UserAccountProfile;
@@ -127,7 +138,6 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     setError(null);
     try {
       await onCreateRoom(playerName, companyName, color, {
-        archetype,
         playerCard: localPlayerCard,
       });
     } catch (e) {
@@ -148,7 +158,6 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     setError(null);
     try {
       await onJoinRoom(clean, playerName, companyName, color, {
-        archetype,
         playerCard: localPlayerCard,
       });
     } catch (e) {
@@ -226,7 +235,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="text-slate-400 block mb-1">Tempo Rozgrywki</label>
+                <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+                  <span>Tempo Rozgrywki</span>
+                  <InfoTooltip {...getTempoTooltip(lobbyState.mode)} />
+                </label>
                 <select
                   disabled={!isHost}
                   value={lobbyState.mode}
@@ -242,7 +254,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 </select>
               </div>
               <div>
-                <label className="text-slate-400 block mb-1">Rozmiar Mapy</label>
+                <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+                  <span>Rozmiar Mapy</span>
+                  <InfoTooltip {...getMapSizeTooltip(lobbyState.mapSize)} />
+                </label>
                 <select
                   disabled={!isHost}
                   value={lobbyState.mapSize}
@@ -259,7 +274,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 </select>
               </div>
               <div>
-                <label className="text-slate-400 block mb-1">Poziom Botów AI</label>
+                <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+                  <span>Poziom Botów AI</span>
+                  <InfoTooltip {...getAiDifficultyTooltip(lobbyState.aiDifficulty)} />
+                </label>
                 <select
                   disabled={!isHost}
                   value={lobbyState.aiDifficulty}
@@ -279,7 +297,12 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
               <div>
-                <label className="text-slate-400 block mb-1">⚖️ Trudność Gospodarki PvP</label>
+                <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+                  <span>⚖️ Trudność Gospodarki PvP</span>
+                  <InfoTooltip
+                    {...getDifficultyPresetTooltip(lobbyState.difficultyPreset ?? 'standard')}
+                  />
+                </label>
                 <select
                   disabled={!isHost}
                   value={lobbyState.difficultyPreset ?? 'standard'}
@@ -298,7 +321,10 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 </select>
               </div>
               <div>
-                <label className="text-slate-400 block mb-1">🎬 Scenariusz Lobby</label>
+                <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+                  <span>🎬 Scenariusz Lobby</span>
+                  <InfoTooltip {...getScenarioTooltip(lobbyState.scenarioId ?? 'sandbox')} />
+                </label>
                 <select
                   disabled={!isHost}
                   value={lobbyState.scenarioId ?? 'sandbox'}
@@ -319,17 +345,23 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
-              <div className={!isHost ? 'opacity-70 pointer-events-none' : ''}>
-                <DarkToggle
-                  checked={lobbyState.disastersEnabled ?? true}
-                  onChange={(val) =>
-                    multiplayerManager.updateLobbySettings({ disastersEnabled: val })
-                  }
-                  label="Katastrofy naturalne (trzęsienia, powodzie, burze)"
-                />
+              <div className="flex items-start justify-between gap-2">
+                <div className={!isHost ? 'opacity-70 pointer-events-none flex-1' : 'flex-1'}>
+                  <DarkToggle
+                    checked={lobbyState.disastersEnabled ?? true}
+                    onChange={(val) =>
+                      multiplayerManager.updateLobbySettings({ disastersEnabled: val })
+                    }
+                    label="Katastrofy naturalne"
+                  />
+                </div>
+                <InfoTooltip {...getDisastersTooltip(lobbyState.disastersEnabled ?? true)} />
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-400">Warunek zwycięstwa:</span>
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span>Warunek zwycięstwa:</span>
+                  <InfoTooltip {...getVictoryTooltip(lobbyState.victoryMode ?? 'solo')} />
+                </span>
                 <select
                   disabled={!isHost}
                   value={lobbyState.victoryMode ?? 'solo'}
@@ -390,29 +422,6 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   })}
                 </div>
               )}
-            </div>
-
-            {/* Wybór własnego Archetypu Korporacji na żywo w pokoju */}
-            <div className="pt-2 border-t border-[#1e293b] flex flex-wrap items-center justify-between gap-2">
-              <span className="text-slate-300 font-semibold">🧬 Twój Archetyp Korporacji:</span>
-              <select
-                value={archetype}
-                onChange={(e) => {
-                  const nextArch = e.target.value as ArchetypeId;
-                  setArchetype(nextArch);
-                  multiplayerManager.updateLocalLobbyProfile({
-                    archetype: nextArch,
-                    playerCard: localPlayerCard,
-                  });
-                }}
-                className="bg-[#151c28] border border-amber-500/40 rounded px-2.5 py-1.5 text-amber-200 font-semibold"
-              >
-                {ARCHETYPE_LIST.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.icon} {a.name}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
 
@@ -530,6 +539,52 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
           </div>
 
+          {/* Pasek wyboru własnego Archetypu Korporacji (nad Gotowy / Start) */}
+          {!lobbyState.gameStarted && (() => {
+            const myLobbyEntry = lobbyState.players.find((pl) => pl.id === localPlayerId);
+            const activeArch = myLobbyEntry?.archetype ?? archetype;
+            const archLocked = !isHost && guestReady;
+            const archDef = getArchetypeDefinition(activeArch);
+
+            return (
+              <div className="p-3 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-slate-200 font-semibold flex items-center gap-1.5">
+                    <span>🧬 Twój Archetyp Korporacji</span>
+                    <InfoTooltip {...getArchetypeTooltip(activeArch)} />
+                  </label>
+                  <select
+                    disabled={archLocked}
+                    value={activeArch}
+                    onChange={(e) => {
+                      const nextArch = e.target.value as ArchetypeId;
+                      setArchetype(nextArch);
+                      multiplayerManager.updateLocalLobbyProfile({
+                        archetype: nextArch,
+                        playerCard: localPlayerCard,
+                      });
+                    }}
+                    className="bg-[#151c28] border border-amber-500/45 rounded px-2.5 py-1.5 text-amber-200 font-semibold disabled:opacity-55"
+                  >
+                    {ARCHETYPE_LIST.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.icon} {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <span>{archDef.tagline}</span>
+                  {archLocked && (
+                    <span className="text-amber-300 font-medium">
+                      🔒 Zablokowany po kliknięciu „Gotowy”
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {!isHost ? (
             <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-2">
               <div className="text-xs text-slate-400">
@@ -550,9 +605,11 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                   type="button"
                   onClick={() => {
                     const next = !guestReady;
+                    const myEntry = lobbyState.players.find((pl) => pl.id === localPlayerId);
+                    const syncedArch = myEntry?.archetype ?? archetype;
                     setGuestReady(next);
                     multiplayerManager.sendGuestReady(next, playerName, companyName, color, {
-                      archetype,
+                      archetype: syncedArch,
                       playerCard: localPlayerCard,
                     });
                   }}
@@ -682,21 +739,6 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 />
               ))}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-slate-400 mb-1.5">🧬 Archetyp Korporacji</label>
-            <select
-              value={archetype}
-              onChange={(e) => setArchetype(e.target.value as ArchetypeId)}
-              className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
-            >
-              {ARCHETYPE_LIST.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.icon} {a.name} — {a.tagline}
-                </option>
-              ))}
-            </select>
           </div>
 
           {modeView === 'join' && (

@@ -38,6 +38,7 @@ interface TopTickerProps {
   onOpenOffersModal: () => void;
   onOpenInfluenceModal?: () => void;
   onPlaceAuctionBid?: (auctionId: string, bidAmount: number) => void;
+  onFocusPlot?: (plotId: string) => void;
   onOpenTutorial?: () => void;
   onSetSpeed: (speed: GameSpeed) => void;
   onRequestSpeed: (speed: GameSpeed) => void;
@@ -71,6 +72,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     onOpenOffersModal,
     onOpenInfluenceModal,
     onPlaceAuctionBid,
+    onFocusPlot,
     onOpenTutorial,
     onSetSpeed,
     onRequestSpeed,
@@ -82,11 +84,12 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
   }) => {
     const [showMarketModal, setShowMarketModal] = useState(false);
     const [showGoalsPopover, setShowGoalsPopover] = useState(false);
+    const [showAuctionPopover, setShowAuctionPopover] = useState(false);
 
     const secretGoals = currentPlayer.secretGoals ?? [];
     const doneGoalsCount = secretGoals.filter((g) => g.completed).length;
     const govCfg = GOVERNMENT_CONFIGS[gameState.government?.currentGov ?? 'free_market'];
-    const liveAuction = gameState.liveAuction;
+    const liveAuction = gameState.liveAuction?.status === 'active' ? gameState.liveAuction : null;
 
     const showCountdown =
       (gameState.settings.mode === 'challenge1h' || gameState.settings.mode === 'mp_fast') &&
@@ -224,7 +227,10 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               {secretGoals.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setShowGoalsPopover((v) => !v)}
+                  onClick={() => {
+                    setShowAuctionPopover(false);
+                    setShowGoalsPopover((v) => !v);
+                  }}
                   className={`px-2 py-1 rounded border text-[11px] font-semibold shrink-0 transition-colors ${
                     doneGoalsCount === secretGoals.length
                       ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
@@ -233,6 +239,25 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   title="Tajne Cele Osobiste (ukryte przed konkurencją)"
                 >
                   🎯 Cele {doneGoalsCount}/{secretGoals.length}
+                </button>
+              )}
+
+              {liveAuction && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowGoalsPopover(false);
+                    setShowAuctionPopover((v) => !v);
+                  }}
+                  className={`px-2 py-1 rounded border text-[11px] font-mono font-semibold shrink-0 transition-colors flex items-center gap-1 ${
+                    showAuctionPopover
+                      ? 'bg-amber-500/30 border-amber-300 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.45)]'
+                      : 'bg-amber-500/15 border-amber-400/60 hover:bg-amber-500/25 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.3)] animate-pulse'
+                  }`}
+                  title={`Licytacja na żywo: ${liveAuction.title} — kliknij, aby licytować lub zobaczyć działkę na mapie`}
+                >
+                  <span>🔨</span>
+                  <span>{liveAuction.secondsRemaining}s</span>
                 </button>
               )}
 
@@ -406,36 +431,80 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
           </div>
         )}
 
-        {/* Pasek 30-sekundowej Licytacji Komorniczej Na Żywo */}
-        {liveAuction && (
-          <div className="px-3 py-1.5 bg-gradient-to-r from-amber-950/80 via-[#151c28] to-amber-950/80 border-b border-amber-400/55 text-xs flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-mono text-[10px] font-extrabold uppercase shrink-0">
-                🔨 LICYTACJA NA ŻYWO · {liveAuction.secondsRemaining}s
-              </span>
-              <span className="font-semibold text-white truncate">{liveAuction.title}</span>
-              <span className="text-slate-300 font-mono shrink-0">
-                Najwyższa: <strong className="text-emerald-300">{formatMoney(liveAuction.currentBid)}</strong> (
-                {liveAuction.highestBidderName ?? 'Cena wywoławcza'})
-              </span>
+        {/* Pływająca karta 30-sekundowej Licytacji Komorniczej Na Żywo */}
+        {showAuctionPopover && liveAuction && (
+          <div className="absolute left-3 md:left-80 top-12 z-40 w-[345px] max-w-[calc(100vw-24px)] rounded-xl bg-[#0e1522] border border-amber-400/65 shadow-2xl p-3.5 space-y-2.5 animate-fadeIn">
+            <div className="flex items-start justify-between gap-2 border-b border-[#243044] pb-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-mono text-[10px] font-extrabold uppercase">
+                    🔨 LICYTACJA · {liveAuction.secondsRemaining}s
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    ({liveAuction.gridX}, {liveAuction.gridY})
+                  </span>
+                </div>
+                <div className="font-bold text-sm text-white mt-1 truncate">{liveAuction.title}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAuctionPopover(false)}
+                className="text-slate-400 hover:text-white text-xs shrink-0"
+              >
+                ✕
+              </button>
             </div>
+
+            {liveAuction.description && (
+              <div className="text-[11px] text-slate-300 leading-snug">{liveAuction.description}</div>
+            )}
+
+            <div className="p-2.5 rounded-lg bg-[#131b2b] border border-[#243044] flex items-center justify-between gap-2 text-xs">
+              <div>
+                <div className="text-[10px] text-slate-400 uppercase">Aktualna oferta</div>
+                <div className="font-mono font-bold text-emerald-300 text-sm">
+                  {formatMoney(liveAuction.currentBid)}
+                </div>
+              </div>
+              <div className="text-right min-w-0">
+                <div className="text-[10px] text-slate-400 uppercase">Prowadzi</div>
+                <div className="font-semibold text-amber-200 truncate max-w-[140px]">
+                  {liveAuction.highestBidderName ?? 'Cena wywoławcza'}
+                </div>
+              </div>
+            </div>
+
             {onPlaceAuctionBid && (
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="grid grid-cols-3 gap-1.5">
                 {[25_000, 100_000, 250_000].map((inc) => {
                   const bidAmt = liveAuction.currentBid + inc;
+                  const label = inc === 25_000 ? '+25 tys.' : inc === 100_000 ? '+100 tys.' : '+250 tys.';
                   return (
                     <button
                       key={inc}
                       type="button"
                       disabled={currentPlayer.cash < bidAmt}
                       onClick={() => onPlaceAuctionBid(liveAuction.id, bidAmt)}
-                      className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-mono font-bold text-[11px]"
+                      className="py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-mono font-bold text-xs transition-colors"
                     >
-                      +{formatCompactMoney(inc).replace(' zł', '')}
+                      {label}
                     </button>
                   );
                 })}
               </div>
+            )}
+
+            {onFocusPlot && (
+              <button
+                type="button"
+                onClick={() => {
+                  onFocusPlot(liveAuction.plotId);
+                  setShowAuctionPopover(false);
+                }}
+                className="w-full py-1.5 px-3 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-sky-500/45 text-sky-200 text-xs font-semibold transition-colors"
+              >
+                📍 Pokaż na mapie
+              </button>
             )}
           </div>
         )}

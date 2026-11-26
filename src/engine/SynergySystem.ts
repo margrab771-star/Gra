@@ -212,11 +212,15 @@ export function evaluateSynergyForPlotAndType(
         parkCount++;
       }
 
-      // 6. Konflikty sąsiedztwa (Smog i Hałas)
+      // 6. Konflikty sąsiedztwa (Smog, Zapach Składowiska i Hałas)
       if (SMOG_SENSITIVE_TYPES.has(targetType) && HEAVY_SMOG_TYPES.has(ot)) {
         const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
         const rawPen = dist <= 1.5 ? 16 : 11;
         smogPenalty += Math.round(rawPen * (hasFilter ? 0.35 : 1));
+      } else if (SMOG_SENSITIVE_TYPES.has(targetType) && ot === 'wasteLandfill') {
+        const hasFilter = ob.techTree.some((t) => t.status === 'done' && t.effects.cleanFilter);
+        const rawPen = dist <= 1.5 ? 9 : 6;
+        smogPenalty += Math.round(rawPen * (hasFilter ? 0.45 : 1));
       }
     }
   }

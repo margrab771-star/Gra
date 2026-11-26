@@ -108,6 +108,18 @@ export class BuildingRenderer {
       case 'recyclingPlant':
         this.drawRecyclingPlant(ctx, scale);
         break;
+      case 'wasteLandfill':
+        this.drawWasteLandfill(ctx, scale, building.level + visualTier);
+        break;
+      case 'bioSewagePlant':
+        this.drawBioSewagePlant(ctx, scale, building.level + visualTier);
+        break;
+      case 'closedLoopSewagePlant':
+        this.drawClosedLoopSewagePlant(ctx, scale, building.level + visualTier);
+        break;
+      case 'plasmaGasificationPlant':
+        this.drawPlasmaGasificationPlant(ctx, scale, building.level + visualTier);
+        break;
       case 'uraniumEnrichment':
         this.drawUraniumEnrichment(ctx, scale);
         break;
@@ -1404,6 +1416,76 @@ export class BuildingRenderer {
     ctx.stroke();
     ctx.fillStyle = pal.accent;
     ctx.fillRect(-4 * scale, -4 * scale, 12 * scale, 4 * scale);
+  }
+
+  private drawWasteLandfill(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    // Ziemne nasypy + niska hala sortowni + żółta ładowarka
+    this.drawIsoBox(ctx, -3 * scale, 2 * scale, 22 * scale, 16 * scale, 4 * scale, '#78716c', '#57534e');
+    const moundH = Math.min(11, 5 + level * 1.1) * scale;
+    this.drawIsoBox(ctx, -4 * scale, -2 * scale, 10 * scale, 8 * scale, moundH, '#a8a29e', '#78716c');
+    this.drawIsoBox(ctx, 6 * scale, 0, 9 * scale, 8 * scale, 8 * scale, '#94a3b8', '#475569');
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(-1 * scale, -2 * scale, 4 * scale, 2.5 * scale);
+  }
+
+  private drawBioSewagePlant(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
+    // Zielona podstawa biologiczna + podwójne baseny napowietrzania + kopuły biofiltrów
+    this.drawIsoBox(ctx, 0, 2 * scale, 22 * scale, 16 * scale, 4 * scale, '#065f46', '#064e3b');
+    for (const [cx, cy] of [
+      [-5, -2],
+      [4, 2],
+    ]) {
+      ctx.fillStyle = '#0d9488';
+      ctx.beginPath();
+      ctx.ellipse(cx * scale, cy * scale, 5.2 * scale, 3.1 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#6ee7b7';
+      ctx.lineWidth = 0.9 * scale;
+      ctx.stroke();
+    }
+    const tankH = (7 + Math.min(4, level)) * scale;
+    this.drawIsoBox(ctx, 6 * scale, -5 * scale, 7 * scale, 7 * scale, tankH, '#34d399', '#059669');
+  }
+
+  private drawClosedLoopSewagePlant(
+    ctx: CanvasRenderingContext2D,
+    scale: number,
+    level: number
+  ): void {
+    // Szklano-stalowy budynek membranowy + dwie wysokie wieże odwróconej osmozy + mostek wodny
+    const h = (11 + Math.min(5, level)) * scale;
+    this.drawIsoBox(ctx, -3 * scale, 2 * scale, 18 * scale, 15 * scale, h * 0.72, '#0f766e', '#115e59');
+    this.drawIsoBox(ctx, 6 * scale, -1 * scale, 6 * scale, 6 * scale, h + 4 * scale, '#e0f2fe', '#38bdf8');
+    this.drawIsoBox(ctx, -7 * scale, -2 * scale, 5 * scale, 5 * scale, h + 2 * scale, '#bae6fd', '#0284c7');
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.6 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-7 * scale, -(h - 2) * scale);
+    ctx.lineTo(6 * scale, -(h - 2) * scale);
+    ctx.stroke();
+  }
+
+  private drawPlasmaGasificationPlant(
+    ctx: CanvasRenderingContext2D,
+    scale: number,
+    level: number
+  ): void {
+    // Obsydianowa hala zero-waste + reaktory łuku plazmowego + świecący rdzeń energetyczny
+    const h = (13 + Math.min(6, level)) * scale;
+    this.drawIsoBox(ctx, 0, 2 * scale, 22 * scale, 16 * scale, 10 * scale, '#1e293b', '#0f172a');
+    this.drawIsoBox(ctx, -5 * scale, -3 * scale, 6 * scale, 6 * scale, h, '#334155', '#1e293b');
+    this.drawIsoBox(ctx, 5 * scale, -3 * scale, 6 * scale, 6 * scale, h, '#334155', '#1e293b');
+    const pulse = Math.floor(this.frameCount / 5) % 2 === 0;
+    ctx.strokeStyle = pulse ? '#38bdf8' : '#c084fc';
+    ctx.lineWidth = 1.8 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-5 * scale, -h * 0.85);
+    ctx.lineTo(5 * scale, -h * 0.85);
+    ctx.stroke();
+    ctx.fillStyle = pulse ? '#7dd3fc' : '#e879f9';
+    ctx.beginPath();
+    ctx.arc(0, -h * 0.85, 2.5 * scale, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawStatusIcons(ctx: CanvasRenderingContext2D, scale: number, building: Building): void {

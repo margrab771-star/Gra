@@ -1277,6 +1277,11 @@ export class MultiplayerManager {
       }
     } else if (this.hostConn?.open) {
       const me = this.lobby.players.find((p) => p.id === this.localPlayerId);
+      if (me) {
+        if (opts.archetype) me.archetype = opts.archetype;
+        if (opts.playerCard) me.playerCard = opts.playerCard;
+        this.callbacks.onLobbyChange?.({ ...this.lobby, players: [...this.lobby.players] });
+      }
       this.hostConn.send({
         kind: 'player_ready',
         playerId: this.localPlayerId,

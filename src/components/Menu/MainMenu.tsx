@@ -260,8 +260,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
         <div className="pt-3 border-t border-[#1e293b] grid grid-cols-3 gap-2 text-center text-[11px] text-slate-400">
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">77 Struktur</div>
-            <div>Synergie · Pasażerowie · OZE</div>
+            <div className="font-bold text-slate-200">81 Struktur</div>
+            <div>Synergie · Odpady · OZE</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
             <div className="font-bold text-slate-200">6 Archetypów</div>

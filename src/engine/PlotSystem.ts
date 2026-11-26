@@ -322,13 +322,19 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
       !p.building.destroyedRuins &&
       (p.building.category === 'energy' ||
         p.building.type === 'copperCablePlant' ||
-        p.building.type === 'wasteIncinerator')
+        p.building.type === 'wasteIncinerator' ||
+        p.building.type === 'plasmaGasificationPlant')
   );
   const waterSources = plots.filter(
     (p) =>
       p.terrain === 'water' ||
       p.terrain === 'coastal' ||
-      (p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'waterPlant')
+      (p.building &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        (p.building.type === 'waterPlant' ||
+          p.building.type === 'bioSewagePlant' ||
+          p.building.type === 'closedLoopSewagePlant'))
   );
   const heavyIndustry = plots.filter(
     (p) =>
@@ -342,6 +348,7 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
         p.building.type === 'coalPowerPlant' ||
         p.building.type === 'gasPowerPlant' ||
         p.building.type === 'wasteIncinerator' ||
+        p.building.type === 'wasteLandfill' ||
         p.building.type === 'uraniumEnrichment' ||
         p.building.type === 'batteryFactory')
   );
@@ -434,8 +441,9 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
           (hp.building.activeHazard.kind === 'chemical_leak' ||
             hp.building.activeHazard.kind === 'radiation') &&
           !hp.building.activeHazard.contained;
+        const baseWeight = hp.building?.type === 'wasteLandfill' ? 5.5 : 10;
         const factor = hazmatLeak ? 1.8 : hasCleanFilter ? 0.2 : 1.0;
-        penalty += Math.round((4.0 - d) * 10 * factor);
+        penalty += Math.round((4.0 - d) * baseWeight * factor);
       }
     }
     let parkMitigation = 0;

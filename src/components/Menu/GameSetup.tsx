@@ -8,6 +8,16 @@ import {
   PLAYER_COLORS,
   SCENARIO_DEFINITIONS,
 } from '../../config/gameConfig';
+import {
+  getAiDifficultyTooltip,
+  getArchetypeTooltip,
+  getDifficultyPresetTooltip,
+  getDisastersTooltip,
+  getMapSizeTooltip,
+  getScenarioTooltip,
+  getTempoTooltip,
+  getVictoryTooltip,
+} from '../../config/lobbyTooltips';
 import { ARCHETYPE_LIST } from '../../data/archetypes';
 import type {
   ArchetypeId,
@@ -18,6 +28,7 @@ import type {
   ScenarioId,
 } from '../../engine/types';
 import { DarkToggle } from '../HUD/DarkControls';
+import { InfoTooltip } from '../HUD/InfoTooltip';
 
 interface GameSetupProps {
   defaultPlayerName?: string;
@@ -119,35 +130,41 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
         </div>
 
         {/* Wybór trybu */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setMode('challenge1h')}
-            className={`p-3.5 rounded-xl border text-left transition-all ${
-              mode === 'challenge1h'
-                ? 'bg-emerald-950/35 border-emerald-400 text-white'
-                : 'bg-[#0b0f17] border-[#243044] text-slate-400'
-            }`}
-          >
-            <div className="font-bold text-sm">⏱️ Wyzwanie 1-Godzinne</div>
-            <div className="text-xs opacity-80 mt-1">
-              60 minut na maksymalizację wyceny netto i wpis do Światowej Tabeli Wyników (po czasie możesz grać dalej!).
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('endless')}
-            className={`p-3.5 rounded-xl border text-left transition-all ${
-              mode === 'endless'
-                ? 'bg-amber-950/35 border-amber-400 text-white'
-                : 'bg-[#0b0f17] border-[#243044] text-slate-400'
-            }`}
-          >
-            <div className="font-bold text-sm">♾️ Tryb Bez Limitu (Endless)</div>
-            <div className="text-xs opacity-80 mt-1">
-              Pełna swoboda budowy imperium gospodarczego bez presji zegara, z rosnącym wyzwaniem rynkowym.
-            </div>
-          </button>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs text-slate-300 font-semibold">
+            <span>⏱️ Tempo Rozgrywki</span>
+            <InfoTooltip {...getTempoTooltip(mode)} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setMode('challenge1h')}
+              className={`p-3.5 rounded-xl border text-left transition-all ${
+                mode === 'challenge1h'
+                  ? 'bg-emerald-950/35 border-emerald-400 text-white'
+                  : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+              }`}
+            >
+              <div className="font-bold text-sm">⏱️ Wyzwanie 1-Godzinne</div>
+              <div className="text-xs opacity-80 mt-1">
+                60 minut na maksymalizację wyceny netto i wpis do Światowej Tabeli Wyników (po czasie możesz grać dalej!).
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('endless')}
+              className={`p-3.5 rounded-xl border text-left transition-all ${
+                mode === 'endless'
+                  ? 'bg-amber-950/35 border-amber-400 text-white'
+                  : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+              }`}
+            >
+              <div className="font-bold text-sm">♾️ Tryb Bez Limitu (Endless)</div>
+              <div className="text-xs opacity-80 mt-1">
+                Pełna swoboda budowy imperium gospodarczego bez presji zegara, z rosnącym wyzwaniem rynkowym.
+              </div>
+            </button>
+          </div>
         </div>
 
         {/* Dane gracza */}
@@ -193,8 +210,9 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
         {/* Wybór Archetypu Korporacji */}
         <div className="space-y-2 text-xs">
           <div className="flex items-center justify-between">
-            <label className="text-slate-300 font-semibold uppercase tracking-wider">
-              🧬 Archetyp Korporacji (Zbilansowane Asymetrie)
+            <label className="text-slate-300 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+              <span>🧬 Twój Archetyp Korporacji (Zbilansowane Asymetrie)</span>
+              <InfoTooltip {...getArchetypeTooltip(archetype)} />
             </label>
             <span className="text-[11px] text-slate-400">2 bonusy + 2 kompensujące ograniczenia</span>
           </div>
@@ -245,7 +263,10 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
         {/* Poziom Trudności Ekonomicznej + Scenariusz Startowy */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-1.5">
-            <label className="block text-slate-300 font-semibold">⚖️ Poziom Trudności Gospodarki</label>
+            <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+              <span>⚖️ Poziom Trudności Gospodarki</span>
+              <InfoTooltip {...getDifficultyPresetTooltip(difficultyPreset)} />
+            </label>
             <select
               value={difficultyPreset}
               onChange={(e) => setDifficultyPreset(e.target.value as DifficultyPreset)}
@@ -262,7 +283,10 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
             </div>
           </div>
           <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-1.5">
-            <label className="block text-slate-300 font-semibold">🎬 Scenariusz Rozgrywki</label>
+            <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+              <span>🎬 Scenariusz Rozgrywki</span>
+              <InfoTooltip {...getScenarioTooltip(scenarioId)} />
+            </label>
             <select
               value={scenarioId}
               onChange={(e) => setScenarioId(e.target.value as ScenarioId)}
@@ -330,7 +354,10 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
             </select>
           </div>
           <div>
-            <label className="block text-slate-400 mb-1">Poziom Rywali AI</label>
+            <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+              <span>Poziom Botów AI</span>
+              <InfoTooltip {...getAiDifficultyTooltip(aiDifficulty)} />
+            </label>
             <select
               value={aiDifficulty}
               onChange={(e) => setAiDifficulty(Number(e.target.value))}
@@ -344,7 +371,10 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
             </select>
           </div>
           <div>
-            <label className="block text-slate-400 mb-1">Rozmiar Mapy</label>
+            <label className="text-slate-400 flex items-center gap-1.5 mb-1">
+              <span>Rozmiar Mapy</span>
+              <InfoTooltip {...getMapSizeTooltip(mapSize)} />
+            </label>
             <select
               value={mapSize}
               onChange={(e) => setMapSize(Number(e.target.value))}
@@ -360,15 +390,21 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-            <DarkToggle
-              checked={disastersEnabled}
-              onChange={setDisastersEnabled}
-              label="Katastrofy naturalne (trzęsienia, powodzie, burze)"
-            />
+          <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <DarkToggle
+                checked={disastersEnabled}
+                onChange={setDisastersEnabled}
+                label="Katastrofy naturalne (trzęsienia, powodzie, burze)"
+              />
+            </div>
+            <InfoTooltip {...getDisastersTooltip(disastersEnabled)} />
           </div>
           <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] flex items-center justify-between gap-2">
-            <span className="text-slate-300">Warunek wygranej:</span>
+            <span className="text-slate-300 flex items-center gap-1.5">
+              <span>Warunek zwycięstwa:</span>
+              <InfoTooltip {...getVictoryTooltip(victoryMode)} />
+            </span>
             <select
               value={victoryMode}
               onChange={(e) => setVictoryMode(e.target.value as 'solo' | 'coalition')}

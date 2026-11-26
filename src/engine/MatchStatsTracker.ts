@@ -75,6 +75,9 @@ export function updatePlayerMatchStatsAccumTick(state: GameState): void {
         pl.building.type === 'solarFarm' ||
         pl.building.type === 'windFarm' ||
         pl.building.type === 'recyclingPlant' ||
+        pl.building.type === 'bioSewagePlant' ||
+        pl.building.type === 'closedLoopSewagePlant' ||
+        pl.building.type === 'plasmaGasificationPlant' ||
         pl.building.type === 'cityPark' ||
         pl.building.type === 'fusionReactor'
       ) {

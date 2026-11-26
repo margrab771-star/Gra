@@ -809,12 +809,21 @@ export function processBuildingTick(
         p.building &&
         p.building.isActive &&
         !p.building.destroyedRuins &&
-        (p.building.category === 'energy' || p.building.type === 'wasteIncinerator')
+        (p.building.category === 'energy' ||
+          p.building.type === 'wasteIncinerator' ||
+          p.building.type === 'plasmaGasificationPlant')
     );
   const playerHasOwnWater =
     plot.hasWater ||
     state.plots.some(
-      (p) => p.ownerId === player.id && p.building?.type === 'waterPlant' && p.building.isActive && !p.building.destroyedRuins
+      (p) =>
+        p.ownerId === player.id &&
+        p.building &&
+        p.building.isActive &&
+        !p.building.destroyedRuins &&
+        (p.building.type === 'waterPlant' ||
+          p.building.type === 'bioSewagePlant' ||
+          p.building.type === 'closedLoopSewagePlant')
     );
 
   let elecRatio = 1;
@@ -976,6 +985,9 @@ export function processBuildingTick(
     building.type === 'geothermalPlant' ||
     building.type === 'fusionReactor' ||
     building.type === 'recyclingPlant' ||
+    building.type === 'bioSewagePlant' ||
+    building.type === 'closedLoopSewagePlant' ||
+    building.type === 'plasmaGasificationPlant' ||
     building.type === 'renewableFarm'
   ) {
     archetypeProdMult *= archMods.renewableRecycleMult;
@@ -1087,8 +1099,12 @@ export function processBuildingTick(
     supplyAccum[res] = (supplyAccum[res] ?? 0) + produced;
     totalGoodsVolume += produced;
 
-    // Sortownia z Recyklingiem odzyskuje metale bezpośrednio do magazynu (lub do obrotu)
-    if (bMods.recyclesResources || building.type === 'recyclingPlant') {
+    // Sortownia z Recyklingiem i Gazyfikacja Plazmowa odzyskują metale bezpośrednio do magazynu
+    if (
+      bMods.recyclesResources ||
+      building.type === 'recyclingPlant' ||
+      building.type === 'plasmaGasificationPlant'
+    ) {
       player.warehouseStockpile[res] = (player.warehouseStockpile[res] ?? 0) + produced;
       continue;
     }

@@ -196,7 +196,10 @@ export class IsometricRenderer {
     const tw = TILE_WIDTH * camera.zoom;
     const th = TILE_HEIGHT * camera.zoom;
 
-    // 2a. Podświetlenie hurtowego zaznaczenia działek i ścieżki Drag-to-Build dróg/autostrad
+    // 2a. Podświetlenie hurtowego zaznaczenia działek, dróg Drag-to-Build i aktywnej licytacji na żywo
+    if (state.liveAuction && state.liveAuction.status === 'active') {
+      this.renderAuctionPlotTile(ctx, camera, tw, th, state.liveAuction.plotId);
+    }
     if (overlayOpts?.areaHighlightIds && overlayOpts.areaHighlightIds.length > 0) {
       this.renderAreaHighlights(ctx, state, camera, tw, th, overlayOpts.areaHighlightIds);
     }
@@ -263,7 +266,10 @@ export class IsometricRenderer {
       }
     }
 
-    // 3b. Podgląd synergii przed budową / klonowaniem nad sąsiednimi polami
+    // 3b. Podgląd synergii przed budową / klonowaniem nad sąsiednimi polami + pływający młotek licytacji
+    if (state.liveAuction && state.liveAuction.status === 'active') {
+      this.renderAuctionHammerBadge(ctx, camera, tw, th, state.liveAuction.plotId);
+    }
     if (overlayOpts?.previewBuildingType && hoveredPlot && hoveredPlot.terrain !== 'water') {
       this.renderSynergyPreviewBadges(ctx, state, camera, tw, th, hoveredPlot, overlayOpts.previewBuildingType);
     }
@@ -502,6 +508,65 @@ export class IsometricRenderer {
       ctx.fillStyle = item.percentDelta >= 0 ? '#34d399' : '#fb7185';
       ctx.fillText(txt, pos.screenX, pos.screenY - 26 * camera.zoom + 7);
     }
+    ctx.restore();
+  }
+
+  private renderAuctionPlotTile(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    tw: number,
+    th: number,
+    plotId: string
+  ): void {
+    const p = this.plotById.get(plotId);
+    if (!p) return;
+    const { screenX, screenY } = worldToScreen(p.gridX, p.gridY, tw, th, camera.x, camera.y);
+    const pulse = 0.5 + 0.5 * Math.sin(this.frameCount * 0.14);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(screenX, screenY - th / 2);
+    ctx.lineTo(screenX + tw / 2, screenY);
+    ctx.lineTo(screenX, screenY + th / 2);
+    ctx.lineTo(screenX - tw / 2, screenY);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(245, 158, 11, ${(0.18 + pulse * 0.22).toFixed(2)})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(251, 191, 36, ${(0.7 + pulse * 0.3).toFixed(2)})`;
+    ctx.lineWidth = (2.2 + pulse * 1.4) * Math.max(0.75, camera.zoom);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private renderAuctionHammerBadge(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    tw: number,
+    th: number,
+    plotId: string
+  ): void {
+    const p = this.plotById.get(plotId);
+    if (!p) return;
+    const { screenX, screenY } = worldToScreen(p.gridX, p.gridY, tw, th, camera.x, camera.y);
+    const bob = Math.sin(this.frameCount * 0.14) * 3.5 * camera.zoom;
+    const baseOffset = (p.building ? 32 : 16) * camera.zoom;
+    const cy = screenY - baseOffset + bob;
+    const r = Math.max(9, Math.round(11 * camera.zoom));
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(screenX, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = Math.max(1.4, 1.8 * camera.zoom);
+    ctx.stroke();
+
+    ctx.font = `${Math.max(10, Math.round(12 * camera.zoom))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('🔨', screenX, cy + 0.5);
     ctx.restore();
   }
 }
