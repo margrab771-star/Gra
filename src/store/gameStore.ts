@@ -51,7 +51,16 @@ import type {
   UserAccountProfile,
 } from '../engine/types';
 import { submitLeaderboardResult } from '../network/leaderboardService';
-import { getRoomCodeFromUrl, multiplayerManager } from '../network/multiplayerManager';
+import { multiplayerManager } from '../network/multiplayerManager';
+import {
+  buildHashForModal,
+  buildHashForMultiplayer,
+  navigateHash,
+  parseHashRoute,
+  type ModalRouteKey,
+  type MpModeView,
+  type ParsedHashRoute,
+} from '../utils/hashRouter';
 
 export type ActiveModal =
   | 'none'
@@ -86,6 +95,7 @@ interface GameStoreState {
   localPlayerId: string;
   lobbyState: LobbyState | null;
   initialRoomCode: string | null;
+  mpLobbyTab: MpModeView;
 
   toast: ToastMessage | null;
   savedAvailable: boolean;
@@ -149,7 +159,11 @@ interface GameStoreState {
 
   goToMenu: () => void;
   goToSetup: () => void;
-  goToMultiplayer: () => void;
+  goToMultiplayer: (tab?: MpModeView, roomCode?: string | null) => void;
+  setMpLobbyTab: (tab: MpModeView) => void;
+  openPreGameModal: (modal: ModalRouteKey) => void;
+  closePreGameModal: () => void;
+  applyHashRoute: (route: ParsedHashRoute) => void;
   startSinglePlayer: (
     settings: GameSettings,
     playerName: string,
@@ -307,26 +321,38 @@ interface GameStoreState {
   revealFogPlot: (plotId: string) => void;
 }
 
-const urlRoom = getRoomCodeFromUrl();
+const initialRoute: ParsedHashRoute =
+  typeof window !== 'undefined'
+    ? parseHashRoute(window.location.hash, window.location.search)
+    : { screen: 'menu' };
 const initialActiveProfile = getActiveProfile();
 applyUiThemeToDocument(initialActiveProfile.uiThemeId);
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
-  phase: urlRoom ? 'Lobby' : 'MainMenu',
+  phase:
+    initialRoute.screen === 'singleplayer'
+      ? 'Setup'
+      : initialRoute.screen === 'multiplayer'
+        ? 'Lobby'
+        : 'MainMenu',
   gameState: null,
   selectedPlotId: null,
   showBuildSelector: false,
-  activeModal: 'none',
+  activeModal:
+    initialRoute.screen === 'modal' && initialRoute.modal === 'leaderboard'
+      ? 'leaderboard'
+      : 'none',
   inspectedResource: null,
   showTutorial: false,
   tutorialStep: 0,
   showVictoryModal: false,
 
-  isMultiplayer: Boolean(urlRoom),
+  isMultiplayer: initialRoute.screen === 'multiplayer',
   isHost: false,
   localPlayerId: 'player_1',
   lobbyState: null,
-  initialRoomCode: urlRoom,
+  initialRoomCode: initialRoute.screen === 'multiplayer' ? initialRoute.roomCode : null,
+  mpLobbyTab: initialRoute.screen === 'multiplayer' ? initialRoute.mpTab : 'choose',
 
   toast: null,
   savedAvailable: hasSavedGame(),
@@ -339,15 +365,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   targetMode: null,
   cloneBuildingType: null,
   focusRequest: null,
-  showTutorialModal: false,
+  showTutorialModal: initialRoute.screen === 'modal' && initialRoute.modal === 'guide',
   pinnedResources: ['coal', 'steel', 'oil', 'gold'],
 
   activeProfile: initialActiveProfile,
   showAuthModal: false,
-  showProfileModal: false,
-  showWeeklyModal: false,
-  showShopModal: false,
-  showBattlePassModal: false,
+  showProfileModal: initialRoute.screen === 'modal' && initialRoute.modal === 'profile',
+  showWeeklyModal: initialRoute.screen === 'modal' && initialRoute.modal === 'weekly',
+  showShopModal: initialRoute.screen === 'modal' && initialRoute.modal === 'shop',
+  showBattlePassModal: initialRoute.screen === 'modal' && initialRoute.modal === 'battlepass',
   lastMatchRewardSummary: null,
   recordedMatchEnded: false,
   mapToolMode: 'normal',
@@ -398,6 +424,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       isHost: false,
       lobbyState: null,
       activeModal: 'none',
+      showShopModal: false,
+      showBattlePassModal: false,
+      showProfileModal: false,
+      showTutorialModal: false,
+      showWeeklyModal: false,
+      showAuthModal: false,
       mapToolMode: 'normal',
       areaSelectedPlotIds: [],
       cloneBlueprintSource: null,
@@ -410,11 +442,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       lastMpSession: loadLastMpSession(),
       activeProfile: getActiveProfile(),
     });
+    navigateHash('#/menu');
   },
 
-  goToSetup: () => set({ phase: 'Setup', activeModal: 'none' }),
+  goToSetup: () => {
+    set({
+      phase: 'Setup',
+      activeModal: 'none',
+      showShopModal: false,
+      showBattlePassModal: false,
+      showProfileModal: false,
+      showTutorialModal: false,
+      showWeeklyModal: false,
+    });
+    navigateHash('#/singleplayer');
+  },
 
-  goToMultiplayer: () =>
+  goToMultiplayer: (tab = 'choose', roomCode = null) => {
     set({
       phase: 'Lobby',
       isMultiplayer: true,
@@ -422,8 +466,141 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       lobbyState: null,
       gameState: null,
       activeModal: 'none',
+      initialRoomCode: roomCode ?? null,
+      mpLobbyTab: tab,
+      showShopModal: false,
+      showBattlePassModal: false,
+      showProfileModal: false,
+      showTutorialModal: false,
+      showWeeklyModal: false,
       lastMpSession: loadLastMpSession(),
-    }),
+    });
+    navigateHash(buildHashForMultiplayer(tab, roomCode));
+  },
+
+  setMpLobbyTab: (tab) => {
+    set({ mpLobbyTab: tab });
+    navigateHash(buildHashForMultiplayer(tab, get().initialRoomCode));
+  },
+
+  openPreGameModal: (modal) => {
+    set({
+      activeModal: modal === 'leaderboard' ? 'leaderboard' : 'none',
+      showShopModal: modal === 'shop',
+      showBattlePassModal: modal === 'battlepass',
+      showProfileModal: modal === 'profile',
+      showTutorialModal: modal === 'guide',
+      showWeeklyModal: modal === 'weekly',
+    });
+    navigateHash(buildHashForModal(modal));
+  },
+
+  closePreGameModal: () => {
+    const { phase, mpLobbyTab, initialRoomCode } = get();
+    set({
+      activeModal: 'none',
+      showShopModal: false,
+      showBattlePassModal: false,
+      showProfileModal: false,
+      showTutorialModal: false,
+      showWeeklyModal: false,
+    });
+    if (phase === 'Setup') {
+      navigateHash('#/singleplayer');
+    } else if (phase === 'Lobby') {
+      navigateHash(buildHashForMultiplayer(mpLobbyTab, initialRoomCode));
+    } else {
+      navigateHash('#/menu');
+    }
+  },
+
+  applyHashRoute: (route) => {
+    const st = get();
+    if (route.screen === 'play') {
+      return;
+    }
+
+    if (st.phase === 'Playing') {
+      if (!st.isMultiplayer && st.gameState) {
+        st.autosaveNow();
+      }
+      if (st.isMultiplayer) {
+        multiplayerManager.disconnect();
+      }
+    } else if (st.phase === 'Lobby' && route.screen !== 'multiplayer' && route.screen !== 'modal') {
+      multiplayerManager.disconnect();
+    }
+
+    if (route.screen === 'menu') {
+      set({
+        phase: 'MainMenu',
+        isMultiplayer: false,
+        isHost: false,
+        lobbyState: null,
+        activeModal: 'none',
+        showShopModal: false,
+        showBattlePassModal: false,
+        showProfileModal: false,
+        showTutorialModal: false,
+        showWeeklyModal: false,
+        showAuthModal: false,
+        savedAvailable: hasSavedGame(),
+        saveSlotsMeta: listSaveSlots(),
+        latestSaveMeta: getLatestSaveMeta(),
+        lastMpSession: loadLastMpSession(),
+        activeProfile: getActiveProfile(),
+      });
+      return;
+    }
+
+    if (route.screen === 'singleplayer') {
+      set({
+        phase: 'Setup',
+        isMultiplayer: false,
+        isHost: false,
+        lobbyState: null,
+        activeModal: 'none',
+        showShopModal: false,
+        showBattlePassModal: false,
+        showProfileModal: false,
+        showTutorialModal: false,
+        showWeeklyModal: false,
+        showAuthModal: false,
+      });
+      return;
+    }
+
+    if (route.screen === 'multiplayer') {
+      set((prev) => ({
+        phase: 'Lobby',
+        isMultiplayer: true,
+        lobbyState: prev.phase === 'Lobby' ? prev.lobbyState : null,
+        gameState: prev.phase === 'Lobby' ? prev.gameState : null,
+        mpLobbyTab: route.mpTab,
+        initialRoomCode: route.roomCode ?? prev.initialRoomCode,
+        activeModal: 'none',
+        showShopModal: false,
+        showBattlePassModal: false,
+        showProfileModal: false,
+        showTutorialModal: false,
+        showWeeklyModal: false,
+        showAuthModal: false,
+        lastMpSession: loadLastMpSession(),
+      }));
+      return;
+    }
+
+    // route.screen === 'modal'
+    set((prev) => ({
+      phase: prev.phase === 'Playing' ? 'MainMenu' : prev.phase,
+      activeModal: route.modal === 'leaderboard' ? 'leaderboard' : 'none',
+      showShopModal: route.modal === 'shop',
+      showBattlePassModal: route.modal === 'battlepass',
+      showProfileModal: route.modal === 'profile',
+      showTutorialModal: route.modal === 'guide',
+      showWeeklyModal: route.modal === 'weekly',
+    }));
+  },
 
   startSinglePlayer: (settings, playerName, companyName, color, withTutorial, opts) => {
     const profile = getActiveProfile();
@@ -453,6 +630,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
     });
+    navigateHash('#/play');
   },
 
   startWeeklyChallengeGame: (spec) => {
@@ -490,6 +668,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
     });
+    navigateHash('#/play');
   },
 
   startQuickTutorialGame: () => {
@@ -525,6 +704,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
     });
+    navigateHash('#/play');
   },
 
   continueSavedGame: () => {
@@ -545,6 +725,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activeModal: 'none',
       showVictoryModal: false,
     });
+    navigateHash('#/play');
   },
 
   saveCurrentGame: () => {
@@ -625,6 +806,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activeModal: 'none',
       showVictoryModal: false,
     });
+    navigateHash('#/play');
     get().showToast(true, en ? 'Saved match loaded.' : 'Wczytano zapisaną rozgrywkę.');
   },
 
@@ -676,6 +858,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
           showVictoryModal: false,
           gameState: prev.isHost ? prev.gameState : prev.gameState,
         }));
+        navigateHash('#/play');
       },
       onStateSync: (remoteState, assignedId) => {
         const localId = assignedId || get().localPlayerId;
@@ -763,6 +946,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             showVictoryModal: prev.showVictoryModal || showVic,
           };
         });
+        if (synced.phase === 'Playing') {
+          navigateHash('#/play');
+        }
       },
       onRequestFullSync: () => get().gameState,
       onClientReconnected: (playerId) => {
@@ -905,6 +1091,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       lastMpSession: session,
     });
     if (lobby.gameStarted) {
+      navigateHash('#/play');
       multiplayerManager.requestFullSync();
     }
   },
@@ -926,6 +1113,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       areaSelectedPlotIds: [],
       cloneBlueprintSource: null,
     });
+    navigateHash('#/play');
     multiplayerManager.broadcastGameStart(gs);
   },
 
@@ -942,7 +1130,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       lobbyState: null,
       initialRoomCode: null,
       gameState: null,
+      showShopModal: false,
+      showTutorialModal: false,
     });
+    navigateHash('#/menu');
   },
 
   takeoverDisconnectedPlayer: (playerId) => {

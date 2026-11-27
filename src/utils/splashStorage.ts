@@ -1,19 +1,9 @@
-const SPLASH_SESSION_KEY = 'md_splash_seen';
+import { isHomeHashAtBoot } from './hashRouter';
 
+/**
+ * Animacja powitalna uruchamia się wyłącznie przy pełnym załadowaniu/odświeżeniu
+ * strony głównej (#/ lub #/menu), bez zapisu w sessionStorage.
+ */
 export function shouldShowSplashIntro(): boolean {
-  try {
-    return typeof sessionStorage !== 'undefined' && !sessionStorage.getItem(SPLASH_SESSION_KEY);
-  } catch {
-    return false;
-  }
-}
-
-export function markSplashIntroSeen(): void {
-  try {
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(SPLASH_SESSION_KEY, '1');
-    }
-  } catch {
-    // ignoruj brak sessionStorage
-  }
+  return typeof window !== 'undefined' && isHomeHashAtBoot();
 }

@@ -17,6 +17,7 @@ import type {
 } from '../engine/types';
 import {
   PUBLIC_LOBBY_HEARTBEAT_MS,
+  isSupabaseDirectoryConfigured,
   publishOrHeartbeatPublicLobby,
   removePublicLobby,
 } from './lobbyDirectory';
@@ -96,11 +97,63 @@ const MAX_BUFFERED_AMOUNT_BYTES = 256 * 1024;
 // 6-sekundowa tolerancja przed uznaniem rozłączenia za trwałe
 const DISCONNECT_GRACE_MS = 6_000;
 
-export const ICE_SERVERS: RTCIceServer[] = [
+const STUN_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
 ];
+
+export interface TurnDiagnostics {
+  configured: boolean;
+  urls: string[];
+  hasCredentials: boolean;
+  hostsLabel: string;
+}
+
+export function getTurnDiagnostics(): TurnDiagnostics {
+  const hasImportMetaEnv = typeof import.meta !== 'undefined' && Boolean(import.meta.env);
+  const rawUrls = String(hasImportMetaEnv ? import.meta.env.VITE_TURN_URL ?? '' : '').trim();
+  const username = String(hasImportMetaEnv ? import.meta.env.VITE_TURN_USERNAME ?? '' : '').trim();
+  const credential = String(hasImportMetaEnv ? import.meta.env.VITE_TURN_CREDENTIAL ?? '' : '').trim();
+  const urls = rawUrls
+    .split(/[,;\s]+/)
+    .map((u) => u.trim())
+    .filter((u) => /^(turns?:|stuns?:)/i.test(u));
+
+  const hosts = Array.from(
+    new Set(
+      urls.map((u) => {
+        const cleaned = u.replace(/^(turns?:|stuns?:)/i, '').split('?')[0];
+        return cleaned.split(':')[0] || cleaned;
+      })
+    )
+  );
+
+  return {
+    configured: urls.length > 0,
+    urls,
+    hasCredentials: Boolean(username && credential),
+    hostsLabel: hosts.join(', '),
+  };
+}
+
+export function getIceServers(): RTCIceServer[] {
+  const diag = getTurnDiagnostics();
+  if (!diag.configured) {
+    return [...STUN_SERVERS];
+  }
+  const hasImportMetaEnv = typeof import.meta !== 'undefined' && Boolean(import.meta.env);
+  const username = String(hasImportMetaEnv ? import.meta.env.VITE_TURN_USERNAME ?? '' : '').trim();
+  const credential = String(hasImportMetaEnv ? import.meta.env.VITE_TURN_CREDENTIAL ?? '' : '').trim();
+  const turnServer: RTCIceServer = {
+    urls: diag.urls.length === 1 ? diag.urls[0] : diag.urls,
+    ...(username ? { username } : {}),
+    ...(credential ? { credential } : {}),
+  };
+  return [...STUN_SERVERS, turnServer];
+}
+
+export const ICE_SERVERS: RTCIceServer[] = getIceServers();
 
 export function getPeerOptions(): PeerOptions {
   const isHttps =
@@ -109,7 +162,7 @@ export function getPeerOptions(): PeerOptions {
     debug: 1,
     secure: isHttps,
     config: {
-      iceServers: ICE_SERVERS,
+      iceServers: getIceServers(),
     },
   };
 }
@@ -132,10 +185,21 @@ export function roomCodeToPeerId(code: string): string {
 
 export function getRoomCodeFromUrl(): string | null {
   try {
-    const params = new URLSearchParams(window.location.search);
-    const room = params.get('room');
-    const normalized = room ? normalizeRoomCode(room) : '';
-    return normalized || null;
+    const searchParams = new URLSearchParams(window.location.search);
+    const fromSearch = searchParams.get('room');
+    if (fromSearch) {
+      const normalized = normalizeRoomCode(fromSearch);
+      if (normalized) return normalized;
+    }
+    const hash = window.location.hash || '';
+    const qIdx = hash.indexOf('?');
+    if (qIdx !== -1) {
+      const hashParams = new URLSearchParams(hash.slice(qIdx + 1));
+      const fromHash = hashParams.get('room');
+      const normalized = fromHash ? normalizeRoomCode(fromHash) : '';
+      return normalized || null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -144,10 +208,10 @@ export function getRoomCodeFromUrl(): string | null {
 export function buildInviteLink(roomCode: string): string {
   const normalized = normalizeRoomCode(roomCode);
   if (typeof window === 'undefined') {
-    return `?room=${encodeURIComponent(normalized)}`;
+    return `#/multiplayer/join?room=${encodeURIComponent(normalized)}`;
   }
   const base = `${window.location.origin}${window.location.pathname}`;
-  return `${base}?room=${encodeURIComponent(normalized)}`;
+  return `${base}#/multiplayer/join?room=${encodeURIComponent(normalized)}`;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -618,6 +682,9 @@ export interface P2PReadinessReport {
   ok: boolean;
   protocol: string;
   stunConfigured: boolean;
+  turnConfigured: boolean;
+  turnUrls: string[];
+  supabaseConfigured: boolean;
   latencyMs: number;
   message: string;
 }
@@ -627,12 +694,17 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
   const en = getCurrentLanguage() === 'en';
   const protocol =
     typeof window !== 'undefined' ? window.location.protocol : 'https:';
+  const turnDiag = getTurnDiagnostics();
+  const supabaseConfigured = isSupabaseDirectoryConfigured();
 
   if (typeof RTCPeerConnection === 'undefined') {
     return {
       ok: false,
       protocol,
       stunConfigured: false,
+      turnConfigured: turnDiag.configured,
+      turnUrls: turnDiag.urls,
+      supabaseConfigured,
       latencyMs: 0,
       message: en
         ? 'Your browser does not support RTCPeerConnection.'
@@ -657,6 +729,9 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
         ok,
         protocol,
         stunConfigured: true,
+        turnConfigured: turnDiag.configured,
+        turnUrls: turnDiag.urls,
+        supabaseConfigured,
         latencyMs: Math.round(performance.now() - started),
         message,
       });
@@ -674,11 +749,19 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
     try {
       tempPeer = new Peer(getPeerOptions());
       tempPeer.on('open', (id) => {
+        const transportSummary =
+          protocol === 'https:'
+            ? turnDiag.configured
+              ? 'WSS/HTTPS + STUN + TURN Relay'
+              : 'WSS/HTTPS + STUN'
+            : turnDiag.configured
+              ? 'WS + STUN + TURN Relay'
+              : 'WS + STUN';
         finish(
           true,
           en
-            ? `P2P ready (${protocol === 'https:' ? 'WSS/HTTPS' : 'WS'} + STUN, probe ID: ${id.slice(0, 8)}…).`
-            : `Gotowość P2P potwierdzona (${protocol === 'https:' ? 'WSS/HTTPS' : 'WS'} + STUN, ID testowe: ${id.slice(0, 8)}…).`
+            ? `P2P ready (${transportSummary}, probe ID: ${id.slice(0, 8)}…).`
+            : `Gotowość P2P potwierdzona (${transportSummary}, ID testowe: ${id.slice(0, 8)}…).`
         );
       });
       tempPeer.on('error', (err) => {

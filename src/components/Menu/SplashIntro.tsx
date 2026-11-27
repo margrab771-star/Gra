@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/useI18n';
-import { markSplashIntroSeen } from '../../utils/splashStorage';
 
 interface SplashIntroProps {
   onFinish: () => void;
@@ -9,29 +8,39 @@ interface SplashIntroProps {
 export const SplashIntro: React.FC<SplashIntroProps> = ({ onFinish }) => {
   const { t } = useI18n();
   const [fadingOut, setFadingOut] = useState(false);
+  const finishedRef = useRef(false);
+
+  const complete = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    onFinish();
+  };
 
   const dismiss = () => {
-    markSplashIntroSeen();
+    if (finishedRef.current) return;
     setFadingOut(true);
-    window.setTimeout(() => onFinish(), 280);
+    window.setTimeout(complete, 260);
   };
 
   useEffect(() => {
     const fadeTimer = window.setTimeout(() => {
-      markSplashIntroSeen();
       setFadingOut(true);
     }, 1750);
     const doneTimer = window.setTimeout(() => {
-      markSplashIntroSeen();
-      onFinish();
+      if (!finishedRef.current) {
+        finishedRef.current = true;
+        onFinish();
+      }
     }, 2150);
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
         clearTimeout(fadeTimer);
         clearTimeout(doneTimer);
-        markSplashIntroSeen();
-        onFinish();
+        if (!finishedRef.current) {
+          finishedRef.current = true;
+          onFinish();
+        }
       }
     };
     window.addEventListener('keydown', onKey);

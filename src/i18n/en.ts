@@ -166,7 +166,7 @@ export const en: Record<TranslationKey, string> = {
   'lobby.creating': 'Connecting to WebRTC...',
   'lobby.joinRoomBtn': '🚪 Join Room',
   'lobby.joining': 'Connecting to room...',
-  'lobby.p2pDiag': 'WebRTC / STUN Diagnostics',
+  'lobby.p2pDiag': 'WebRTC / STUN / TURN Diagnostics',
   'lobby.p2pTest': '📡 Test P2P Network',
   'lobby.p2pTesting': 'Testing...',
   'lobby.retry': '🔄 Retry Connection',
@@ -589,4 +589,19 @@ export const en: Record<TranslationKey, string> = {
   'bldg.b2bPendingTitle': 'Pending B2B Offers Awaiting Approval',
   'bldg.b2bActiveTitle': 'Active Conglomerate Contracts',
   'bldg.b2bNone': 'No active B2B contracts.',
+
+  // Tabbed Setup & TURN/Supabase Diagnostics
+  'setup.step1': '🏢 1. Corporation & Archetype',
+  'setup.step2': '🌍 2. World & Game Mode',
+  'setup.step3': '⚡ 3. Rules & Mutators',
+  'setup.nextStep': 'Next →',
+  'setup.prevStep': '← Previous Step',
+  'setup.mutatorsSub': 'Optional rule modifiers and global market-tech megatrends for this campaign.',
+  'setup.featuredRule': 'FEATURED RULE',
+  'lobby.turnStatusLabel': 'TURN Relay:',
+  'lobby.turnActive': 'Active ({hosts})',
+  'lobby.turnFallback': 'Not configured (STUN only)',
+  'lobby.supabaseStatusLabel': 'Supabase Directory:',
+  'lobby.supabaseConnected': 'Connected',
+  'lobby.supabaseLocal': 'Local mode',
 };

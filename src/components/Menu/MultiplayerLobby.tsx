@@ -56,16 +56,19 @@ import type {
 } from '../../engine/types';
 import {
   fetchActivePublicLobbies,
+  isSupabaseDirectoryConfigured,
   subscribePublicLobbySignals,
   type PublicLobbyListing,
 } from '../../network/lobbyDirectory';
 import {
   buildInviteLink,
+  getTurnDiagnostics,
   multiplayerManager,
   normalizeRoomCode,
   testP2PReadiness,
 } from '../../network/multiplayerManager';
 import type { ConnectionStage, P2PReadinessReport } from '../../network/multiplayerManager';
+import type { MpModeView } from '../../utils/hashRouter';
 import { DarkToggle } from '../HUD/DarkControls';
 import { InfoTooltip } from '../HUD/InfoTooltip';
 import { LanguageSwitcher } from '../HUD/LanguageSwitcher';
@@ -74,6 +77,8 @@ import { MCoinIcon } from '../HUD/MCoinIcon';
 interface MultiplayerLobbyProps {
   activeProfile: UserAccountProfile;
   initialRoomCode: string | null;
+  activeTab?: MpModeView;
+  onChangeTab?: (tab: MpModeView) => void;
   lastMpSession: LastMpSession | null;
   lobbyState: LobbyState | null;
   isHost: boolean;
@@ -115,6 +120,8 @@ const FRAME_BORDER_CLASSES: Record<string, string> = {
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   activeProfile,
   initialRoomCode,
+  activeTab,
+  onChangeTab,
   lastMpSession,
   lobbyState,
   isHost,
@@ -127,9 +134,17 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   onLeave,
 }) => {
   const { lang, t } = useI18n();
-  const [modeView, setModeView] = useState<'choose' | 'browse' | 'join'>(
-    initialRoomCode ? 'join' : 'choose'
+  const [internalModeView, setInternalModeView] = useState<MpModeView>(
+    activeTab ?? (initialRoomCode ? 'join' : 'choose')
   );
+  const modeView: MpModeView = activeTab ?? internalModeView;
+  const selectModeTab = (tab: MpModeView) => {
+    setInternalModeView(tab);
+    setError(null);
+    onChangeTab?.(tab);
+  };
+  const turnDiag = getTurnDiagnostics();
+  const supabaseReady = isSupabaseDirectoryConfigured();
   const [isPublicRoom, setIsPublicRoom] = useState(true);
   const [roomNameInput, setRoomNameInput] = useState('Liga Wall Street');
   const [publicLobbies, setPublicLobbies] = useState<PublicLobbyListing[]>([]);
@@ -286,6 +301,59 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     window.setTimeout(() => setCopied(false), 2500);
   };
 
+  const diagnosticsFooterBar = (
+    <div className="px-5 py-2.5 border-t border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2.5 text-xs shrink-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-slate-400 font-medium">{t('lobby.turnStatusLabel')}</span>
+        <span
+          className={`px-2 py-0.5 rounded-lg border font-mono text-[11px] font-semibold ${
+            turnDiag.configured
+              ? 'bg-emerald-950/50 border-emerald-500/45 text-emerald-300'
+              : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+          }`}
+          title={turnDiag.urls.join(', ')}
+        >
+          {turnDiag.configured
+            ? `🟢 ${t('lobby.turnActive', { hosts: turnDiag.hostsLabel || 'TURN' })}`
+            : `🟡 ${t('lobby.turnFallback')}`}
+        </span>
+        <span className="text-slate-600 hidden sm:inline">|</span>
+        <span className="text-slate-400 font-medium">{t('lobby.supabaseStatusLabel')}</span>
+        <span
+          className={`px-2 py-0.5 rounded-lg border font-mono text-[11px] font-semibold ${
+            supabaseReady
+              ? 'bg-sky-950/50 border-sky-500/45 text-sky-300'
+              : 'bg-[#151c28] border-[#243044] text-slate-300'
+          }`}
+        >
+          {supabaseReady ? `🌐 ${t('lobby.supabaseConnected')}` : `📡 ${t('lobby.supabaseLocal')}`}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {p2pReport && (
+          <span
+            className={`px-2.5 py-1 rounded-lg border text-[11px] ${
+              p2pReport.ok
+                ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-200'
+                : 'bg-rose-950/35 border-rose-500/40 text-rose-200'
+            }`}
+          >
+            {p2pReport.message} ({p2pReport.latencyMs} ms)
+          </span>
+        )}
+        <button
+          type="button"
+          disabled={p2pTesting}
+          onClick={handleTestNetwork}
+          className="px-3 py-1 rounded-lg bg-[#182235] hover:bg-[#22304a] border border-[#2d3b52] text-slate-200 font-semibold disabled:opacity-40 cursor-pointer"
+        >
+          {p2pTesting ? t('lobby.p2pTesting') : t('lobby.p2pTest')}
+        </button>
+      </div>
+    </div>
+  );
+
   // Aktywny Pokój Lobby: 2 kolumny dopasowane do monitora (max-h-[95vh])
   if (lobbyState) {
     const allHumansReady = lobbyState.players.filter((p) => !p.isAI).every((p) => p.ready);
@@ -303,8 +371,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     });
 
     return (
-      <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-2.5 md:p-4 overflow-y-auto">
-        <div className="w-full max-w-6xl lg:max-h-[95vh] rounded-2xl bg-[#111827] border border-[#243044] shadow-2xl flex flex-col overflow-hidden">
+      <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-2.5 md:p-5 overflow-y-auto">
+        <div className="w-[92vw] max-w-[1280px] lg:max-h-[95vh] rounded-2xl bg-[#111827] border border-[#243044] shadow-2xl flex flex-col overflow-hidden">
           <div className="px-4 md:px-5 py-3 border-b border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div>
               <div className="text-[11px] font-mono text-sky-400 flex items-center gap-2 flex-wrap">
@@ -879,6 +947,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               )}
             </div>
           </div>
+          {diagnosticsFooterBar}
         </div>
       </div>
     );
@@ -886,20 +955,22 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
 
   // Widok przed pokojem (2 kolumny dopasowane do monitora)
   return (
-    <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-2.5 md:p-4 overflow-y-auto">
-      <div className="w-full max-w-5xl lg:max-h-[95vh] rounded-2xl bg-[#111827] border border-[#243044] shadow-2xl flex flex-col overflow-hidden">
-        <div className="px-4 md:px-5 py-3 border-b border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2 shrink-0">
+    <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-2.5 md:p-5 overflow-y-auto">
+      <div className="w-[92vw] max-w-[1220px] lg:max-h-[94vh] rounded-2xl bg-[#111827] border border-[#243044] shadow-2xl flex flex-col overflow-hidden">
+        <div className="px-5 md:px-6 py-3.5 border-b border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2 shrink-0">
           <div>
-            <h2 className="text-base md:text-lg font-bold text-white">{t('lobby.title')}</h2>
-            <p className="text-[11px] text-slate-400">{t('lobby.subtitle')}</p>
+            <h2 className="text-lg md:text-2xl font-extrabold text-white tracking-tight">
+              {t('lobby.title')}
+            </h2>
+            <p className="text-xs md:text-sm text-slate-400">{t('lobby.subtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <LanguageSwitcher compact />
             {onOpenTutorial && (
               <button
                 type="button"
                 onClick={onOpenTutorial}
-                className="px-2.5 py-1.5 rounded-lg bg-[#182235] border border-amber-500/40 text-amber-200 text-xs font-semibold"
+                className="px-3 py-1.5 rounded-xl bg-[#182235] border border-amber-500/40 text-amber-200 text-xs md:text-sm font-semibold cursor-pointer"
               >
                 🎓
               </button>
@@ -907,44 +978,44 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             <button
               type="button"
               onClick={onLeave}
-              className="px-3 py-1.5 rounded-lg bg-[#1a2438] text-xs text-slate-300 hover:text-white"
+              className="px-4 py-2 rounded-xl bg-[#1a2438] hover:bg-[#24314a] text-sm text-slate-200 font-semibold cursor-pointer"
             >
               {t('common.back')}
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 text-xs">
+        <div className="flex-1 overflow-y-auto p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs md:text-sm">
           {/* LEWA KOLUMNA: Profil Prezesa do Pokoju */}
-          <div className="lg:col-span-5 space-y-3">
+          <div className="lg:col-span-5 space-y-4">
             <div>
-              <label className="block text-slate-400 mb-1">{t('lobby.yourNick')}</label>
+              <label className="block text-slate-300 font-semibold mb-1.5">{t('lobby.yourNick')}</label>
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#0b0f17] border border-[#243044] text-slate-100 text-sm md:text-base"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">{t('lobby.companyName')}</label>
+              <label className="block text-slate-300 font-semibold mb-1.5">{t('lobby.companyName')}</label>
               <input
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#0b0f17] border border-[#243044] text-slate-100 text-sm md:text-base"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1.5">{t('lobby.color')}</label>
-              <div className="flex flex-wrap gap-2">
+              <label className="block text-slate-300 font-semibold mb-2">{t('lobby.color')}</label>
+              <div className="flex flex-wrap gap-2.5">
                 {PLAYER_COLORS.map((c) => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => setColor(c)}
-                    className={`w-7 h-7 rounded-lg border-2 ${
-                      color === c ? 'border-white scale-110' : 'border-transparent opacity-65'
+                    className={`w-8 h-8 rounded-xl border-2 cursor-pointer transition-transform ${
+                      color === c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-65 hover:opacity-100'
                     }`}
                     style={{ backgroundColor: c }}
                   />
@@ -952,75 +1023,46 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               </div>
             </div>
 
-            {/* Diagnostyka P2P */}
-            <div className="pt-3 border-t border-[#243044] space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-400">{t('lobby.p2pDiag')}</span>
-                <button
-                  type="button"
-                  disabled={p2pTesting}
-                  onClick={handleTestNetwork}
-                  className="px-2.5 py-1 rounded bg-[#182235] hover:bg-[#22304a] border border-[#2d3b52] text-slate-200 font-medium disabled:opacity-40"
-                >
-                  {p2pTesting ? t('lobby.p2pTesting') : t('lobby.p2pTest')}
-                </button>
-              </div>
-              {p2pReport && (
-                <div
-                  className={`p-2 rounded-lg border text-[11px] ${
-                    p2pReport.ok
-                      ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-200'
-                      : 'bg-rose-950/35 border-rose-500/40 text-rose-200'
-                  }`}
-                >
-                  <div>{p2pReport.message}</div>
-                </div>
-              )}
+            {/* Krótka informacja o połączeniu P2P / TURN */}
+            <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-1.5 text-xs">
+              <div className="font-semibold text-slate-200">{t('lobby.p2pDiag')}</div>
+              <p className="text-slate-400 leading-relaxed">{t('lobby.subtitle')}</p>
             </div>
           </div>
 
           {/* PRAWA KOLUMNA: Zakładki Stwórz / Otwarte Sesje / Dołącz */}
-          <div className="lg:col-span-7 flex flex-col justify-between gap-3">
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
+          <div className="lg:col-span-7 flex flex-col justify-between gap-4">
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-2.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    setModeView('choose');
-                    setError(null);
-                  }}
-                  className={`py-2 px-1 rounded-lg font-semibold border ${
+                  onClick={() => selectModeTab('choose')}
+                  className={`py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold border transition-colors cursor-pointer ${
                     modeView === 'choose'
-                      ? 'bg-sky-500/20 border-sky-400 text-sky-300'
-                      : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+                      ? 'bg-sky-500/20 border-sky-400 text-sky-200'
+                      : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {t('lobby.tabCreate')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setModeView('browse');
-                    setError(null);
-                  }}
-                  className={`py-2 px-1 rounded-lg font-semibold border ${
+                  onClick={() => selectModeTab('browse')}
+                  className={`py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold border transition-colors cursor-pointer ${
                     modeView === 'browse'
                       ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                      : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+                      : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {t('lobby.tabBrowse')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setModeView('join');
-                    setError(null);
-                  }}
-                  className={`py-2 px-1 rounded-lg font-semibold border ${
+                  onClick={() => selectModeTab('join')}
+                  className={`py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold border transition-colors cursor-pointer ${
                     modeView === 'join'
-                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                      : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                      : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {t('lobby.tabJoin')}
@@ -1180,7 +1222,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 type="button"
                 disabled={busy}
                 onClick={handleCreate}
-                className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold text-sm"
+                className="w-full py-3.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold text-sm md:text-base cursor-pointer"
               >
                 {busy ? t('lobby.creating') : t('lobby.createBtn')}
               </button>
@@ -1189,13 +1231,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 type="button"
                 disabled={busy}
                 onClick={handleJoin}
-                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-sm"
+                className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-sm md:text-base cursor-pointer"
               >
                 {busy ? t('lobby.joining') : t('lobby.joinRoomBtn')}
               </button>
             ) : null}
           </div>
         </div>
+        {diagnosticsFooterBar}
       </div>
     </div>
   );

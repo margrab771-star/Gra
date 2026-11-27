@@ -164,7 +164,7 @@ export const pl = {
   'lobby.creating': 'Łączenie z WebRTC...',
   'lobby.joinRoomBtn': '🚪 Dołącz do Pokoju',
   'lobby.joining': 'Łączenie z pokojem...',
-  'lobby.p2pDiag': 'Diagnostyka WebRTC / STUN',
+  'lobby.p2pDiag': 'Diagnostyka WebRTC / STUN / TURN',
   'lobby.p2pTest': '📡 Testuj sieć P2P',
   'lobby.p2pTesting': 'Testowanie...',
   'lobby.retry': '🔄 Ponów połączenie',
@@ -587,6 +587,21 @@ export const pl = {
   'bldg.b2bPendingTitle': 'Oczekujące Oferty B2B do Zatwierdzenia',
   'bldg.b2bActiveTitle': 'Aktywne Kontrakty Konglomeratu',
   'bldg.b2bNone': 'Brak aktywnych umów B2B.',
+
+  // Tabbed Setup & TURN/Supabase Diagnostics
+  'setup.step1': '🏢 1. Firma i Archetyp',
+  'setup.step2': '🌍 2. Świat i Tryb Gry',
+  'setup.step3': '⚡ 3. Zasady i Mutatory',
+  'setup.nextStep': 'Dalej →',
+  'setup.prevStep': '← Poprzedni krok',
+  'setup.mutatorsSub': 'Opcjonalne reguły specjalne oraz globalne megatrendy rynkowe dla tej kampanii.',
+  'setup.featuredRule': 'REKOMENDOWANA ZASADA',
+  'lobby.turnStatusLabel': 'Serwer TURN:',
+  'lobby.turnActive': 'Aktywny ({hosts})',
+  'lobby.turnFallback': 'Brak konfiguracji (tylko STUN)',
+  'lobby.supabaseStatusLabel': 'Katalog Supabase:',
+  'lobby.supabaseConnected': 'Połączono',
+  'lobby.supabaseLocal': 'Tryb lokalny',
 } as const;
 
 export type TranslationKey = keyof typeof pl;

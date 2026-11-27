@@ -35,6 +35,7 @@ import { useResponsive } from './hooks/useResponsive';
 import { BUILDINGS_EN } from './i18n/buildingsEn';
 import { useI18n } from './i18n/useI18n';
 import { getLocalPlayer, useGameStore } from './store/gameStore';
+import { normalizeInitialHashIfEmpty, parseHashRoute } from './utils/hashRouter';
 
 export function App() {
   const phase = useGameStore((s) => s.phase);
@@ -51,6 +52,7 @@ export function App() {
   const localPlayerId = useGameStore((s) => s.localPlayerId);
   const lobbyState = useGameStore((s) => s.lobbyState);
   const initialRoomCode = useGameStore((s) => s.initialRoomCode);
+  const mpLobbyTab = useGameStore((s) => s.mpLobbyTab);
   const toast = useGameStore((s) => s.toast);
   const savedAvailable = useGameStore((s) => s.savedAvailable);
   const saveSlotsMeta = useGameStore((s) => s.saveSlotsMeta);
@@ -91,7 +93,20 @@ export function App() {
 
   useEffect(() => {
     document.title = GAME_CONFIG.title;
+    normalizeInitialHashIfEmpty();
     useGameStore.getState().initNetworkListeners();
+
+    const syncFromHash = () => {
+      const route = parseHashRoute(window.location.hash, window.location.search);
+      useGameStore.getState().applyHashRoute(route);
+    };
+
+    window.addEventListener('hashchange', syncFromHash);
+    window.addEventListener('popstate', syncFromHash);
+    return () => {
+      window.removeEventListener('hashchange', syncFromHash);
+      window.removeEventListener('popstate', syncFromHash);
+    };
   }, []);
 
   // Niezawodny autozapis co 15 s + beforeunload / visibilitychange (Single Player)
@@ -203,33 +218,33 @@ export function App() {
           onNewSinglePlayer={actions.goToSetup}
           onOpenMultiplayer={() => {
             setQuickJoinRoomCode(null);
-            actions.goToMultiplayer();
+            actions.goToMultiplayer('choose');
           }}
-          onOpenWeeklyChallenge={() => actions.setShowWeeklyModal(true)}
-          onOpenProfile={() => actions.setShowProfileModal(true)}
-          onOpenShop={() => actions.setShowShopModal(true)}
-          onOpenBattlePass={() => actions.setShowBattlePassModal(true)}
+          onOpenWeeklyChallenge={() => actions.openPreGameModal('weekly')}
+          onOpenProfile={() => actions.openPreGameModal('profile')}
+          onOpenShop={() => actions.openPreGameModal('shop')}
+          onOpenBattlePass={() => actions.openPreGameModal('battlepass')}
           onOpenAuth={() => actions.setShowAuthModal(true)}
           onContinueGame={actions.continueSavedGame}
           onLoadSlot={actions.loadFromSlot}
           onQuickRejoinMp={(code) => {
             setQuickJoinRoomCode(code);
-            actions.goToMultiplayer();
+            actions.goToMultiplayer('join', code);
           }}
-          onOpenLeaderboard={() => actions.setActiveModal('leaderboard')}
-          onStartTutorial={() => actions.setShowTutorialModal(true)}
+          onOpenLeaderboard={() => actions.openPreGameModal('leaderboard')}
+          onStartTutorial={() => actions.openPreGameModal('guide')}
         />
         {activeModal === 'leaderboard' && (
           <LeaderboardPanel
             gameState={null}
             activeProfile={activeProfile}
             onOpenAuth={() => actions.setShowAuthModal(true)}
-            onClose={() => actions.setActiveModal('none')}
+            onClose={actions.closePreGameModal}
           />
         )}
         {showTutorialModal && (
           <TutorialModal
-            onClose={() => actions.setShowTutorialModal(false)}
+            onClose={actions.closePreGameModal}
             onStartTrainingMap={() => {
               actions.setShowTutorialModal(false);
               actions.startQuickTutorialGame();
@@ -250,34 +265,34 @@ export function App() {
           <ProfileModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
-            onOpenShop={() => actions.setShowShopModal(true)}
-            onOpenBattlePass={() => actions.setShowBattlePassModal(true)}
+            onOpenShop={() => actions.openPreGameModal('shop')}
+            onOpenBattlePass={() => actions.openPreGameModal('battlepass')}
             onOpenAuth={() => {
               actions.setShowProfileModal(false);
               actions.setShowAuthModal(true);
             }}
-            onClose={() => actions.setShowProfileModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
         {showShopModal && (
           <ShopModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
-            onClose={() => actions.setShowShopModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
         {showBattlePassModal && (
           <BattlePassModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
-            onClose={() => actions.setShowBattlePassModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
         {showWeeklyModal && (
           <WeeklyChallengeModal
             profile={activeProfile}
             onStartChallenge={() => actions.startWeeklyChallengeGame()}
-            onClose={() => actions.setShowWeeklyModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
       </>
@@ -290,7 +305,7 @@ export function App() {
         <GameSetup
           activeProfile={activeProfile}
           defaultPlayerName={!activeProfile.isGuest ? activeProfile.nick : undefined}
-          onOpenShop={() => actions.setShowShopModal(true)}
+          onOpenShop={() => actions.openPreGameModal('shop')}
           onStart={actions.startSinglePlayer}
           onBack={actions.goToMenu}
         />
@@ -298,7 +313,7 @@ export function App() {
           <ShopModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
-            onClose={() => actions.setShowShopModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
       </>
@@ -313,6 +328,8 @@ export function App() {
           key={resolvedRoom ?? 'lobby'}
           activeProfile={activeProfile}
           initialRoomCode={resolvedRoom}
+          activeTab={mpLobbyTab}
+          onChangeTab={actions.setMpLobbyTab}
           lastMpSession={lastMpSession}
           lobbyState={lobbyState}
           isHost={isHost}
@@ -320,18 +337,18 @@ export function App() {
           onCreateRoom={actions.createMultiplayerRoom}
           onJoinRoom={actions.joinMultiplayerRoom}
           onStartMatch={actions.startMultiplayerMatch}
-          onOpenTutorial={() => actions.setShowTutorialModal(true)}
-          onOpenShop={() => actions.setShowShopModal(true)}
+          onOpenTutorial={() => actions.openPreGameModal('guide')}
+          onOpenShop={() => actions.openPreGameModal('shop')}
           onLeave={actions.leaveMultiplayer}
         />
         {showTutorialModal && (
-          <TutorialModal inLobby onClose={() => actions.setShowTutorialModal(false)} />
+          <TutorialModal inLobby onClose={actions.closePreGameModal} />
         )}
         {showShopModal && (
           <ShopModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
-            onClose={() => actions.setShowShopModal(false)}
+            onClose={actions.closePreGameModal}
           />
         )}
       </>
