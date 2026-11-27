@@ -860,6 +860,45 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }));
         navigateHash('#/play');
       },
+      onGameOver: (victoryFullState, assignedId) => {
+        const localId = assignedId || get().localPlayerId;
+        const nextVictory = structuredClone(victoryFullState);
+        nextVictory.currentPlayerId = localId;
+        nextVictory.speed = 0;
+
+        if (!get().recordedMatchEnded) {
+          const me = nextVictory.players.find((p) => p.id === localId);
+          if (me) {
+            submitLeaderboardResult({
+              playerName: me.name,
+              companyName: me.companyName,
+              netWorth: me.netWorth,
+              strategy: me.dominantStrategy,
+              mode: nextVictory.settings.mode,
+            });
+            const reward = recordCompletedMatchToProfile(nextVictory, me);
+            set({
+              recordedMatchEnded: true,
+              lastMatchRewardSummary: {
+                xpEarned: reward.xpEarned,
+                mCoinsEarned: reward.mCoinsEarned,
+                bpXpEarned: reward.bpXpEarned,
+                rewardMultiplier: reward.rewardMultiplier,
+                tooShortForCoins: reward.tooShortForCoins,
+                completedQuests: reward.completedQuests,
+                newlyUnlocked: reward.newlyUnlocked,
+              },
+              activeProfile: reward.profile,
+            });
+          }
+        }
+        set({
+          phase: 'Playing',
+          gameState: nextVictory,
+          localPlayerId: localId,
+          showVictoryModal: true,
+        });
+      },
       onStateSync: (remoteState, assignedId) => {
         const localId = assignedId || get().localPlayerId;
         const prevGs = get().gameState;
@@ -914,11 +953,20 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }
 
         const showVic = Boolean(
-          synced.winnerId || (synced.challengeCompleted && !get().showVictoryModal)
+          synced.winnerId ||
+            synced.phase === 'GameOver' ||
+            (synced.challengeCompleted && !get().showVictoryModal)
         );
         if (showVic && !get().recordedMatchEnded) {
           const me = synced.players.find((p) => p.id === localId);
           if (me) {
+            submitLeaderboardResult({
+              playerName: me.name,
+              companyName: me.companyName,
+              netWorth: me.netWorth,
+              strategy: me.dominantStrategy,
+              mode: synced.settings.mode,
+            });
             const reward = recordCompletedMatchToProfile(synced, me);
             set({
               recordedMatchEnded: true,
@@ -1237,13 +1285,22 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       }
     }
 
+    if (wonNow) {
+      next.speed = 0;
+    }
+
     set((prev) => ({
       gameState: next,
       showVictoryModal: prev.showVictoryModal || wonNow,
     }));
 
     if (isMultiplayer && isHost) {
-      multiplayerManager.broadcastStateSync(next);
+      if (wonNow) {
+        multiplayerManager.broadcastStateSync(next, true);
+        multiplayerManager.broadcastGameOver(next);
+      } else {
+        multiplayerManager.broadcastStateSync(next);
+      }
     }
   },
 
@@ -1308,7 +1365,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     }));
 
     if (isMultiplayer && isHost) {
-      multiplayerManager.broadcastStateSync(next);
+      if (justCompleted) {
+        multiplayerManager.broadcastStateSync(next, true);
+        multiplayerManager.broadcastGameOver(next);
+      } else {
+        multiplayerManager.broadcastStateSync(next);
+      }
     }
   },
 
@@ -1338,7 +1400,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     next.victoryReason = null;
     set({ gameState: next, showVictoryModal: false });
     if (get().isMultiplayer && get().isHost) {
-      multiplayerManager.broadcastStateSync(next);
+      multiplayerManager.broadcastStateSync(next, true);
     }
   },
 

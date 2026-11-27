@@ -584,6 +584,12 @@ export interface BuildingStatusFlags {
   noFuel?: boolean;
 }
 
+export interface InputResourceBuffer {
+  stored: number;
+  max: number;
+  sourceMode?: 'none' | 'mine' | 'b2b' | 'market';
+}
+
 export interface Building {
   id: string;
   type: BuildingType;
@@ -637,6 +643,8 @@ export interface Building {
   fuelResource?: ResourceType;
   fuelSourceMode?: 'none' | 'mine' | 'b2b' | 'market';
   emergencyMarketImport?: boolean;
+  // Zunifikowane bufory wsadów surowcowych wszystkich budynków produkcyjnych
+  inputBuffers?: Partial<Record<ResourceType, InputResourceBuffer>>;
 }
 
 // ─── Utility & Resource Balance Report ────────────────────────────────────────

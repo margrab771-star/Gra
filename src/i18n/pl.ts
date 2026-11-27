@@ -345,9 +345,9 @@ export const pl = {
   'prof.tabHistory': 'Historia & Rekordy',
   'prof.tabAccount': 'Konto & Eksport',
   'prof.prestigeTitle': '⭐ System Prestiżu',
-  'prof.prestigeDesc': 'Po osiągnięciu Poz. 25 możesz zresetować poziom do Poz. 1, zdobyć stałą gwiazdę Prestiżu przy karcie gracza oraz premię +250 M!',
+  'prof.prestigeDesc': 'Po osiągnięciu Poz. 100 możesz zresetować poziom do Poz. 1, zdobyć stałą gwiazdę Prestiżu przy karcie gracza oraz premię +250 M!',
   'prof.prestigeBtn': '🌟 Aktywuj Prestiż (+250 M)',
-  'prof.prestigeLocked': 'Wymagany Poziom 25 (aktualnie Poz. {lvl})',
+  'prof.prestigeLocked': 'Wymagany Poziom 100 (aktualnie Poz. {lvl})',
   'prof.avatarLabel': 'Awatar Prezesa',
   'prof.frameLabel': 'Ramka Karty',
   'prof.hqSkinLabel': 'Wygląd Siedziby HQ',
@@ -602,6 +602,9 @@ export const pl = {
   'lobby.supabaseStatusLabel': 'Katalog Supabase:',
   'lobby.supabaseConnected': 'Połączono',
   'lobby.supabaseLocal': 'Tryb lokalny',
+  'bldg.inputsBufferTitle': '📦 Zapas Wsadów / Surowców',
+  'bldg.inputDemandCycle': 'Zużycie: {amt} {unit}/cykl',
+  'bldg.inputSpotNotice': 'Brak własnych dostaw — pobierane na bieżąco z rynku.',
 } as const;
 
 export type TranslationKey = keyof typeof pl;

@@ -39,6 +39,20 @@ export type ConnectionStage =
   | 'connected'
   | 'error';
 
+export interface GameOverVictoryPayload {
+  phase: GameState['phase'];
+  speed: GameState['speed'];
+  winnerId: string | null;
+  winningCoalitionId: string | null;
+  victoryReason: string | null;
+  challengeCompleted: boolean;
+  challengeTimeRemaining: number;
+  players: GameState['players'];
+  coalitions: GameState['coalitions'];
+  matchStatsHistory: GameState['matchStatsHistory'];
+  time: GameState['time'];
+}
+
 export type NetworkMessage =
   | {
       kind: 'join_request';
@@ -69,6 +83,7 @@ export type NetworkMessage =
       assignedPlayerId: string;
       startedAt: number;
     }
+  | { kind: 'GAME_OVER'; victoryState: GameOverVictoryPayload }
   | { kind: 'STATE_SYNC'; state: GameState }
   | { kind: 'STATE_DELTA'; delta: GameStateDelta }
   | {
@@ -468,7 +483,7 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     pendingForecasts: state.pendingForecasts.slice(0, 4),
     vehicles: state.vehicles.slice(0, 28),
     dispatches: (state.dispatches ?? []).slice(-20),
-    fuelDeliveries: (state.fuelDeliveries ?? []).slice(0, 14),
+    fuelDeliveries: (state.fuelDeliveries ?? []).slice(0, 20),
     b2bRoutes: (state.b2bRoutes ?? []).slice(0, 12),
     stocks: compactStocks,
     cashTransfers: (state.cashTransfers ?? []).slice(-40),
@@ -776,6 +791,7 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
 export interface MultiplayerCallbacks {
   onLobbyChange: (lobby: LobbyState) => void;
   onGameStartSignal: (lobby: LobbyState, localPlayerId: string) => void;
+  onGameOver?: (victoryFullState: GameState, localPlayerId: string) => void;
   onStateSync: (state: GameState, localPlayerId: string) => void;
   onClientAction: (action: PlayerAction) => void;
   onRequestFullSync: () => GameState | null;
@@ -1390,6 +1406,32 @@ export class MultiplayerManager {
       if (this.hasReceivedInitialSync && this.ackedStartTimestamp !== msg.startedAt) {
         this.sendGameStartedAck(msg.startedAt);
       }
+    } else if (msg.kind === 'GAME_OVER') {
+      const base = this.lastClientState;
+      if (base) {
+        const mergedVictoryState: GameState = {
+          ...base,
+          phase: msg.victoryState.phase,
+          speed: 0,
+          winnerId: msg.victoryState.winnerId,
+          winningCoalitionId: msg.victoryState.winningCoalitionId,
+          victoryReason: msg.victoryState.victoryReason,
+          challengeCompleted: msg.victoryState.challengeCompleted,
+          challengeTimeRemaining: msg.victoryState.challengeTimeRemaining,
+          players: msg.victoryState.players,
+          coalitions: msg.victoryState.coalitions,
+          matchStatsHistory: msg.victoryState.matchStatsHistory,
+          time: msg.victoryState.time,
+        };
+        this.lastClientState = mergedVictoryState;
+        if (this.callbacks.onGameOver) {
+          this.callbacks.onGameOver(mergedVictoryState, this.localPlayerId);
+        } else {
+          this.callbacks.onStateSync?.(mergedVictoryState, this.localPlayerId);
+        }
+      } else {
+        this.requestFullSync();
+      }
     } else if (msg.kind === 'STATE_SYNC') {
       this.handleClientStateReceived(msg.state);
     } else if (msg.kind === 'STATE_DELTA') {
@@ -1669,6 +1711,43 @@ export class MultiplayerManager {
           this.sendStartAndSyncToConn(conn, pid, latestState, retryMessages);
         }
       }, START_RETRY_INTERVAL_MS) as unknown as number;
+    }
+  }
+
+  broadcastGameOver(state: GameState): void {
+    if (!this.isHostFlag) return;
+    const victoryState: GameOverVictoryPayload = toJsonSafe({
+      phase: state.phase,
+      speed: 0,
+      winnerId: state.winnerId,
+      winningCoalitionId: state.winningCoalitionId ?? null,
+      victoryReason: state.victoryReason,
+      challengeCompleted: state.challengeCompleted,
+      challengeTimeRemaining: state.challengeTimeRemaining,
+      players: state.players.map((pl) => ({
+        ...pl,
+        financialHistory: pl.financialHistory.slice(-24),
+      })),
+      coalitions: state.coalitions ?? [],
+      matchStatsHistory: (state.matchStatsHistory ?? []).slice(-48),
+      time: state.time,
+    });
+    const packet: NetworkMessage = { kind: 'GAME_OVER', victoryState };
+    const packetBytes = getUtf8ByteLength(JSON.stringify(packet));
+
+    if (packetBytes <= MAX_WEBRTC_CHUNK_BYTES) {
+      for (const conn of this.clientConns.values()) {
+        if (conn.open) {
+          conn.send(packet);
+        }
+      }
+    } else {
+      const fullMessages = buildStateSyncMessages(state, 'gameover');
+      for (const conn of this.clientConns.values()) {
+        if (conn.open) {
+          this.sendMessagesToConn(conn, fullMessages);
+        }
+      }
     }
   }
 

@@ -19,16 +19,91 @@ export interface PublicLobbyListing {
 
 const LOCAL_LOBBIES_KEY = 'market_dominion_public_lobbies_v1';
 const BROADCAST_CHANNEL_NAME = 'market-dominion-public-lobbies-v1';
-export const PUBLIC_LOBBY_EXPIRY_MS = 60_000;
-export const PUBLIC_LOBBY_HEARTBEAT_MS = 20_000;
+export const PUBLIC_LOBBY_EXPIRY_MS = 90_000;
+export const PUBLIC_LOBBY_HEARTBEAT_MS = 18_000;
+
+let lastDirectoryError: string | null = null;
+const dirErrorListeners = new Set<(err: string | null) => void>();
+
+function setDirectoryError(err: string | null): void {
+  lastDirectoryError = err;
+  for (const listener of dirErrorListeners) {
+    listener(err);
+  }
+}
+
+export function getLastSupabaseLobbyError(): string | null {
+  return lastDirectoryError;
+}
+
+export function subscribeSupabaseDirectoryError(
+  listener: (err: string | null) => void
+): () => void {
+  dirErrorListeners.add(listener);
+  return () => {
+    dirErrorListeners.delete(listener);
+  };
+}
 
 function getSupabaseConfig(): { url: string; anonKey: string } | null {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const hasEnv = typeof import.meta !== 'undefined' && Boolean(import.meta.env);
+  const url = (hasEnv ? import.meta.env.VITE_SUPABASE_URL : undefined) as string | undefined;
+  const anonKey = (hasEnv ? import.meta.env.VITE_SUPABASE_ANON_KEY : undefined) as string | undefined;
   if (!url || !anonKey || !url.startsWith('http')) {
     return null;
   }
-  return { url: url.replace(/\/$/, ''), anonKey };
+  return { url: url.trim().replace(/\/$/, ''), anonKey: anonKey.trim() };
+}
+
+export interface SupabasePublicLobbyRow {
+  room_code: string;
+  room_name: string;
+  host_name: string;
+  host_division: string;
+  host_prestige: number;
+  scenario_id: string;
+  difficulty_preset: string;
+  map_size: number;
+  player_count: number;
+  max_players: number;
+  reward_multiplier: number;
+  game_started: boolean;
+  updated_at: number;
+}
+
+export function buildPublicLobbyUpsertPayload(
+  listing: PublicLobbyListing
+): SupabasePublicLobbyRow {
+  return {
+    room_code: String(listing.roomCode).trim(),
+    room_name: String(listing.roomName || listing.roomCode).trim(),
+    host_name: String(listing.hostName || 'Host').trim(),
+    host_division: String(listing.hostDivision || 'startup'),
+    host_prestige: Math.max(0, Math.round(Number(listing.hostPrestige ?? 0))),
+    scenario_id: String(listing.scenarioId || 'sandbox'),
+    difficulty_preset: String(listing.difficultyPreset || 'standard'),
+    map_size: Math.max(12, Math.round(Number(listing.mapSize ?? 24))),
+    player_count: Math.max(1, Math.round(Number(listing.playerCount ?? 1))),
+    max_players: Math.max(2, Math.round(Number(listing.maxPlayers ?? 8))),
+    reward_multiplier: Number(Number(listing.rewardMultiplier ?? 1).toFixed(2)),
+    game_started: Boolean(listing.gameStarted),
+    updated_at: Math.trunc(Number(listing.updatedAt || Date.now())),
+  };
+}
+
+export function getSupabaseRestHeaders(
+  anonKey: string,
+  prefer?: string
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    apikey: anonKey,
+    Authorization: `Bearer ${anonKey}`,
+  };
+  if (prefer) {
+    headers.Prefer = prefer;
+  }
+  return headers;
 }
 
 export function isSupabaseDirectoryConfigured(): boolean {
@@ -97,41 +172,40 @@ export function applyLocalDirectoryEvent(
   }
 }
 
-export async function publishOrHeartbeatPublicLobby(listing: PublicLobbyListing): Promise<void> {
+export async function publishOrHeartbeatPublicLobby(
+  listing: PublicLobbyListing
+): Promise<{ ok: boolean; status?: number; error?: string }> {
   const stamped: PublicLobbyListing = { ...listing, updatedAt: Date.now() };
   applyLocalDirectoryEvent({ kind: 'upsert', listing: stamped });
   broadcastLocalSignal({ kind: 'upsert', listing: stamped });
 
   const sb = getSupabaseConfig();
-  if (!sb) return;
+  if (!sb) return { ok: true };
 
   try {
-    await fetch(`${sb.url}/rest/v1/public_lobbies`, {
+    const res = await fetch(`${sb.url}/rest/v1/public_lobbies?on_conflict=room_code`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: sb.anonKey,
-        Authorization: `Bearer ${sb.anonKey}`,
-        Prefer: 'resolution=merge-duplicates',
-      },
-      body: JSON.stringify({
-        room_code: stamped.roomCode,
-        room_name: stamped.roomName,
-        host_name: stamped.hostName,
-        host_division: stamped.hostDivision,
-        host_prestige: stamped.hostPrestige,
-        scenario_id: stamped.scenarioId,
-        difficulty_preset: stamped.difficultyPreset,
-        map_size: stamped.mapSize,
-        player_count: stamped.playerCount,
-        max_players: stamped.maxPlayers,
-        reward_multiplier: stamped.rewardMultiplier,
-        game_started: Boolean(stamped.gameStarted),
-        updated_at: stamped.updatedAt,
-      }),
+      headers: getSupabaseRestHeaders(
+        sb.anonKey,
+        'resolution=merge-duplicates,return=representation'
+      ),
+      body: JSON.stringify(buildPublicLobbyUpsertPayload(stamped)),
     });
-  } catch {
-    // cichy fallback lokalny
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const msg = `Supabase POST HTTP ${res.status}${errText ? `: ${errText.slice(0, 140)}` : ''}`;
+      console.error('[lobbyDirectory] Failed to upsert public lobby:', res.status, errText);
+      setDirectoryError(msg);
+      return { ok: false, status: res.status, error: msg };
+    }
+    setDirectoryError(null);
+    return { ok: true, status: res.status };
+  } catch (err) {
+    const errText = err instanceof Error ? err.message : String(err);
+    const msg = `Supabase POST network error: ${errText}`;
+    console.error('[lobbyDirectory] Network failure during public_lobbies upsert:', err);
+    setDirectoryError(msg);
+    return { ok: false, error: msg };
   }
 }
 
@@ -144,7 +218,7 @@ export async function removePublicLobby(roomCode: string): Promise<void> {
   if (!sb) return;
 
   try {
-    await fetch(
+    const res = await fetch(
       `${sb.url}/rest/v1/public_lobbies?room_code=eq.${encodeURIComponent(roomCode)}`,
       {
         method: 'DELETE',
@@ -154,14 +228,19 @@ export async function removePublicLobby(roomCode: string): Promise<void> {
         },
       }
     );
-  } catch {
-    // cichy fallback
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('[lobbyDirectory] Failed to delete public lobby:', res.status, errText);
+    }
+  } catch (err) {
+    console.error('[lobbyDirectory] Network failure deleting public lobby:', err);
   }
 }
 
 export async function fetchActivePublicLobbies(): Promise<{
   lobbies: PublicLobbyListing[];
   source: 'supabase' | 'local';
+  error: string | null;
 }> {
   const localRooms = loadLocalLobbiesRaw();
   const sb = getSupabaseConfig();
@@ -169,13 +248,14 @@ export async function fetchActivePublicLobbies(): Promise<{
     return {
       lobbies: localRooms.sort((a, b) => b.updatedAt - a.updatedAt),
       source: 'local',
+      error: null,
     };
   }
 
   try {
     const cutoff = Date.now() - PUBLIC_LOBBY_EXPIRY_MS;
     const res = await fetch(
-      `${sb.url}/rest/v1/public_lobbies?select=*&game_started=eq.false&updated_at=gte.${cutoff}&order=updated_at.desc&limit=40`,
+      `${sb.url}/rest/v1/public_lobbies?select=*&game_started=eq.false&updated_at=gt.${cutoff}&order=updated_at.desc&limit=40`,
       {
         headers: {
           apikey: sb.anonKey,
@@ -183,7 +263,17 @@ export async function fetchActivePublicLobbies(): Promise<{
         },
       }
     );
-    if (!res.ok) throw new Error('supabase_unavailable');
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const msg = `Supabase GET HTTP ${res.status}${errText ? `: ${errText.slice(0, 140)}` : ''}`;
+      console.error('[lobbyDirectory] Failed to fetch public lobbies:', res.status, errText);
+      setDirectoryError(msg);
+      return {
+        lobbies: localRooms.sort((a, b) => b.updatedAt - a.updatedAt),
+        source: 'local',
+        error: msg,
+      };
+    }
     const rows = (await res.json()) as Array<Record<string, unknown>>;
     const remote: PublicLobbyListing[] = rows.map((r) => ({
       roomCode: String(r.room_code ?? ''),
@@ -206,14 +296,21 @@ export async function fetchActivePublicLobbies(): Promise<{
         merged.push(loc);
       }
     }
+    setDirectoryError(null);
     return {
       lobbies: merged.sort((a, b) => b.updatedAt - a.updatedAt),
       source: 'supabase',
+      error: null,
     };
-  } catch {
+  } catch (err) {
+    const errText = err instanceof Error ? err.message : String(err);
+    const msg = `Supabase GET network error: ${errText}`;
+    console.error('[lobbyDirectory] Network failure fetching public_lobbies:', err);
+    setDirectoryError(msg);
     return {
       lobbies: localRooms.sort((a, b) => b.updatedAt - a.updatedAt),
       source: 'local',
+      error: msg,
     };
   }
 }

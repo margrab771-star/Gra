@@ -524,7 +524,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
           <button
             type="button"
             onClick={onContinueEndless}
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm"
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm cursor-pointer"
           >
             {isChallengeDone
               ? t('vic.continueEndless')
@@ -536,14 +536,14 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
             <button
               type="button"
               onClick={onOpenLeaderboard}
-              className="py-2.5 rounded-xl bg-[#1a2438] border border-amber-500/40 text-amber-300 text-xs font-semibold"
+              className="py-2.5 rounded-xl bg-[#1a2438] hover:bg-[#24324d] border border-amber-500/40 text-amber-300 text-xs font-semibold cursor-pointer"
             >
               {t('vic.leaderboard')}
             </button>
             <button
               type="button"
               onClick={onExitToMenu}
-              className="py-2.5 rounded-xl bg-[#1a2438] border border-[#243044] text-slate-300 text-xs font-semibold"
+              className="py-2.5 rounded-xl bg-[#1a2438] hover:bg-[#24324d] border border-[#243044] text-slate-300 text-xs font-semibold cursor-pointer"
             >
               {t('vic.exitMenu')}
             </button>

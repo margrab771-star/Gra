@@ -29,6 +29,7 @@ import {
   computeCorporationLevel,
   constructBuildingOnPlot,
   demolishBuildingOnPlot,
+  ensureBuildingInputBuffers,
   getPowerPlantFuelSpec,
   processBuildingTick,
   processPowerPlantFuelDeliveriesTick,
@@ -2140,6 +2141,7 @@ export function migrateGameStateInPlace(state: GameState): void {
         }
         pl.building.techTree = syncedTree;
       }
+      ensureBuildingInputBuffers(pl.building);
     }
     pl.synergyPercent = pl.synergyPercent ?? 0;
     pl.passengerDemandPercent = pl.passengerDemandPercent ?? 100;

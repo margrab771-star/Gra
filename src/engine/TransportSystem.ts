@@ -843,7 +843,7 @@ function appendLogisticsDispatchVehicles(
 
   const seenRoutes = new Set<string>();
 
-  for (const fd of (state.fuelDeliveries ?? []).slice(0, 14)) {
+  for (const fd of (state.fuelDeliveries ?? []).slice(0, 20)) {
     const src = plotsById.get(fd.fromPlotId);
     const dst = plotsById.get(fd.toPlotId);
     if (!src || !dst) continue;
@@ -1469,7 +1469,7 @@ export function syncVehiclesForWorld(state: GameState): void {
 
   appendLogisticsDispatchVehicles(state, plotsByCoord, vehicles, routeLines);
 
-  state.vehicles = vehicles;
+  state.vehicles = vehicles.slice(0, 32);
   state.transportLines = routeLines.slice(0, 18);
 }
 

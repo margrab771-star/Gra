@@ -56,7 +56,7 @@ export class VehicleRenderer {
         vehicle.type !== 'helicopter';
       const bridgeLift = isGround
         ? ((src.roadType === 'bridge' ? 1 - t : 0) + (dst.roadType === 'bridge' ? t : 0)) *
-          -3.5 *
+          -3.0 *
           camera.zoom
         : 0;
       const srcS = worldToScreen(src.gridX, src.gridY, tw, th, camera.x, camera.y);

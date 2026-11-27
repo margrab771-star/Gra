@@ -4,6 +4,7 @@ import { RESOURCE_DEFINITIONS, TRADEABLE_RESOURCE_LIST } from '../../data/resour
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import {
   getInsurancePremiumPerTick,
+  getPhysicalInputSpecsForBuilding,
   getPlayerWarehouseCapacitySummary,
   getPowerPlantFuelSpec,
   getRepairCost,
@@ -978,59 +979,102 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               </div>
             )}
 
-            {/* Zasobnik Fizycznego Paliwa Elektrowni */}
+            {/* Zunifikowany Panel Zapasu Wsadów / Surowców (wszystkie budynki zużywające surowce + elektrownie) */}
             {(() => {
+              const inputSpecs = getPhysicalInputSpecsForBuilding(building.type);
               const fuelSpec = getPowerPlantFuelSpec(building.type);
-              if (!fuelSpec) return null;
-              const fuelLabel = localizeResourceName(fuelSpec.primaryResource, fuelSpec.label, lang);
-              const fuelPct = Math.max(0, Math.min(100, building.fuelLevel ?? 0));
-              const fuelStored = building.fuelStored ?? 0;
-              const fuelMax = building.fuelMax ?? fuelSpec.maxStock;
-              const barColor =
-                fuelPct >= 60 ? 'bg-emerald-400' : fuelPct >= 25 ? 'bg-amber-400' : 'bg-rose-500';
-              const textColor =
-                fuelPct >= 60
-                  ? 'text-emerald-300'
-                  : fuelPct >= 25
-                    ? 'text-amber-300'
-                    : 'text-rose-400';
+              if (inputSpecs.length === 0) return null;
               const canMarketImport = hasExternalMarketAccess(gameState, plot, currentPlayer.id);
-              const srcLabel =
-                building.fuelSourceMode === 'mine'
+              const srcText = (mode?: 'none' | 'mine' | 'b2b' | 'market') =>
+                mode === 'mine'
                   ? t('bldg.fuelSrcMine')
-                  : building.fuelSourceMode === 'b2b'
+                  : mode === 'b2b'
                     ? t('bldg.fuelSrcB2B')
-                    : building.fuelSourceMode === 'market'
+                    : mode === 'market'
                       ? t('bldg.fuelSrcMarket')
                       : t('bldg.fuelSrcNone');
+
               return (
-                <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2 text-xs">
+                <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2.5 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-amber-300">
-                      {t('bldg.fuelTitle', { fuel: fuelLabel })}
+                      {t('bldg.inputsBufferTitle')}
                     </span>
-                    <span className={`font-mono font-bold ${textColor}`}>
-                      {fuelLabel}: {fuelPct}% ({fuelStored.toFixed(1)}/{fuelMax})
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-[#151c28] rounded-full overflow-hidden border border-[#243044]">
-                    <div
-                      className={`h-full transition-all ${barColor}`}
-                      style={{ width: `${fuelPct}%` }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-slate-300 flex flex-wrap justify-between gap-1">
-                    <span>{t('bldg.fuelSourceLabel', { src: srcLabel })}</span>
-                    <span className="font-mono text-slate-400">
-                      {t('bldg.fuelUsage', { amt: fuelSpec.consumptionPerTick })}
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {inputSpecs.length} {lang === 'en' ? 'inputs' : 'wsady'}
                     </span>
                   </div>
-                  {building.status.noFuel && (
+
+                  <div className="space-y-2">
+                    {inputSpecs.map((spec) => {
+                      const rDef = RESOURCE_DEFINITIONS[spec.resource];
+                      const resLabel = localizeResourceName(spec.resource, spec.label, lang);
+                      const unit = localizeResourceUnit(rDef?.unit ?? 't', lang);
+                      const buf = building.inputBuffers?.[spec.resource];
+                      const stored = spec.isPowerFuel
+                        ? (building.fuelStored ?? buf?.stored ?? 0)
+                        : (buf?.stored ?? 0);
+                      const maxStock = spec.isPowerFuel
+                        ? (building.fuelMax ?? spec.maxStock)
+                        : (buf?.max ?? spec.maxStock);
+                      const pct = Math.max(
+                        0,
+                        Math.min(100, Math.round((stored / Math.max(0.1, maxStock)) * 100))
+                      );
+                      const usagePerCycle =
+                        building.consumptionPerTick?.[spec.resource] ?? spec.consumptionPerTick;
+                      const srcMode = spec.isPowerFuel
+                        ? (building.fuelSourceMode ?? buf?.sourceMode)
+                        : buf?.sourceMode;
+                      const barColor =
+                        pct >= 55 ? 'bg-emerald-400' : pct >= 25 ? 'bg-amber-400' : 'bg-rose-500';
+                      const textColor =
+                        pct >= 55
+                          ? 'text-emerald-300'
+                          : pct >= 25
+                            ? 'text-amber-300'
+                            : 'text-rose-400';
+
+                      return (
+                        <div
+                          key={spec.resource}
+                          className="p-2 rounded bg-[#111827] border border-[#243044] space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-100">
+                              {rDef?.emoji ?? '📦'} {resLabel}
+                            </span>
+                            <span className={`font-mono font-bold ${textColor}`}>
+                              {stored.toFixed(1)} / {maxStock.toFixed(1)} {unit} ({pct}%)
+                            </span>
+                          </div>
+                          <div className="h-2 w-full bg-[#151c28] rounded-full overflow-hidden border border-[#243044]">
+                            <div
+                              className={`h-full transition-all duration-300 ${barColor}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="text-[11px] text-slate-300 flex flex-wrap justify-between gap-1">
+                            <span>{t('bldg.fuelSourceLabel', { src: srcText(srcMode) })}</span>
+                            <span className="font-mono text-slate-400">
+                              {t('bldg.inputDemandCycle', {
+                                amt: Number(usagePerCycle.toFixed(2)),
+                                unit,
+                              })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {fuelSpec && building.status.noFuel && (
                     <div className="p-1.5 rounded bg-rose-950/50 border border-rose-500/45 text-[11px] text-rose-200">
                       {t('bldg.fuelEmptyBanner')}
                     </div>
                   )}
-                  {isMine && onToggleEmergencyFuelImport && (
+
+                  {fuelSpec && isMine && onToggleEmergencyFuelImport && (
                     <div className="pt-1 border-t border-[#1e293b] space-y-1">
                       <DarkToggle
                         checked={Boolean(building.emergencyMarketImport)}

@@ -56,8 +56,10 @@ import type {
 } from '../../engine/types';
 import {
   fetchActivePublicLobbies,
+  getLastSupabaseLobbyError,
   isSupabaseDirectoryConfigured,
   subscribePublicLobbySignals,
+  subscribeSupabaseDirectoryError,
   type PublicLobbyListing,
 } from '../../network/lobbyDirectory';
 import {
@@ -149,6 +151,9 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const [roomNameInput, setRoomNameInput] = useState('Liga Wall Street');
   const [publicLobbies, setPublicLobbies] = useState<PublicLobbyListing[]>([]);
   const [directorySource, setDirectorySource] = useState<'supabase' | 'local'>('local');
+  const [directoryError, setDirectoryError] = useState<string | null>(() =>
+    getLastSupabaseLobbyError()
+  );
   const [loadingLobbies, setLoadingLobbies] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState(
     initialRoomCode ?? lastMpSession?.roomCode ?? ''
@@ -191,6 +196,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         ];
 
   useEffect(() => {
+    const unsubErr = subscribeSupabaseDirectoryError((err) => setDirectoryError(err));
     multiplayerManager.setCallbacks({
       onConnectionStage: (nextStage, label) => {
         setStage(nextStage);
@@ -198,6 +204,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       },
     });
     return () => {
+      unsubErr();
       multiplayerManager.setCallbacks({ onConnectionStage: undefined });
     };
   }, []);
@@ -208,6 +215,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       const res = await fetchActivePublicLobbies();
       setPublicLobbies(res.lobbies);
       setDirectorySource(res.source);
+      setDirectoryError(res.error);
     } finally {
       setLoadingLobbies(false);
     }
@@ -221,6 +229,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         if (!cancelled) {
           setPublicLobbies(res.lobbies);
           setDirectorySource(res.source);
+          setDirectoryError(res.error);
         }
       });
     };
@@ -321,12 +330,19 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         <span className="text-slate-400 font-medium">{t('lobby.supabaseStatusLabel')}</span>
         <span
           className={`px-2 py-0.5 rounded-lg border font-mono text-[11px] font-semibold ${
-            supabaseReady
-              ? 'bg-sky-950/50 border-sky-500/45 text-sky-300'
-              : 'bg-[#151c28] border-[#243044] text-slate-300'
+            directoryError
+              ? 'bg-rose-950/50 border-rose-500/45 text-rose-300'
+              : supabaseReady
+                ? 'bg-sky-950/50 border-sky-500/45 text-sky-300'
+                : 'bg-[#151c28] border-[#243044] text-slate-300'
           }`}
+          title={directoryError ?? undefined}
         >
-          {supabaseReady ? `🌐 ${t('lobby.supabaseConnected')}` : `📡 ${t('lobby.supabaseLocal')}`}
+          {directoryError
+            ? `⚠️ ${directoryError}`
+            : supabaseReady
+              ? `🌐 ${t('lobby.supabaseConnected')}`
+              : `📡 ${t('lobby.supabaseLocal')}`}
         </span>
       </div>
 
@@ -1173,6 +1189,12 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {directoryError && (
+                    <div className="p-2.5 rounded-lg bg-rose-950/45 border border-rose-500/50 text-rose-200 text-[11px] font-mono break-words">
+                      ⚠️ {directoryError}
                     </div>
                   )}
 

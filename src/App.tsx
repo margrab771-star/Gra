@@ -870,7 +870,7 @@ export function App() {
         />
       )}
 
-      {showVictoryModal && (
+      {showVictoryModal && activeModal !== 'leaderboard' && (
         <VictoryModal
           gameState={gameState}
           currentPlayer={currentPlayer}

@@ -86,12 +86,16 @@ export class TerrainRenderer {
         heatmapMode,
         ownerPrestige
       );
+    }
+
+    for (const plot of plots) {
+      const { screenX, screenY } = worldToScreen(plot.gridX, plot.gridY, tw, th, ox, oy);
 
       if (isRoadPlot(plot)) {
-        const hasN = isRoadPlot(gridLookup.get(`${plot.gridX}_${plot.gridY - 1}`));
-        const hasE = isRoadPlot(gridLookup.get(`${plot.gridX + 1}_${plot.gridY}`));
-        const hasS = isRoadPlot(gridLookup.get(`${plot.gridX}_${plot.gridY + 1}`));
-        const hasW = isRoadPlot(gridLookup.get(`${plot.gridX - 1}_${plot.gridY}`));
+        const nPlot = gridLookup.get(`${plot.gridX}_${plot.gridY - 1}`);
+        const ePlot = gridLookup.get(`${plot.gridX + 1}_${plot.gridY}`);
+        const sPlot = gridLookup.get(`${plot.gridX}_${plot.gridY + 1}`);
+        const wPlot = gridLookup.get(`${plot.gridX - 1}_${plot.gridY}`);
         this.drawSeamlessIsoRoad(
           ctx,
           plot,
@@ -99,10 +103,10 @@ export class TerrainRenderer {
           screenY,
           tw,
           th,
-          hasN,
-          hasE,
-          hasS,
-          hasW,
+          nPlot,
+          ePlot,
+          sPlot,
+          wPlot,
           supersample
         );
       }
@@ -470,8 +474,8 @@ export class TerrainRenderer {
   }
 
   /**
-   * Bezszwowe wielokąty izometryczne dla dróg lokalnych i dwupasmowych autostrad:
-   * krawędzie równoległe do boków rombu całkowicie eliminują szczeliny między kafelkami!
+   * Bezszwowe wielokąty izometryczne dla dróg lokalnych, autostrad i mostów z płynnymi najazdami:
+   * krawędzie dopasowane 1:1 do wysokości i szerokości sąsiednich dróg eliminują uskoki i szczeliny.
    */
   private drawSeamlessIsoRoad(
     ctx: CanvasRenderingContext2D,
@@ -480,105 +484,230 @@ export class TerrainRenderer {
     cy: number,
     tw: number,
     th: number,
-    hasN: boolean,
-    hasE: boolean,
-    hasS: boolean,
-    hasW: boolean,
+    nPlot: MapPlot | undefined,
+    ePlot: MapPlot | undefined,
+    sPlot: MapPlot | undefined,
+    wPlot: MapPlot | undefined,
     scale: number
   ): void {
     const isBridge = plot.roadType === 'bridge';
     const isHighway = plot.roadType === 'highway';
-    const deckCy = isBridge ? cy - 3.5 * scale : cy;
-    const r = isHighway ? 0.24 : isBridge ? 0.19 : 0.16;
-    const rc = r + (isHighway ? 0.045 : isBridge ? 0.048 : 0.032);
+    const hasN = isRoadPlot(nPlot);
+    const hasE = isRoadPlot(ePlot);
+    const hasS = isRoadPlot(sPlot);
+    const hasW = isRoadPlot(wPlot);
+    const anyArm = hasN || hasE || hasS || hasW;
 
-    if (isBridge) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(186, 230, 253, 0.35)';
-      ctx.beginPath();
-      ctx.ellipse(cx - 5.5 * scale, cy + 4.5 * scale, 3.2 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 5.5 * scale, cy + 4.5 * scale, 3.2 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
+    const neighborHighway =
+      isBridge &&
+      ((hasN && nPlot?.roadType === 'highway') ||
+        (hasE && ePlot?.roadType === 'highway') ||
+        (hasS && sPlot?.roadType === 'highway') ||
+        (hasW && wPlot?.roadType === 'highway'));
+    const neighborLocal =
+      isBridge &&
+      ((hasN && nPlot?.roadType === 'local') ||
+        (hasE && ePlot?.roadType === 'local') ||
+        (hasS && sPlot?.roadType === 'local') ||
+        (hasW && wPlot?.roadType === 'local'));
 
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(cx - 7 * scale, deckCy, 3 * scale, 7.5 * scale);
-      ctx.fillRect(cx + 4 * scale, deckCy, 3 * scale, 7.5 * scale);
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(cx - 7 * scale, deckCy, 1.2 * scale, 7.5 * scale);
-      ctx.fillRect(cx + 4 * scale, deckCy, 1.2 * scale, 7.5 * scale);
-      ctx.restore();
-    }
+    const bridgeLift = -3.0 * scale;
+    const deckCy = isBridge ? cy + bridgeLift : cy;
+    const baseRoadRatio = isHighway ? 0.24 : isBridge && neighborHighway && !neighborLocal ? 0.22 : 0.16;
+    const curbExtra = isHighway ? 0.045 : isBridge ? 0.036 : 0.032;
 
-    // Bazowe pół-wektory krawędzi rombu:
-    // granica N/S leży wzdłuż (+tw/2, +th/2), granica E/W leży wzdłuż (+tw/2, -th/2)
+    const armTipLift = (neighbor: MapPlot | undefined): number => {
+      if (!isBridge) return 0;
+      return neighbor && isRoadPlot(neighbor) && neighbor.roadType === 'bridge' ? bridgeLift : 0;
+    };
+    const armTipRoadRatio = (neighbor: MapPlot | undefined): number => {
+      if (!neighbor || !isRoadPlot(neighbor)) return baseRoadRatio;
+      if (neighbor.roadType === 'highway') return 0.24;
+      if (neighbor.roadType === 'local') return 0.16;
+      return baseRoadRatio;
+    };
+    const armTipCurbRatio = (neighbor: MapPlot | undefined): number => {
+      if (!neighbor || !isRoadPlot(neighbor)) return baseRoadRatio + curbExtra;
+      if (neighbor.roadType === 'highway') return 0.24 + 0.045;
+      if (neighbor.roadType === 'local') return 0.16 + 0.032;
+      return baseRoadRatio + curbExtra;
+    };
+
     const nsEdgeX = tw * 0.5;
     const nsEdgeY = th * 0.5;
     const ewEdgeX = tw * 0.5;
     const ewEdgeY = -th * 0.5;
 
-    const drawRibbon = (
-      ratio: number,
-      color: string,
-      drawCenterDiamond = true
-    ) => {
-      ctx.fillStyle = color;
+    const arms: {
+      active: boolean;
+      dx: number;
+      dy: number;
+      px: number;
+      py: number;
+      neighbor: MapPlot | undefined;
+    }[] = [
+      { active: hasN || !anyArm, dx: tw * 0.25, dy: -th * 0.25, px: nsEdgeX, py: nsEdgeY, neighbor: nPlot },
+      { active: hasS || !anyArm, dx: -tw * 0.25, dy: th * 0.25, px: nsEdgeX, py: nsEdgeY, neighbor: sPlot },
+      { active: hasE, dx: tw * 0.25, dy: th * 0.25, px: ewEdgeX, py: ewEdgeY, neighbor: ePlot },
+      { active: hasW, dx: -tw * 0.25, dy: -th * 0.25, px: ewEdgeX, py: ewEdgeY, neighbor: wPlot },
+    ];
 
-      const drawQuad = (dxEnd: number, dyEnd: number, px: number, py: number) => {
+    if (isBridge) {
+      ctx.save();
+      // Miękki cień pomostu na wodzie + odbicia fali wokół betonowych filarów
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 4.0 * scale, tw * 0.24, th * 0.19, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.38)';
+      ctx.beginPath();
+      ctx.ellipse(cx - 5.2 * scale, cy + 4.8 * scale, 3.6 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 5.2 * scale, cy + 4.8 * scale, 3.6 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Betonowe filary schodzące do lustra wody (lewa ściana jasna, prawa zacieniona)
+      const pierTop = deckCy + 0.8 * scale;
+      const pierH = 7.4 * scale;
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(cx - 7.0 * scale, pierTop, 1.8 * scale, pierH);
+      ctx.fillRect(cx + 3.8 * scale, pierTop, 1.8 * scale, pierH);
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(cx - 5.2 * scale, pierTop, 1.6 * scale, pierH);
+      ctx.fillRect(cx + 5.6 * scale, pierTop, 1.6 * scale, pierH);
+
+      // Betonowe ścianki przyczółków na zjazdach z mostu na ląd
+      for (const arm of arms) {
+        if (!arm.active) continue;
+        const tipLift = armTipLift(arm.neighbor);
+        if (tipLift === bridgeLift) continue;
+        const tipCy = cy + tipLift;
+        const rTip = armTipCurbRatio(arm.neighbor);
+        const rCenter = baseRoadRatio + curbExtra;
+        ctx.fillStyle = '#475569';
         ctx.beginPath();
-        ctx.moveTo(cx - px * ratio, deckCy - py * ratio);
-        ctx.lineTo(cx + px * ratio, deckCy + py * ratio);
-        ctx.lineTo(cx + dxEnd + px * ratio, deckCy + dyEnd + py * ratio);
-        ctx.lineTo(cx + dxEnd - px * ratio, deckCy + dyEnd - py * ratio);
+        ctx.moveTo(cx + arm.px * rCenter, deckCy + arm.py * rCenter);
+        ctx.lineTo(cx + arm.dx + arm.px * rTip, tipCy + arm.dy + arm.py * rTip);
+        ctx.lineTo(cx + arm.dx + arm.px * rTip, tipCy + arm.dy + arm.py * rTip + 2.2 * scale);
+        ctx.lineTo(cx + arm.px * rCenter, deckCy + arm.py * rCenter + 3.0 * scale);
         ctx.closePath();
         ctx.fill();
-      };
 
-      const anyArm = hasN || hasE || hasS || hasW;
-      if (hasN || !anyArm) drawQuad(tw * 0.25, -th * 0.25, nsEdgeX, nsEdgeY);
-      if (hasS || !anyArm) drawQuad(-tw * 0.25, th * 0.25, nsEdgeX, nsEdgeY);
-      if (hasE) drawQuad(tw * 0.25, th * 0.25, ewEdgeX, ewEdgeY);
-      if (hasW) drawQuad(-tw * 0.25, -th * 0.25, ewEdgeX, ewEdgeY);
-
-      if (drawCenterDiamond) {
-        // Romb środkowy łączący idealnie ramiona N/S oraz E/W
+        ctx.fillStyle = '#334155';
         ctx.beginPath();
-        ctx.moveTo(cx, deckCy - th * ratio);
-        ctx.lineTo(cx + tw * ratio, deckCy);
-        ctx.lineTo(cx, deckCy + th * ratio);
-        ctx.lineTo(cx - tw * ratio, deckCy);
+        ctx.moveTo(cx - arm.px * rCenter, deckCy - arm.py * rCenter);
+        ctx.lineTo(cx + arm.dx - arm.px * rTip, tipCy + arm.dy - arm.py * rTip);
+        ctx.lineTo(cx + arm.dx - arm.px * rTip, tipCy + arm.dy - arm.py * rTip + 2.2 * scale);
+        ctx.lineTo(cx - arm.px * rCenter, deckCy - arm.py * rCenter + 3.0 * scale);
         ctx.closePath();
         ctx.fill();
       }
+      ctx.restore();
+    }
+
+    const drawRibbon = (
+      centerRatio: number,
+      getTipRatio: (n: MapPlot | undefined) => number,
+      color: string
+    ) => {
+      ctx.fillStyle = color;
+
+      for (const arm of arms) {
+        if (!arm.active) continue;
+        const tipCy = cy + armTipLift(arm.neighbor);
+        const tipRatio = getTipRatio(arm.neighbor);
+        ctx.beginPath();
+        ctx.moveTo(cx - arm.px * centerRatio, deckCy - arm.py * centerRatio);
+        ctx.lineTo(cx + arm.px * centerRatio, deckCy + arm.py * centerRatio);
+        ctx.lineTo(
+          cx + arm.dx + arm.px * tipRatio,
+          tipCy + arm.dy + arm.py * tipRatio
+        );
+        ctx.lineTo(
+          cx + arm.dx - arm.px * tipRatio,
+          tipCy + arm.dy - arm.py * tipRatio
+        );
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Romb środkowy łączący bezszwowo wszystkie aktywne ramiona
+      ctx.beginPath();
+      ctx.moveTo(cx, deckCy - th * centerRatio);
+      ctx.lineTo(cx + tw * centerRatio, deckCy);
+      ctx.lineTo(cx, deckCy + th * centerRatio);
+      ctx.lineTo(cx - tw * centerRatio, deckCy);
+      ctx.closePath();
+      ctx.fill();
     };
 
-    // 1. Krawężnik / barierka autostrady / balustrada mostu
-    drawRibbon(rc, isBridge ? '#94a3b8' : isHighway ? '#94a3b8' : '#141923', true);
-    // 2. Nawierzchnia asfaltowa
-    drawRibbon(r, isBridge ? '#334155' : isHighway ? '#1e293b' : '#2d3545', true);
+    // 1. Krawężnik / stalowo-betonowa balustrada mostu
+    drawRibbon(
+      baseRoadRatio + curbExtra,
+      armTipCurbRatio,
+      isBridge ? '#94a3b8' : isHighway ? '#94a3b8' : '#141923'
+    );
 
-    // 3. Pasy rozdzielające
-    ctx.strokeStyle = isBridge
-      ? '#38bdf8'
-      : isHighway
-        ? '#fbbf24'
-        : 'rgba(226, 232, 240, 0.55)';
-    ctx.lineWidth = Math.max(1, (isHighway || isBridge ? 1.8 : 1.1) * scale);
-    ctx.setLineDash(isHighway || isBridge ? [4 * scale, 2.5 * scale] : [3 * scale, 3 * scale]);
+    // 2. Jednolita nawierzchnia asfaltowa zgrana kolorem z sąsiednimi drogami
+    const asphaltColor = isHighway
+      ? '#1e293b'
+      : isBridge && neighborHighway && !neighborLocal
+        ? '#1e293b'
+        : '#2d3545';
+    drawRibbon(baseRoadRatio, armTipRoadRatio, asphaltColor);
 
-    const anyArm = hasN || hasE || hasS || hasW;
-    const strokeAxis = (dx: number, dy: number) => {
+    // 3. Zewnętrzne stalowe barierki ochronne mostu ze słupkami (zostawiając otwarty przejazd na krawędzi)
+    if (isBridge) {
+      const rGuard = baseRoadRatio + curbExtra * 0.72;
+      ctx.save();
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = Math.max(1.1, 1.35 * scale);
+      for (const arm of arms) {
+        if (!arm.active) continue;
+        const tipCy = cy + armTipLift(arm.neighbor);
+        const rTipGuard = armTipRoadRatio(arm.neighbor) + curbExtra * 0.65;
+        ctx.beginPath();
+        ctx.moveTo(cx + arm.px * rGuard, deckCy + arm.py * rGuard - 1.2 * scale);
+        ctx.lineTo(
+          cx + arm.dx + arm.px * rTipGuard,
+          tipCy + arm.dy + arm.py * rTipGuard - 0.8 * scale
+        );
+        ctx.moveTo(cx - arm.px * rGuard, deckCy - arm.py * rGuard - 1.2 * scale);
+        ctx.lineTo(
+          cx + arm.dx - arm.px * rTipGuard,
+          tipCy + arm.dy - arm.py * rTipGuard - 0.8 * scale
+        );
+        ctx.stroke();
+
+        // Równe słupki barierki pośrodku przęsła
+        ctx.fillStyle = '#e2e8f0';
+        const midX1 = (cx + arm.px * rGuard + cx + arm.dx + arm.px * rTipGuard) * 0.5;
+        const midY1 = (deckCy + arm.py * rGuard + tipCy + arm.dy + arm.py * rTipGuard) * 0.5;
+        const midX2 = (cx - arm.px * rGuard + cx + arm.dx - arm.px * rTipGuard) * 0.5;
+        const midY2 = (deckCy - arm.py * rGuard + tipCy + arm.dy - arm.py * rTipGuard) * 0.5;
+        ctx.fillRect(midX1 - 0.7 * scale, midY1 - 2.0 * scale, 1.4 * scale, 2.0 * scale);
+        ctx.fillRect(midX2 - 0.7 * scale, midY2 - 2.0 * scale, 1.4 * scale, 2.0 * scale);
+      }
+      ctx.restore();
+    }
+
+    // 4. Przerywane pasy ruchu identyczne z sąsiednimi drogami
+    const useAmberStripe = isHighway || (isBridge && neighborHighway && !neighborLocal);
+    ctx.strokeStyle = useAmberStripe ? '#fbbf24' : 'rgba(226, 232, 240, 0.6)';
+    ctx.lineWidth = Math.max(1, (useAmberStripe ? 1.8 : 1.1) * scale);
+    ctx.setLineDash(useAmberStripe ? [4 * scale, 2.5 * scale] : [3 * scale, 3 * scale]);
+
+    for (const arm of arms) {
+      if (!arm.active) continue;
+      const tipCy = cy + armTipLift(arm.neighbor);
       ctx.beginPath();
       ctx.moveTo(cx, deckCy);
-      ctx.lineTo(cx + dx, deckCy + dy);
+      ctx.lineTo(cx + arm.dx, tipCy + arm.dy);
       ctx.stroke();
-    };
-    if (hasN || !anyArm) strokeAxis(tw * 0.25, -th * 0.25);
-    if (hasS || !anyArm) strokeAxis(-tw * 0.25, th * 0.25);
-    if (hasE) strokeAxis(tw * 0.25, th * 0.25);
-    if (hasW) strokeAxis(-tw * 0.25, -th * 0.25);
+    }
     ctx.setLineDash([]);
 
-    // 4. Miniaturowa bramka myta lub czerwony szlaban blokady tranzytu
+    // 5. Miniaturowa bramka myta lub czerwony szlaban blokady tranzytu
     const hasBlockade = plot.roadBlocked || (plot.blockedPlayers?.length ?? 0) > 0;
     if (hasBlockade) {
       ctx.strokeStyle = '#ef4444';
