@@ -26,6 +26,9 @@ import {
   recordCompletedMatchToProfile,
   toPlayerCard,
 } from '../engine/profileManager';
+import { getCurrentLanguage } from '../i18n';
+import { localizeAchievement, localizeQuest } from '../i18n/dataTranslations';
+import { formatMoney } from '../utils/formatters';
 import type {
   ArchetypeId,
   BuildingType,
@@ -525,9 +528,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
 
   continueSavedGame: () => {
+    const en = getCurrentLanguage() === 'en';
     const loaded = loadGameFromLocalStorage();
     if (!loaded) {
-      get().showToast(false, 'Nie udało się wczytać zapisanej gry.');
+      get().showToast(false, en ? 'Failed to load saved match.' : 'Nie udało się wczytać zapisanej gry.');
       return;
     }
     migrateGameStateInPlace(loaded);
@@ -544,6 +548,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
 
   saveCurrentGame: () => {
+    const en = getCurrentLanguage() === 'en';
     const gs = get().gameState;
     if (!gs) return;
     const ok = saveGameToLocalStorage(gs);
@@ -552,7 +557,16 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
     });
-    get().showToast(ok, ok ? 'Gra zapisana w Slocie 1.' : 'Błąd zapisu stanu gry.');
+    get().showToast(
+      ok,
+      ok
+        ? en
+          ? 'Match saved to Slot 1.'
+          : 'Gra zapisana w Slocie 1.'
+        : en
+          ? 'Failed to save match state.'
+          : 'Błąd zapisu stanu gry.'
+    );
   },
 
   autosaveNow: () => {
@@ -568,6 +582,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
 
   saveToSlot: (slotId) => {
+    const en = getCurrentLanguage() === 'en';
     const gs = get().gameState;
     if (!gs) return;
     const ok = saveGameToSlot(slotId, gs);
@@ -576,13 +591,26 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       saveSlotsMeta: listSaveSlots(),
       latestSaveMeta: getLatestSaveMeta(),
     });
-    get().showToast(ok, ok ? 'Zapisano stan gry.' : 'Nie udało się zapisać stanu (limit pamięci).');
+    get().showToast(
+      ok,
+      ok
+        ? en
+          ? 'Match saved.'
+          : 'Zapisano stan gry.'
+        : en
+          ? 'Could not save match (storage quota limit).'
+          : 'Nie udało się zapisać stanu (limit pamięci).'
+    );
   },
 
   loadFromSlot: (slotId) => {
+    const en = getCurrentLanguage() === 'en';
     const loaded = loadGameFromSlot(slotId);
     if (!loaded) {
-      get().showToast(false, 'Wybrany slot zapisu jest pusty lub uszkodzony.');
+      get().showToast(
+        false,
+        en ? 'Selected save slot is empty or corrupted.' : 'Wybrany slot zapisu jest pusty lub uszkodzony.'
+      );
       return;
     }
     multiplayerManager.disconnect();
@@ -597,7 +625,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activeModal: 'none',
       showVictoryModal: false,
     });
-    get().showToast(true, 'Wczytano zapisaną rozgrywkę.');
+    get().showToast(true, en ? 'Saved match loaded.' : 'Wczytano zapisaną rozgrywkę.');
   },
 
   refreshSavesMeta: () => {
@@ -661,9 +689,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             (t) => t.toPlayerId === localId && !prevTransferIds.has(t.id)
           );
           if (incomingTransfer) {
+            const en = getCurrentLanguage() === 'en';
             get().showToast(
               true,
-              `💸 Przelew B2B +${incomingTransfer.amount.toLocaleString('pl-PL')} zł od ${incomingTransfer.fromCompanyName}${incomingTransfer.note ? ` (${incomingTransfer.note})` : ''}!`
+              en
+                ? `💸 B2B Transfer +${formatMoney(incomingTransfer.amount, 'en')} from ${incomingTransfer.fromCompanyName}${incomingTransfer.note ? ` (${incomingTransfer.note})` : ''}!`
+                : `💸 Przelew B2B +${formatMoney(incomingTransfer.amount, 'pl')} od ${incomingTransfer.fromCompanyName}${incomingTransfer.note ? ` (${incomingTransfer.note})` : ''}!`
             );
           } else {
             const prevPendingIds = new Set(
@@ -686,11 +717,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                   : c.proposerId !== localId && (c.sellerId === localId || c.buyerId === localId))
             );
             if (newIncomingB2B) {
+              const en = getCurrentLanguage() === 'en';
               const senderName =
                 newIncomingB2B.proposerId === newIncomingB2B.sellerId
                   ? newIncomingB2B.sellerName
                   : newIncomingB2B.buyerName;
-              get().showToast(true, `🤝 Nowa oferta kontraktu B2B od ${senderName}!`);
+              get().showToast(
+                true,
+                en ? `🤝 New B2B contract offer from ${senderName}!` : `🤝 Nowa oferta kontraktu B2B od ${senderName}!`
+              );
             }
           }
         }
@@ -742,28 +777,41 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
           next.disconnectAlert = null;
         }
         set({ gameState: next });
-        get().showToast(true, `Gracz ${target?.name ?? ''} ponownie połączony.`);
+        get().showToast(
+          true,
+          getCurrentLanguage() === 'en'
+            ? `Player ${target?.name ?? ''} reconnected.`
+            : `Gracz ${target?.name ?? ''} ponownie połączony.`
+        );
       },
       onClientAction: (action) => {
         const gs = get().gameState;
         if (!gs || !get().isHost) return;
         const hostId = get().localPlayerId;
+        const en = getCurrentLanguage() === 'en';
         const next = structuredClone(gs);
         const res = applyPlayerAction(next, action);
         if (res.ok && action.type === 'transferCashB2B' && action.recipientId === hostId) {
           const sender = next.players.find((p) => p.id === action.playerId);
           get().showToast(
             true,
-            `💸 Przelew B2B +${Math.round(action.amount).toLocaleString('pl-PL')} zł od ${sender?.companyName ?? 'partnera'}!`
+            en
+              ? `💸 B2B Transfer +${formatMoney(Math.round(action.amount), 'en')} from ${sender?.companyName ?? 'partner'}!`
+              : `💸 Przelew B2B +${formatMoney(Math.round(action.amount), 'pl')} od ${sender?.companyName ?? 'partnera'}!`
           );
         } else if (res.ok && action.type === 'proposeContract' && action.partnerId === hostId) {
           const sender = next.players.find((p) => p.id === action.playerId);
-          get().showToast(true, `🤝 Nowa oferta kontraktu B2B od ${sender?.companyName ?? 'partnera'}!`);
+          get().showToast(
+            true,
+            en
+              ? `🤝 New B2B contract offer from ${sender?.companyName ?? 'partner'}!`
+              : `🤝 Nowa oferta kontraktu B2B od ${sender?.companyName ?? 'partnera'}!`
+          );
         }
         multiplayerManager.sendActionFeedbackToClient(
           action.playerId,
           res.ok,
-          res.message ?? (res.ok ? 'Wykonano.' : 'Akcja odrzucona.')
+          res.message ?? (res.ok ? (en ? 'Completed.' : 'Wykonano.') : en ? 'Action rejected.' : 'Akcja odrzucona.')
         );
         set({ gameState: next });
         multiplayerManager.broadcastStateSync(next, true);
@@ -789,7 +837,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }
       },
       onHostDisconnected: () => {
-        get().showToast(false, 'Utracono połączenie z Hostem pokoju.');
+        get().showToast(
+          false,
+          getCurrentLanguage() === 'en' ? 'Lost connection to Room Host.' : 'Utracono połączenie z Hostem pokoju.'
+        );
       },
       onError: (msg) => get().showToast(false, msg),
     });
@@ -908,7 +959,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     next.disconnectAlert = null;
     set({ gameState: next });
     multiplayerManager.broadcastStateSync(next, true);
-    get().showToast(true, `AI przejęło kontrolę nad firmą ${p?.companyName ?? ''}.`);
+    get().showToast(
+      true,
+      getCurrentLanguage() === 'en'
+        ? `AI assumed control of ${p?.companyName ?? ''}.`
+        : `AI przejęło kontrolę nad firmą ${p?.companyName ?? ''}.`
+    );
   },
 
   pauseOnDisconnect: () => {
@@ -969,11 +1025,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       if (res.newlyUnlocked.length > 0 || res.completedQuests.length > 0) {
         set({ activeProfile: res.profile });
         if (res.newlyUnlocked.length > 0) {
-          const first = res.newlyUnlocked[0];
-          get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
+          const lang = getCurrentLanguage();
+          const first = localizeAchievement(res.newlyUnlocked[0], lang);
+          get().showToast(
+            true,
+            lang === 'en'
+              ? `🏆 Achievement unlocked: ${first.name} (+${first.xpReward} XP)!`
+              : `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`
+          );
         } else if (res.completedQuests.length > 0) {
-          const q = res.completedQuests[0];
-          get().showToast(true, `🎯 Zadanie ukończone: ${q.title} (+${q.bpXpReward} BP XP, +${q.mCoinReward} M)!`);
+          const lang = getCurrentLanguage();
+          const q = localizeQuest(res.completedQuests[0], lang);
+          get().showToast(
+            true,
+            lang === 'en'
+              ? `🎯 Quest completed: ${q.title} (+${q.bpXpReward} BP XP, +${q.mCoinReward} M)!`
+              : `🎯 Zadanie ukończone: ${q.title} (+${q.bpXpReward} BP XP, +${q.mCoinReward} M)!`
+          );
         }
       }
     }
@@ -1121,8 +1189,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         const achRes = evaluateLiveAchievements(next, localP);
         if (achRes.newlyUnlocked.length > 0) {
           set({ activeProfile: achRes.profile });
-          const first = achRes.newlyUnlocked[0];
-          get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
+          const lang = getCurrentLanguage();
+          const first = localizeAchievement(achRes.newlyUnlocked[0], lang);
+          get().showToast(
+            true,
+            lang === 'en'
+              ? `🏆 Achievement unlocked: ${first.name} (+${first.xpReward} XP)!`
+              : `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`
+          );
         }
       }
     }
@@ -1168,7 +1242,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
   requestSpeedChange: (speed) => {
     get().dispatchAction({ type: 'requestSpeedChange', playerId: get().localPlayerId, speed });
-    get().showToast(true, 'Wysłano prośbę o zmianę prędkości do Hosta.');
+    get().showToast(
+      true,
+      getCurrentLanguage() === 'en'
+        ? 'Speed change request sent to Host.'
+        : 'Wysłano prośbę o zmianę prędkości do Hosta.'
+    );
   },
   dismissSpeedRequest: () => {
     get().dispatchAction({ type: 'dismissSpeedRequest', playerId: get().localPlayerId });

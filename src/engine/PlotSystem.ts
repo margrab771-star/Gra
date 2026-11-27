@@ -1,6 +1,9 @@
 import { GAME_CONFIG, GOVERNMENT_CONFIGS, TOLL_RATE_CONFIG } from '../config/gameConfig';
 import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
+import { getCurrentLanguage } from '../i18n';
+import { localizeTollRate } from '../i18n/dataTranslations';
+import { formatMoney } from '../utils/formatters';
 import { getPlayerCoalition } from './CoalitionSystem';
 import { getPlayerEntrepreneurModifiers } from './EconomyEngine';
 import { refreshBuildingsRoadStatus } from './TransportSystem';
@@ -265,6 +268,7 @@ export function revealFogPlotForPlayer(
   player: Player,
   plot: Plot
 ): { ok: boolean; error?: string; revealedCount: number } {
+  const en = getCurrentLanguage() === 'en';
   const hasIntel = state.plots.some(
     (p) =>
       p.ownerId === player.id &&
@@ -277,7 +281,9 @@ export function revealFogPlotForPlayer(
     return {
       ok: false,
       revealedCount: 0,
-      error: `Raport wywiadowczy kosztuje ${cost.toLocaleString('pl-PL')} zł.`,
+      error: en
+        ? `Intelligence report costs ${formatMoney(cost)}.`
+        : `Raport wywiadowczy kosztuje ${formatMoney(cost)}.`,
     };
   }
   player.cash -= cost;
@@ -589,18 +595,29 @@ function executeSinglePlotBuyCore(
   plot: Plot,
   refreshRoads = true
 ): { ok: boolean; pricePaid: number; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (plot.terrain === 'water') {
-    return { ok: false, pricePaid: 0, error: 'Nie można kupić akwenu wodnego.' };
+    return {
+      ok: false,
+      pricePaid: 0,
+      error: en ? 'Cannot purchase a water tile.' : 'Nie można kupić akwenu wodnego.',
+    };
   }
   if ((plot.irradiatedTicks ?? 0) > 0) {
     return {
       ok: false,
       pricePaid: 0,
-      error: `Działka znajduje się w strefie skażenia nuklearnego (jeszcze ${plot.irradiatedTicks} tur).`,
+      error: en
+        ? `Plot is inside a nuclear fallout zone (${plot.irradiatedTicks} ticks remaining).`
+        : `Działka znajduje się w strefie skażenia nuklearnego (jeszcze ${plot.irradiatedTicks} tur).`,
     };
   }
   if (plot.ownerId !== null) {
-    return { ok: false, pricePaid: 0, error: 'Działka ma już właściciela.' };
+    return {
+      ok: false,
+      pricePaid: 0,
+      error: en ? 'This plot already has an owner.' : 'Działka ma już właściciela.',
+    };
   }
 
   const purchasePrice = getPlotPurchasePrice(plot, player, state);
@@ -608,7 +625,9 @@ function executeSinglePlotBuyCore(
     return {
       ok: false,
       pricePaid: 0,
-      error: `Niewystarczająca gotówka na zakup działki (${purchasePrice.toLocaleString('pl-PL')} zł).`,
+      error: en
+        ? `Insufficient cash to purchase plot (${formatMoney(purchasePrice)}).`
+        : `Niewystarczająca gotówka na zakup działki (${formatMoney(purchasePrice)}).`,
     };
   }
 
@@ -696,8 +715,16 @@ export function sellPlotForPlayer(
   player: Player,
   plot: Plot
 ): { ok: boolean; error?: string } {
-  if (plot.ownerId !== player.id) return { ok: false, error: 'Nie jesteś właścicielem tej działki.' };
-  if (plot.building) return { ok: false, error: 'Najpierw wyburz budynek stojący na działce.' };
+  const en = getCurrentLanguage() === 'en';
+  if (plot.ownerId !== player.id) {
+    return { ok: false, error: en ? 'You do not own this plot.' : 'Nie jesteś właścicielem tej działki.' };
+  }
+  if (plot.building) {
+    return {
+      ok: false,
+      error: en ? 'Demolish the facility on this plot first.' : 'Najpierw wyburz budynek stojący na działce.',
+    };
+  }
 
   const saleValue = Math.round(plot.price * 0.92);
   player.cash += saleValue;
@@ -759,45 +786,88 @@ export function buildPlayerRoadOnPlot(
   plot: Plot,
   roadClass: 'local' | 'highway' | 'bridge' = 'local'
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if ((plot.irradiatedTicks ?? 0) > 0) {
     return {
       ok: false,
-      error: `Strefa skażenia nuklearnego — zakaz budowy dróg jeszcze przez ${plot.irradiatedTicks} tur.`,
+      error: en
+        ? `Nuclear fallout zone — road construction blocked for ${plot.irradiatedTicks} ticks.`
+        : `Strefa skażenia nuklearnego — zakaz budowy dróg jeszcze przez ${plot.irradiatedTicks} tur.`,
     };
   }
   if (roadClass === 'bridge') {
     if (plot.terrain !== 'water') {
-      return { ok: false, error: 'Most Drogowy można zbudować wyłącznie na polu wodnym.' };
+      return {
+        ok: false,
+        error: en
+          ? 'A Road Bridge can only be built on a water tile.'
+          : 'Most Drogowy można zbudować wyłącznie na polu wodnym.',
+      };
     }
     if (plot.hasRoad) {
-      return { ok: false, error: 'Na tym polu wodnym stoi już Most Drogowy.' };
+      return {
+        ok: false,
+        error: en ? 'A Road Bridge already exists on this water tile.' : 'Na tym polu wodnym stoi już Most Drogowy.',
+      };
     }
   } else {
     if (plot.terrain === 'water') {
-      return { ok: false, error: 'Na wodzie można zbudować wyłącznie Most Drogowy (lub użyć Portu Towarowego).' };
+      return {
+        ok: false,
+        error: en
+          ? 'On water tiles, you can only build a Road Bridge (or use Freight Ports).'
+          : 'Na wodzie można zbudować wyłącznie Most Drogowy (lub użyć Portu Towarowego).',
+      };
     }
     if (plot.ownerId !== player.id) {
-      return { ok: false, error: 'Najpierw kup działkę, aby wybudować na niej drogę.' };
+      return {
+        ok: false,
+        error: en ? 'Purchase the plot first before building a road on it.' : 'Najpierw kup działkę, aby wybudować na niej drogę.',
+      };
     }
   }
   if (plot.building) {
-    return { ok: false, error: 'Na działce stoi już struktura — drogi kładzie się na pustych działkach.' };
+    return {
+      ok: false,
+      error: en
+        ? 'A facility already occupies this tile — roads require empty plots.'
+        : 'Na działce stoi już struktura — drogi kładzie się na pustych działkach.',
+    };
   }
   if (plot.hasRoad && plot.roadType === 'highway') {
-    return { ok: false, error: 'Na tej działce znajduje się już Autostrada Płatna.' };
+    return {
+      ok: false,
+      error: en ? 'This plot already has a Toll Highway.' : 'Na tej działce znajduje się już Autostrada Płatna.',
+    };
   }
   if (plot.hasRoad && roadClass === 'local') {
-    return { ok: false, error: 'Na tej działce istnieje już Droga Zwykła. Możesz rozbudować ją do Autostrady.' };
+    return {
+      ok: false,
+      error: en
+        ? 'A Local Road already exists here. You can upgrade it to a Highway.'
+        : 'Na tej działce istnieje już Droga Zwykła. Możesz rozbudować ją do Autostrady.',
+    };
   }
 
   const cashCost = getRoadBuildCostForPlot(state, player, plot, roadClass);
 
   if (player.cash < cashCost) {
-    const label =
-      roadClass === 'bridge' ? 'Mostu Drogowego' : roadClass === 'highway' ? 'Autostrady' : 'Drogi';
+    const label = en
+      ? roadClass === 'bridge'
+        ? 'Road Bridge'
+        : roadClass === 'highway'
+          ? 'Highway'
+          : 'Road'
+      : roadClass === 'bridge'
+        ? 'Mostu Drogowego'
+        : roadClass === 'highway'
+          ? 'Autostrady'
+          : 'Drogi';
     return {
       ok: false,
-      error: `Brak środków na budowę ${label} (${cashCost.toLocaleString('pl-PL')} zł).`,
+      error: en
+        ? `Insufficient funds to build ${label} (${formatMoney(cashCost)}).`
+        : `Brak środków na budowę ${label} (${formatMoney(cashCost)}).`,
     };
   }
 
@@ -839,8 +909,15 @@ export function setRoadPolicyForPlayer(
   plot: Plot,
   opts: { tollRate?: TollRate; roadBlocked?: boolean; toggleBlockedPlayerId?: string }
 ): { ok: boolean; message: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   if (plot.ownerId !== player.id || !plot.hasRoad) {
-    return { ok: false, message: 'Możesz zarządzać mytem i blokadami wyłącznie na własnych drogach.' };
+    return {
+      ok: false,
+      message: en
+        ? 'You can manage tolls and roadblocks on your own roads only.'
+        : 'Możesz zarządzać mytem i blokadami wyłącznie na własnych drogach.',
+    };
   }
   if (opts.tollRate) {
     plot.tollRate = opts.tollRate;
@@ -856,10 +933,12 @@ export function setRoadPolicyForPlayer(
       plot.blockedPlayers = [...cur, opts.toggleBlockedPlayerId];
     }
   }
-  const tollLabel = TOLL_RATE_CONFIG[plot.tollRate].label;
+  const tollLabel = localizeTollRate(plot.tollRate, TOLL_RATE_CONFIG[plot.tollRate].label, lang);
   return {
     ok: true,
-    message: `Zaktualizowano odc. (${plot.gridX},${plot.gridY}): Stawka ${tollLabel}, Blokada: ${plot.roadBlocked ? 'WŁĄCZONA' : 'OTWARTA'}.`,
+    message: en
+      ? `Updated segment (${plot.gridX},${plot.gridY}): Toll ${tollLabel}, Roadblock: ${plot.roadBlocked ? 'CLOSED' : 'OPEN'}.`
+      : `Zaktualizowano odc. (${plot.gridX},${plot.gridY}): Stawka ${tollLabel}, Blokada: ${plot.roadBlocked ? 'WŁĄCZONA' : 'OTWARTA'}.`,
   };
 }
 
@@ -868,21 +947,40 @@ export function surveyPlotForPlayer(
   player: Player,
   plot: Plot
 ): { ok: boolean; foundCount: number; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (plot.terrain === 'water') {
-    return { ok: false, foundCount: 0, error: 'Akweny wodne nie podlegają badaniu geologicznemu.' };
+    return {
+      ok: false,
+      foundCount: 0,
+      error: en ? 'Water tiles cannot be geologically surveyed.' : 'Akweny wodne nie podlegają badaniu geologicznemu.',
+    };
   }
   if (plot.ownerId !== null && plot.ownerId !== player.id) {
-    return { ok: false, foundCount: 0, error: 'Działka należy do konkurenta — użyj centrum wywiadu.' };
+    return {
+      ok: false,
+      foundCount: 0,
+      error: en
+        ? 'This plot is owned by a competitor — use intelligence.'
+        : 'Działka należy do konkurenta — użyj centrum wywiadu.',
+    };
   }
   if (hasPlayerSurveyedPlot(plot, player.id)) {
-    return { ok: false, foundCount: 0, error: 'Twoja firma już przebadała tę działkę.' };
+    return {
+      ok: false,
+      foundCount: 0,
+      error: en ? 'Your company has already surveyed this plot.' : 'Twoja firma już przebadała tę działkę.',
+    };
   }
 
   const hasGeoTech = player.globalTech['ind_geology']?.status === 'done';
   const archGeoMult = getArchetypeDefinition(player.archetype).modifiers.surveyCostMult;
   const cost = Math.round(GAME_CONFIG.surveyCost * (hasGeoTech ? 0.7 : 1) * archGeoMult);
   if (player.cash < cost) {
-    return { ok: false, foundCount: 0, error: 'Brak środków na badanie geologiczne.' };
+    return {
+      ok: false,
+      foundCount: 0,
+      error: en ? 'Insufficient funds for geological survey.' : 'Brak środków na badanie geologiczne.',
+    };
   }
 
   player.cash -= cost;
@@ -900,12 +998,15 @@ export function surveyAreaForPlayer(
   player: Player,
   centerPlot: Plot
 ): { ok: boolean; scannedPlots: number; foundCount: number; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (player.globalTech['ind_geology']?.status !== 'done') {
     return {
       ok: false,
       scannedPlots: 0,
       foundCount: 0,
-      error: 'Skan Obszarowy 3×3 wymaga technologii "Geofizyka Złożowa i Georadar".',
+      error: en
+        ? '3×3 Area Scan requires "Deposit Geophysics & Georadar" tech.'
+        : 'Skan Obszarowy 3×3 wymaga technologii "Geofizyka Złożowa i Georadar".',
     };
   }
 
@@ -923,7 +1024,9 @@ export function surveyAreaForPlayer(
       ok: false,
       scannedPlots: 0,
       foundCount: 0,
-      error: 'Wszystkie dostępne działki w obszarze 3×3 zostały już przez Ciebie zbadane.',
+      error: en
+        ? 'All available plots in the 3×3 sector have already been surveyed.'
+        : 'Wszystkie dostępne działki w obszarze 3×3 zostały już przez Ciebie zbadane.',
     };
   }
 
@@ -936,7 +1039,9 @@ export function surveyAreaForPlayer(
       ok: false,
       scannedPlots: 0,
       foundCount: 0,
-      error: `Brak środków na Skan Georadarowy 3×3 (${totalCost.toLocaleString('pl-PL')} zł).`,
+      error: en
+        ? `Insufficient funds for 3×3 Georadar Scan (${formatMoney(totalCost)}).`
+        : `Brak środków na Skan Georadarowy 3×3 (${formatMoney(totalCost)}).`,
     };
   }
 
@@ -975,16 +1080,31 @@ export function proposePlotOfferForPlayer(
   offeredPrice: number,
   includeBuilding: boolean
 ): { ok: boolean; offer?: PlotOffer; message: string } {
+  const en = getCurrentLanguage() === 'en';
   if (!plot.ownerId || plot.ownerId === buyer.id) {
-    return { ok: false, message: 'Możesz składać oferty wyłącznie na działki innych graczy.' };
+    return {
+      ok: false,
+      message: en
+        ? 'You may only submit buyout offers for plots owned by other players.'
+        : 'Możesz składać oferty wyłącznie na działki innych graczy.',
+    };
   }
-  if (offeredPrice <= 0) return { ok: false, message: 'Oferowana kwota musi być dodatnia.' };
+  if (offeredPrice <= 0) {
+    return { ok: false, message: en ? 'Offered price must be positive.' : 'Oferowana kwota musi być dodatnia.' };
+  }
   if (buyer.cash < offeredPrice) {
-    return { ok: false, message: 'Nie masz wystarczającej gotówki na pokrycie tej oferty.' };
+    return {
+      ok: false,
+      message: en
+        ? 'Insufficient cash to cover this buyout offer.'
+        : 'Nie masz wystarczającej gotówki na pokrycie tej oferty.',
+    };
   }
 
   const seller = state.players.find((p) => p.id === plot.ownerId);
-  if (!seller) return { ok: false, message: 'Nie znaleziono właściciela działki.' };
+  if (!seller) {
+    return { ok: false, message: en ? 'Plot owner not found.' : 'Nie znaleziono właściciela działki.' };
+  }
 
   const offer: PlotOffer = {
     id: `poff_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1010,7 +1130,9 @@ export function proposePlotOfferForPlayer(
       return {
         ok: true,
         offer,
-        message: `${seller.companyName} zaakceptowała ofertę wykupu działki (${plot.gridX},${plot.gridY}) za ${offer.offeredPrice.toLocaleString('pl-PL')} zł!`,
+        message: en
+          ? `${seller.companyName} accepted the buyout offer for (${plot.gridX},${plot.gridY}) at ${formatMoney(offer.offeredPrice)}!`
+          : `${seller.companyName} zaakceptowała ofertę wykupu działki (${plot.gridX},${plot.gridY}) za ${formatMoney(offer.offeredPrice)}!`,
       };
     }
     if (aiEval.decision === 'counter' && aiEval.counterPrice) {
@@ -1020,7 +1142,9 @@ export function proposePlotOfferForPlayer(
       return {
         ok: true,
         offer,
-        message: `${seller.companyName} złożyła kontrofertę: ${aiEval.counterPrice.toLocaleString('pl-PL')} zł! Sprawdź w oknie Negocjacji.`,
+        message: en
+          ? `${seller.companyName} sent a counter-offer: ${formatMoney(aiEval.counterPrice)}! Check the B2B / Buyouts tab.`
+          : `${seller.companyName} złożyła kontrofertę: ${formatMoney(aiEval.counterPrice)}! Sprawdź w oknie Negocjacji.`,
       };
     }
     offer.status = 'rejected';
@@ -1028,7 +1152,9 @@ export function proposePlotOfferForPlayer(
     return {
       ok: false,
       offer,
-      message: `${seller.companyName} odrzuciła ofertę — uważa działkę za zbyt cenną lub zbyt niską wycenę.`,
+      message: en
+        ? `${seller.companyName} rejected the offer — considers the plot too strategic or underpriced.`
+        : `${seller.companyName} odrzuciła ofertę — uważa działkę za zbyt cenną lub zbyt niską wycenę.`,
     };
   }
 
@@ -1036,7 +1162,9 @@ export function proposePlotOfferForPlayer(
   return {
     ok: true,
     offer,
-    message: `Wysłano ofertę wykupu działki (${plot.gridX},${plot.gridY}) do ${seller.companyName}.`,
+    message: en
+      ? `Sent buyout offer for plot (${plot.gridX},${plot.gridY}) to ${seller.companyName}.`
+      : `Wysłano ofertę wykupu działki (${plot.gridX},${plot.gridY}) do ${seller.companyName}.`,
   };
 }
 
@@ -1074,56 +1202,81 @@ export function respondPlotOfferForPlayer(
   response: 'accept' | 'reject' | 'counter',
   counterPrice?: number
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   const offer = state.plotOffers.find((o) => o.id === offerId);
-  if (!offer) return { ok: false, message: 'Nie znaleziono oferty wykupu.' };
+  if (!offer) return { ok: false, message: en ? 'Buyout offer not found.' : 'Nie znaleziono oferty wykupu.' };
 
   const plot = state.plots.find((p) => p.id === offer.plotId);
   const buyer = state.players.find((p) => p.id === offer.fromPlayerId);
   const seller = state.players.find((p) => p.id === offer.toPlayerId);
-  if (!plot || !buyer || !seller) return { ok: false, message: 'Nieaktualne strony transakcji.' };
+  if (!plot || !buyer || !seller) {
+    return { ok: false, message: en ? 'Offer parties are no longer valid.' : 'Nieaktualne strony transakcji.' };
+  }
 
   if (offer.status === 'countered' && responder.id === buyer.id) {
     if (response === 'reject') {
       offer.status = 'rejected';
-      return { ok: true, message: 'Odrzucono kontrofertę właściciela.' };
+      return { ok: true, message: en ? 'Owner’s counter-offer rejected.' : 'Odrzucono kontrofertę właściciela.' };
     }
     if (response === 'accept') {
       const price = offer.counterPrice ?? offer.offeredPrice;
-      if (buyer.cash < price) return { ok: false, message: 'Brak środków na przyjęcie kontroferty.' };
+      if (buyer.cash < price) {
+        return {
+          ok: false,
+          message: en ? 'Insufficient funds to accept counter-offer.' : 'Brak środków na przyjęcie kontroferty.',
+        };
+      }
       executePlotOwnershipTransfer(state, buyer, seller, plot, price, offer.includeBuilding);
       offer.status = 'accepted';
       return {
         ok: true,
-        message: `Kupiono działkę (${plot.gridX},${plot.gridY}) po kontrofercie za ${price.toLocaleString('pl-PL')} zł!`,
+        message: en
+          ? `Purchased plot (${plot.gridX},${plot.gridY}) after counter-offer for ${formatMoney(price)}!`
+          : `Kupiono działkę (${plot.gridX},${plot.gridY}) po kontrofercie za ${formatMoney(price)}!`,
       };
     }
   }
 
   if (offer.status !== 'pending' || responder.id !== seller.id) {
-    return { ok: false, message: 'Nie masz uprawnień do odpowiedzi na tę ofertę.' };
+    return {
+      ok: false,
+      message: en ? 'Not authorized to respond to this offer.' : 'Nie masz uprawnień do odpowiedzi na tę ofertę.',
+    };
   }
 
   if (response === 'reject') {
     offer.status = 'rejected';
-    return { ok: true, message: 'Odrzucono ofertę wykupu działki.' };
+    return { ok: true, message: en ? 'Plot buyout offer rejected.' : 'Odrzucono ofertę wykupu działki.' };
   }
 
   if (response === 'counter') {
-    if (!counterPrice || counterPrice <= 0) return { ok: false, message: 'Podaj poprawną kwotę kontroferty.' };
+    if (!counterPrice || counterPrice <= 0) {
+      return { ok: false, message: en ? 'Enter a valid counter-offer amount.' : 'Podaj poprawną kwotę kontroferty.' };
+    }
     offer.status = 'countered';
     offer.counterPrice = Math.round(counterPrice);
-    return { ok: true, message: `Wysłano kontrofertę ${offer.counterPrice.toLocaleString('pl-PL')} zł.` };
+    return {
+      ok: true,
+      message: en
+        ? `Counter-offer sent: ${formatMoney(offer.counterPrice)}.`
+        : `Wysłano kontrofertę ${formatMoney(offer.counterPrice)}.`,
+    };
   }
 
   if (buyer.cash < offer.offeredPrice) {
     offer.status = 'rejected';
-    return { ok: false, message: 'Kupujący nie posiada już wystarczających środków.' };
+    return {
+      ok: false,
+      message: en ? 'Buyer no longer has sufficient funds.' : 'Kupujący nie posiada już wystarczających środków.',
+    };
   }
   executePlotOwnershipTransfer(state, buyer, seller, plot, offer.offeredPrice, offer.includeBuilding);
   offer.status = 'accepted';
   return {
     ok: true,
-    message: `Sprzedano działkę (${plot.gridX},${plot.gridY}) do ${buyer.companyName} za ${offer.offeredPrice.toLocaleString('pl-PL')} zł!`,
+    message: en
+      ? `Sold plot (${plot.gridX},${plot.gridY}) to ${buyer.companyName} for ${formatMoney(offer.offeredPrice)}!`
+      : `Sprzedano działkę (${plot.gridX},${plot.gridY}) do ${buyer.companyName} za ${formatMoney(offer.offeredPrice)}!`,
   };
 }
 
@@ -1159,6 +1312,7 @@ export function batchBuyPlotsForPlayer(
   player: Player,
   plotIds: string[]
 ): { ok: boolean; boughtCount: number; totalSpent: number; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const uniqueIds = Array.from(new Set(plotIds));
   const candidates = uniqueIds
     .map((id) => state.plots.find((p) => p.id === id))
@@ -1168,7 +1322,12 @@ export function batchBuyPlotsForPlayer(
     );
 
   if (candidates.length === 0) {
-    return { ok: false, boughtCount: 0, totalSpent: 0, error: 'Brak wolnych działek do zakupu w zaznaczeniu.' };
+    return {
+      ok: false,
+      boughtCount: 0,
+      totalSpent: 0,
+      error: en ? 'No available plots to purchase in the selection.' : 'Brak wolnych działek do zakupu w zaznaczeniu.',
+    };
   }
 
   let boughtCount = 0;
@@ -1181,7 +1340,12 @@ export function batchBuyPlotsForPlayer(
   }
 
   if (boughtCount === 0) {
-    return { ok: false, boughtCount: 0, totalSpent: 0, error: 'Niewystarczająca gotówka na zakup zaznaczonych działek.' };
+    return {
+      ok: false,
+      boughtCount: 0,
+      totalSpent: 0,
+      error: en ? 'Insufficient cash to purchase selected plots.' : 'Niewystarczająca gotówka na zakup zaznaczonych działek.',
+    };
   }
 
   refreshBuildingsRoadStatus(state);
@@ -1193,6 +1357,7 @@ export function batchSurveyPlotsForPlayer(
   player: Player,
   plotIds: string[]
 ): { ok: boolean; scannedCount: number; foundCount: number; totalCost: number; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const uniqueIds = Array.from(new Set(plotIds));
   const candidates = uniqueIds
     .map((id) => state.plots.find((p) => p.id === id))
@@ -1212,7 +1377,9 @@ export function batchSurveyPlotsForPlayer(
       scannedCount: 0,
       foundCount: 0,
       totalCost: 0,
-      error: 'Wszystkie dostępne działki w zaznaczeniu zostały już zbadane.',
+      error: en
+        ? 'All available plots in the selection have already been surveyed.'
+        : 'Wszystkie dostępne działki w zaznaczeniu zostały już zbadane.',
     };
   }
 
@@ -1244,7 +1411,9 @@ export function batchSurveyPlotsForPlayer(
       scannedCount: 0,
       foundCount: 0,
       totalCost: 0,
-      error: `Brak środków na hurtową geologię (${fullCost.toLocaleString('pl-PL')} zł).`,
+      error: en
+        ? `Insufficient funds for batch survey (${formatMoney(fullCost)}).`
+        : `Brak środków na hurtową geologię (${formatMoney(fullCost)}).`,
     };
   }
 
@@ -1319,7 +1488,10 @@ export function batchBuildRoadForPlayer(
       ok: false,
       builtCount: 0,
       totalCost: 0,
-      error: 'Nie wybudowano żadnego odcinka (brak środków lub zajęte działki).',
+      error:
+        getCurrentLanguage() === 'en'
+          ? 'No road segments were built (insufficient cash or occupied plots).'
+          : 'Nie wybudowano żadnego odcinka (brak środków lub zajęte działki).',
     };
   }
 
@@ -1335,6 +1507,8 @@ export function applyHighwayPolicyToAllForPlayer(
   tollRate: TollRate,
   roadBlocked: boolean
 ): { ok: boolean; updatedCount: number; message: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   let updatedCount = 0;
   for (const p of state.plots) {
     if (p.ownerId === player.id && p.hasRoad && p.roadType === 'highway') {
@@ -1344,12 +1518,19 @@ export function applyHighwayPolicyToAllForPlayer(
     }
   }
   if (updatedCount === 0) {
-    return { ok: false, updatedCount: 0, message: 'Nie posiadasz jeszcze żadnych autostrad płatnych.' };
+    return {
+      ok: false,
+      updatedCount: 0,
+      message: en ? 'You do not own any Toll Highways yet.' : 'Nie posiadasz jeszcze żadnych autostrad płatnych.',
+    };
   }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
+  const tollLabel = localizeTollRate(tollRate, TOLL_RATE_CONFIG[tollRate].label, lang);
   return {
     ok: true,
     updatedCount,
-    message: `Zastosowano stawkę "${TOLL_RATE_CONFIG[tollRate].label}" i blokadę (${roadBlocked ? 'WŁ' : 'WYŁ'}) do ${updatedCount} odcinków autostrad.`,
+    message: en
+      ? `Applied "${tollLabel}" rate and roadblock (${roadBlocked ? 'ON' : 'OFF'}) to ${updatedCount} highway segments.`
+      : `Zastosowano stawkę "${tollLabel}" i blokadę (${roadBlocked ? 'WŁ' : 'WYŁ'}) do ${updatedCount} odcinków autostrad.`,
   };
 }

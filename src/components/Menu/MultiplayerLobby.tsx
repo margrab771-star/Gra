@@ -32,6 +32,17 @@ import {
   isScenarioUnlocked,
 } from '../../data/shopCatalog';
 import { toPlayerCard } from '../../engine/profileManager';
+import {
+  localizeAchievement,
+  localizeAiStrategy,
+  localizeArchetype,
+  localizeDifficultyLabel,
+  localizeDifficultyPreset,
+  localizeMapSizeLabel,
+  localizePvPDivisionLabel,
+  localizeScenario,
+  localizeTitle,
+} from '../../i18n/dataTranslations';
 import { useI18n } from '../../i18n/useI18n';
 import type {
   ArchetypeId,
@@ -220,7 +231,13 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         roomName: roomNameInput,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nie udało się utworzyć pokoju.');
+      setError(
+        e instanceof Error
+          ? e.message
+          : lang === 'en'
+            ? 'Failed to create room.'
+            : 'Nie udało się utworzyć pokoju.'
+      );
     } finally {
       setBusy(false);
     }
@@ -240,7 +257,13 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         playerCard: localPlayerCard,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nie udało się dołączyć do pokoju.');
+      setError(
+        e instanceof Error
+          ? e.message
+          : lang === 'en'
+            ? 'Failed to join room.'
+            : 'Nie udało się dołączyć do pokoju.'
+      );
     } finally {
       setBusy(false);
     }
@@ -383,7 +406,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     >
                       {MAP_SIZES.map((m) => (
                         <option key={m.value} value={m.value}>
-                          {m.label}
+                          {localizeMapSizeLabel(m.value, m.label, lang)}
                         </option>
                       ))}
                     </select>
@@ -405,7 +428,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     >
                       {DIFFICULTY_LABELS.map((d, idx) => (
                         <option key={d} value={idx + 1}>
-                          {d}
+                          {localizeDifficultyLabel(idx, d, lang)}
                         </option>
                       ))}
                     </select>
@@ -430,11 +453,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                       }
                       className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-slate-100 disabled:opacity-70"
                     >
-                      {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map((k) => (
-                        <option key={k} value={k}>
-                          {DIFFICULTY_PRESETS[k].badge} {DIFFICULTY_PRESETS[k].label}
-                        </option>
-                      ))}
+                      {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map((k) => {
+                        const locP = localizeDifficultyPreset(DIFFICULTY_PRESETS[k], lang);
+                        return (
+                          <option key={k} value={k}>
+                            {locP.badge} {locP.label}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -456,6 +482,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                       className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-slate-100 disabled:opacity-70"
                     >
                       {SCENARIO_DEFINITIONS.map((sc) => {
+                        const locSc = localizeScenario(sc, lang);
                         const unlockedForSelector =
                           !isHost || isScenarioUnlocked(activeProfile.unlockedCosmetics, sc.id);
                         const reqId = SCENARIO_SHOP_ITEM_ID[sc.id];
@@ -464,7 +491,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         )?.priceMCoins;
                         return (
                           <option key={sc.id} value={sc.id} disabled={isHost && !unlockedForSelector}>
-                            {sc.icon} {sc.name}
+                            {locSc.icon} {locSc.name}
                             {isHost && !unlockedForSelector && price ? ` 🔒 (${price} M)` : ''}
                           </option>
                         );
@@ -632,13 +659,15 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     const card = p.playerCard;
                     const frameClass =
                       (card && FRAME_BORDER_CLASSES[card.frameId]) || 'border-[#243044]';
-                    const titleObj = card
+                    const rawTitleObj = card
                       ? TITLES_CATALOG.find((tl) => tl.id === card.titleId)
                       : undefined;
-                    const pArch = getArchetypeDefinition(p.archetype);
+                    const titleObj = rawTitleObj ? localizeTitle(rawTitleObj, lang) : undefined;
+                    const pArch = localizeArchetype(getArchetypeDefinition(p.archetype), lang);
                     const badges = (card?.pinnedBadgeIds ?? [])
                       .map((bid) => ACHIEVEMENTS.find((a) => a.id === bid))
-                      .filter(Boolean);
+                      .filter(Boolean)
+                      .map((b) => (b ? localizeAchievement(b, lang) : b));
 
                     return (
                       <div
@@ -689,7 +718,11 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                               {p.isHost
                                 ? 'HOST'
                                 : p.isAI
-                                  ? AI_STRATEGY_LABELS[p.aiStrategy ?? 'industrialist']
+                                  ? localizeAiStrategy(
+                                      p.aiStrategy ?? 'industrialist',
+                                      AI_STRATEGY_LABELS[p.aiStrategy ?? 'industrialist'],
+                                      lang
+                                    )
                                   : 'Online'}
                             </div>
                             <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -726,7 +759,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 const myLobbyEntry = lobbyState.players.find((pl) => pl.id === localPlayerId);
                 const activeArch = myLobbyEntry?.archetype ?? archetype;
                 const archLocked = !isHost && guestReady;
-                const archDef = getArchetypeDefinition(activeArch);
+                const archDef = localizeArchetype(getArchetypeDefinition(activeArch), lang);
                 return (
                   <div className="p-2.5 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-1.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -751,6 +784,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         className="bg-[#151c28] border border-amber-500/45 rounded px-2 py-1 text-amber-200 font-semibold disabled:opacity-55"
                       >
                         {ARCHETYPE_LIST.map((a) => {
+                          const locA = localizeArchetype(a, lang);
                           const unlocked = isArchetypeUnlocked(
                             activeProfile.unlockedCosmetics,
                             a.id
@@ -761,7 +795,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                           )?.priceMCoins;
                           return (
                             <option key={a.id} value={a.id} disabled={!unlocked}>
-                              {a.icon} {a.name}
+                              {locA.icon} {locA.name}
                               {!unlocked && price ? ` 🔒 (${price} M)` : ''}
                             </option>
                           );
@@ -1043,9 +1077,12 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                       {publicLobbies.map((rm) => {
                         const div = getPvPDivisionById(rm.hostDivision);
-                        const sc = SCENARIO_DEFINITIONS.find((s) => s.id === rm.scenarioId);
-                        const preset =
-                          DIFFICULTY_PRESETS[rm.difficultyPreset] ?? DIFFICULTY_PRESETS.standard;
+                        const rawSc = SCENARIO_DEFINITIONS.find((s) => s.id === rm.scenarioId);
+                        const sc = rawSc ? localizeScenario(rawSc, lang) : undefined;
+                        const preset = localizeDifficultyPreset(
+                          DIFFICULTY_PRESETS[rm.difficultyPreset] ?? DIFFICULTY_PRESETS.standard,
+                          lang
+                        );
                         return (
                           <div
                             key={rm.roomCode}
@@ -1070,7 +1107,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                                   {rm.hostName}
                                 </span>
                                 <span className={`px-1 rounded border ${div.badgeClass}`}>
-                                  {div.icon} {div.label}
+                                  {div.icon} {localizePvPDivisionLabel(div.id, div.label, lang)}
                                 </span>
                                 <span>· {sc?.icon} {sc?.name ?? rm.scenarioId}</span>
                                 <span>· {preset.badge} {preset.label}</span>

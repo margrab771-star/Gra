@@ -12,6 +12,8 @@ import {
   fetchGlobalLeaderboard,
   isCloudLeaderboardConfigured,
 } from '../../network/leaderboardService';
+import { localizeAiStrategy, localizePvPDivisionLabel } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatMoney } from '../../utils/formatters';
 import { MCoinIcon } from '../HUD/MCoinIcon';
 
@@ -28,6 +30,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
   onOpenAuth,
   onClose,
 }) => {
+  const { t, lang } = useI18n();
   const prof = activeProfile ?? getActiveProfile();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [coinEntries, setCoinEntries] = useState<RegisteredMCoinRankEntry[]>(() =>
@@ -77,13 +80,9 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
       <div className="w-full max-w-3xl max-h-[88vh] flex flex-col rounded-xl bg-[#111827] border border-[#243044] shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex items-center justify-between">
           <div>
-            <h2 className="text-base md:text-lg font-bold text-slate-100">
-              🏆 Światowa Tabela Wyników &amp; Ranking Monet M
-            </h2>
+            <h2 className="text-base md:text-lg font-bold text-slate-100">{t('lb.title')}</h2>
             <p className="text-xs text-slate-400">
-              {isCloudLeaderboardConfigured()
-                ? 'Połączono z bazą chmurową Supabase + pamięć lokalna'
-                : 'Tryb lokalny offline (localStorage + opcjonalny adapter Supabase w .env)'}
+              {isCloudLeaderboardConfigured() ? t('lb.cloudSub') : t('lb.localSub')}
             </p>
           </div>
           <button
@@ -106,7 +105,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                   : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
               }`}
             >
-              Aktualna Partia
+              {t('lb.tabMatch')}
             </button>
           )}
           <button
@@ -118,7 +117,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🏆 Światowa Tabela Rekordów
+            {t('lb.tabGlobal')}
           </button>
           <button
             type="button"
@@ -130,7 +129,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
             }`}
           >
             <MCoinIcon size={13} />
-            <span>Ranking Monet M</span>
+            <span>{t('lb.tabCoins')}</span>
           </button>
         </div>
 
@@ -139,9 +138,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
             <div className="space-y-3 text-xs">
               {prof.isGuest && (
                 <div className="p-3 rounded-xl bg-amber-950/35 border border-amber-500/45 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-amber-200">
-                    🔒 <strong>Załóż konto, aby trafić do Rankingu Monet M</strong> — tryb Gość nie jest klasyfikowany w tabeli majątku Monet Sklepu.
-                  </div>
+                  <div className="text-amber-200">🔒 {t('lb.guestGate')}</div>
                   {onOpenAuth && (
                     <button
                       type="button"
@@ -151,31 +148,29 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                       }}
                       className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0"
                     >
-                      👤 Załóż Konto
+                      {t('lb.createAccountBtn')}
                     </button>
                   )}
                 </div>
               )}
 
               <div className="text-[11px] text-slate-400">
-                Monety M przyznawane są wyłącznie za ukończone mecze (min. {MIN_TICKS_FOR_MATCH_COINS} tur rozgrywki), zadania i osiągnięcia.
+                {t('lb.coinsNote', { minTicks: MIN_TICKS_FOR_MATCH_COINS })}
               </div>
 
               {coinEntries.length === 0 ? (
-                <div className="py-10 text-center text-slate-400">
-                  Brak zarejestrowanych kont w Rankingu Monet M. Załóż konto Prezesa i rozegraj partię!
-                </div>
+                <div className="py-10 text-center text-slate-400">{t('lb.noCoinAccounts')}</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="text-slate-400 border-b border-[#243044] uppercase">
                       <tr>
-                        <th className="py-2 pr-2">#</th>
-                        <th className="py-2 pr-2">Prezes</th>
-                        <th className="py-2 pr-2">Dywizja</th>
-                        <th className="py-2 pr-2 text-center">Poziom</th>
-                        <th className="py-2 pr-2 text-center hidden sm:table-cell">Wygrane</th>
-                        <th className="py-2 text-right">Monety M</th>
+                        <th className="py-2 pr-2">{t('lb.colRank')}</th>
+                        <th className="py-2 pr-2">{t('lb.colCeo')}</th>
+                        <th className="py-2 pr-2">{t('lb.colDivision')}</th>
+                        <th className="py-2 pr-2 text-center">{t('lb.colLevel')}</th>
+                        <th className="py-2 pr-2 text-center hidden sm:table-cell">{t('lb.colWins')}</th>
+                        <th className="py-2 text-right">{t('lb.colCoins')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1b2434]">
@@ -196,14 +191,14 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                                 </span>
                                 {c.isCurrentUser && (
                                   <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">
-                                    TY
+                                    {t('lb.youTag')}
                                   </span>
                                 )}
                               </div>
                             </td>
                             <td className="py-2.5 pr-2">
                               <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${div.badgeClass}`}>
-                                {div.icon} {div.label}
+                                {div.icon} {localizePvPDivisionLabel(div.id, div.label, lang)}
                               </span>
                             </td>
                             <td className="py-2.5 pr-2 text-center font-mono text-sky-300">LVL {c.level}</td>
@@ -243,7 +238,7 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                         {p.companyName} {p.isAI ? '🤖' : '👤'}
                       </div>
                       <div className="text-[11px] text-slate-400">
-                        {p.name} · {p.dominantStrategy}
+                        {p.name} · {localizeAiStrategy(p.dominantStrategy, p.dominantStrategy, lang)}
                       </div>
                     </div>
                   </div>
@@ -258,17 +253,17 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
               ))}
             </div>
           ) : loading ? (
-            <div className="py-10 text-center text-slate-400 text-sm">Ładowanie tabeli wyników...</div>
+            <div className="py-10 text-center text-slate-400 text-sm">{t('lb.loading')}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="text-slate-400 border-b border-[#243044] uppercase">
                   <tr>
-                    <th className="py-2 pr-2">#</th>
-                    <th className="py-2 pr-2">Gracz / Firma</th>
-                    <th className="py-2 pr-2 hidden sm:table-cell">Dominująca Strategia</th>
-                    <th className="py-2 pr-2 text-right">Wycena Netto</th>
-                    <th className="py-2 text-right">Data</th>
+                    <th className="py-2 pr-2">{t('lb.colRank')}</th>
+                    <th className="py-2 pr-2">{t('lb.colCompany')}</th>
+                    <th className="py-2 pr-2 hidden sm:table-cell">{t('lb.colStrategy')}</th>
+                    <th className="py-2 pr-2 text-right">{t('lb.colNetWorth')}</th>
+                    <th className="py-2 text-right">{t('lb.colDate')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1b2434]">
@@ -282,7 +277,9 @@ export const LeaderboardPanel: React.FC<LeaderboardPanelProps> = ({
                         <div className="font-semibold">{e.companyName}</div>
                         <div className="text-[11px] text-slate-400">{e.playerName}</div>
                       </td>
-                      <td className="py-2.5 pr-2 hidden sm:table-cell text-slate-300">{e.strategy}</td>
+                      <td className="py-2.5 pr-2 hidden sm:table-cell text-slate-300">
+                        {localizeAiStrategy(e.strategy, e.strategy, lang)}
+                      </td>
                       <td className="py-2.5 pr-2 text-right font-mono font-bold text-emerald-400">
                         {formatMoney(e.netWorth)}
                       </td>

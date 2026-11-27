@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { subscribeLanguage, translate } from '../i18n';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -8,6 +9,7 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   errorMessage: string;
+  langTick: number;
 }
 
 /**
@@ -15,15 +17,28 @@ interface ErrorBoundaryState {
  * wyświetleniu pustego ekranu i pozwalając na bezpieczny reset zapisu.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  private unsubLang: (() => void) | null = null;
+
   state: ErrorBoundaryState = {
     hasError: false,
     errorMessage: '',
+    langTick: 0,
   };
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  componentDidMount(): void {
+    this.unsubLang = subscribeLanguage(() => {
+      this.setState((prev) => ({ langTick: prev.langTick + 1 }));
+    });
+  }
+
+  componentWillUnmount(): void {
+    this.unsubLang?.();
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return {
       hasError: true,
-      errorMessage: error.message || 'Nieznany błąd aplikacji',
+      errorMessage: error.message || translate('err.unknown'),
     };
   }
 
@@ -64,12 +79,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="flex items-center gap-3">
             <span className="text-2xl">⚠️</span>
             <div>
-              <h1 className="text-lg font-bold text-rose-300">
-                Wystąpił nieoczekiwany błąd interfejsu
-              </h1>
-              <p className="text-xs text-slate-400">
-                Aplikacja zatrzymała renderowanie, aby uchronić dane przed uszkodzeniem.
-              </p>
+              <h1 className="text-lg font-bold text-rose-300">{translate('err.title')}</h1>
+              <p className="text-xs text-slate-400">{translate('err.subtitle')}</p>
             </div>
           </div>
 
@@ -83,14 +94,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               onClick={this.handleReload}
               className="px-4 py-2 rounded-lg bg-[#1b263c] hover:bg-[#24324f] border border-[#324364] text-xs font-semibold text-slate-100 transition-colors cursor-pointer"
             >
-              Odśwież stronę
+              {translate('err.reload')}
             </button>
             <button
               type="button"
               onClick={this.handleResetSaves}
               className="px-4 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/35 border border-rose-500/50 text-xs font-semibold text-rose-200 transition-colors cursor-pointer"
             >
-              Zresetuj zapis i uruchom ponownie
+              {translate('err.resetSaves')}
             </button>
           </div>
         </div>

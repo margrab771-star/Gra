@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { GAME_CONFIG } from '../../config/gameConfig';
 import type { ArticleType, GameState, NewsArticle } from '../../engine/types';
+import { localizeEvent, localizeNewsArticle } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 
 interface NewspaperPanelProps {
   gameState: GameState;
@@ -15,10 +17,13 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
   onFocusPlot,
   onClose,
 }) => {
+  const { lang } = useI18n();
   const [filter, setFilter] = useState<ArticleType | 'all'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(gameState.news[0]?.id ?? null);
 
-  const filtered = gameState.news.filter((n) => filter === 'all' || n.type === filter);
+  const filtered = gameState.news
+    .filter((n) => filter === 'all' || n.type === filter)
+    .map((n) => localizeNewsArticle(n, lang));
   const selected: NewsArticle | undefined =
     filtered.find((n) => n.id === selectedId) ?? filtered[0];
 
@@ -37,7 +42,21 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
     }
   };
 
-  const labelPL = (t: ArticleType) => {
+  const labelType = (t: ArticleType) => {
+    if (lang === 'en') {
+      switch (t) {
+        case 'forecast':
+          return 'TREND FORECAST';
+        case 'opportunity':
+          return 'MARKET OPPORTUNITY';
+        case 'negative':
+          return 'RISK / CRISIS';
+        case 'positive':
+          return 'GROWTH CATALYST';
+        default:
+          return 'NEWSWIRE';
+      }
+    }
     switch (t) {
       case 'forecast':
         return 'PROGNOZA TRENDU';
@@ -58,9 +77,16 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex items-center justify-between">
           <div>
             <div className="text-[11px] font-mono text-amber-400 uppercase tracking-widest">
-              {GAME_CONFIG.title} · Dziennik Ekonomiczny i Analiza Makro
+              {GAME_CONFIG.title} ·{' '}
+              {lang === 'en'
+                ? 'Financial Daily & Macro Analysis'
+                : 'Dziennik Ekonomiczny i Analiza Makro'}
             </div>
-            <h2 className="text-lg font-bold text-slate-100">📰 Głos Kapitału & Prognozy Rynkowe</h2>
+            <h2 className="text-lg font-bold text-slate-100">
+              {lang === 'en'
+                ? '📰 Capital Herald & Market Forecasts'
+                : '📰 Głos Kapitału & Prognozy Rynkowe'}
+            </h2>
           </div>
           <button
             type="button"
@@ -74,34 +100,53 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
         {/* Aktywne zjawiska i nadchodzące prognozy */}
         {(gameState.activeEvents.length > 0 || gameState.pendingForecasts.length > 0) && (
           <div className="px-4 py-2 bg-[#0e1420] border-b border-[#243044] flex flex-wrap gap-2 text-xs">
-            {gameState.pendingForecasts.map((pf) => (
-              <span
-                key={pf.id}
-                className="px-2 py-1 rounded bg-amber-500/15 border border-amber-500/35 text-amber-300"
-              >
-                🔮 Nadchodzi: {pf.name} (za {pf.forecastTicksRemaining} cykli)
-              </span>
-            ))}
-            {gameState.activeEvents.map((ev) => (
-              <span
-                key={ev.id}
-                className="px-2 py-1 rounded bg-sky-500/15 border border-sky-500/35 text-sky-300"
-              >
-                ⚡ Aktywne: {ev.name} ({ev.remainingTicks} cykli)
-              </span>
-            ))}
+            {gameState.pendingForecasts.map((rawPf) => {
+              const pf = localizeEvent(rawPf, lang);
+              return (
+                <span
+                  key={pf.id}
+                  className="px-2 py-1 rounded bg-amber-500/15 border border-amber-500/35 text-amber-300"
+                >
+                  {lang === 'en'
+                    ? `🔮 Incoming: ${pf.name} (in ${pf.forecastTicksRemaining} ticks)`
+                    : `🔮 Nadchodzi: ${pf.name} (za ${pf.forecastTicksRemaining} cykli)`}
+                </span>
+              );
+            })}
+            {gameState.activeEvents.map((rawEv) => {
+              const ev = localizeEvent(rawEv, lang);
+              return (
+                <span
+                  key={ev.id}
+                  className="px-2 py-1 rounded bg-sky-500/15 border border-sky-500/35 text-sky-300"
+                >
+                  {lang === 'en'
+                    ? `⚡ Active: ${ev.name} (${ev.remainingTicks} ticks)`
+                    : `⚡ Aktywne: ${ev.name} (${ev.remainingTicks} cykli)`}
+                </span>
+              );
+            })}
           </div>
         )}
 
         {/* Filtry */}
         <div className="px-4 py-2 border-b border-[#243044] flex gap-1.5 overflow-x-auto no-scrollbar">
-          {[
-            { k: 'all', l: 'Wszystkie' },
-            { k: 'forecast', l: '🔮 Prognozy' },
-            { k: 'opportunity', l: '💰 Okazje' },
-            { k: 'negative', l: '⚠️ Kryzysy' },
-            { k: 'positive', l: '📈 Wzrosty' },
-          ].map((f) => (
+          {(lang === 'en'
+            ? [
+                { k: 'all', l: 'All' },
+                { k: 'forecast', l: '🔮 Forecasts' },
+                { k: 'opportunity', l: '💰 Opportunities' },
+                { k: 'negative', l: '⚠️ Crises' },
+                { k: 'positive', l: '📈 Booms' },
+              ]
+            : [
+                { k: 'all', l: 'Wszystkie' },
+                { k: 'forecast', l: '🔮 Prognozy' },
+                { k: 'opportunity', l: '💰 Okazje' },
+                { k: 'negative', l: '⚠️ Kryzysy' },
+                { k: 'positive', l: '📈 Wzrosty' },
+              ]
+          ).map((f) => (
             <button
               key={f.k}
               type="button"
@@ -136,7 +181,7 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
               >
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badgeClass(art.type)}`}>
-                    {labelPL(art.type)}
+                    {labelType(art.type)}
                   </span>
                   <div className="flex items-center gap-1.5">
                     {!art.read && <span className="w-2 h-2 rounded-full bg-amber-400" />}
@@ -154,7 +199,7 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass(selected.type)}`}>
-                      {labelPL(selected.type)}
+                      {labelType(selected.type)}
                     </span>
                     <span className="font-mono text-xs text-slate-400">{selected.dateLabel}</span>
                   </div>
@@ -164,7 +209,9 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
                       onClick={() => onFocusPlot(selected.focusPlotId!)}
                       className="px-2.5 py-1 rounded bg-sky-600/30 hover:bg-sky-600/50 border border-sky-400/50 text-sky-200 text-xs font-semibold"
                     >
-                      📍 Pokaż miejsce zdarzenia na mapie
+                      {lang === 'en'
+                        ? '📍 Show incident site on map'
+                        : '📍 Pokaż miejsce zdarzenia na mapie'}
                     </button>
                   )}
                 </div>
@@ -177,14 +224,16 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
 
                 <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
                   <div className="text-xs font-semibold text-sky-400 uppercase tracking-wide">
-                    Analiza Analityków Giełdowych
+                    {lang === 'en' ? 'Equity Analysts Commentary' : 'Analiza Analityków Giełdowych'}
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">{selected.analysis}</p>
                 </div>
 
                 <div className="p-3.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1.5">
                   <div className="text-xs font-semibold text-emerald-300 uppercase tracking-wide">
-                    Rekomendowane Działania Wyprzedzające
+                    {lang === 'en'
+                      ? 'Recommended Preemptive Actions'
+                      : 'Rekomendowane Działania Wyprzedzające'}
                   </div>
                   <ul className="list-disc list-inside text-xs text-emerald-100 space-y-1">
                     {selected.hints.map((h, idx) => (
@@ -194,7 +243,9 @@ export const NewspaperPanel: React.FC<NewspaperPanelProps> = ({
                 </div>
               </>
             ) : (
-              <div className="text-sm text-slate-500">Wybierz wydanie z listy po lewej stronie.</div>
+              <div className="text-sm text-slate-500">
+                {lang === 'en' ? 'Select an issue from the list on the left.' : 'Wybierz wydanie z listy po lewej stronie.'}
+              </div>
             )}
           </div>
         </div>

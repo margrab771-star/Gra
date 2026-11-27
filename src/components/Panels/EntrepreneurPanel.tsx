@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import type { EntrepreneurBranch, GameState, Player, SkillNode } from '../../engine/types';
+import { localizeSkillNode } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatMoney } from '../../utils/formatters';
 
 interface EntrepreneurPanelProps {
@@ -18,12 +20,20 @@ const BRANCH_COLORS: Record<EntrepreneurBranch, string> = {
   influence: '#f43f5e',
 };
 
-const BRANCH_NAMES: Record<EntrepreneurBranch, string> = {
+const BRANCH_NAMES_PL: Record<EntrepreneurBranch, string> = {
   finance: 'Finanse i Podatki',
   negotiation: 'Negocjacje i B2B',
   logistics: 'Logistyka i Zapasy',
   technology: 'Edukacja i Innowacje',
   influence: 'Wpływy i Dyplomacja',
+};
+
+const BRANCH_NAMES_EN: Record<EntrepreneurBranch, string> = {
+  finance: 'Finance & Tax',
+  negotiation: 'Negotiation & B2B',
+  logistics: 'Logistics & Inventory',
+  technology: 'Education & R&D',
+  influence: 'Influence & Diplomacy',
 };
 
 const CANVAS_W = 2640;
@@ -37,7 +47,9 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
   onUnlockSkill,
   onClose,
 }) => {
-  const skills = gameState.entrepreneurSkillDefs;
+  const { lang } = useI18n();
+  const branchNames = lang === 'en' ? BRANCH_NAMES_EN : BRANCH_NAMES_PL;
+  const skills = gameState.entrepreneurSkillDefs.map((s) => localizeSkillNode(s, lang));
   const [selectedId, setSelectedId] = useState<string>(skills[0]?.id ?? '');
   const [zoom, setZoom] = useState<number>(0.62);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: -340, y: -260 });
@@ -131,7 +143,10 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
         ...(selected.requiredCorpLevel
           ? [
               {
-                label: `Poziom Korporacji: min. Poz. ${selected.requiredCorpLevel} (masz Poz. ${currentPlayer.corporationLevel})`,
+                label:
+                  lang === 'en'
+                    ? `Corporate Level: min. Lvl ${selected.requiredCorpLevel} (yours: Lvl ${currentPlayer.corporationLevel})`
+                    : `Poziom Korporacji: min. Poz. ${selected.requiredCorpLevel} (masz Poz. ${currentPlayer.corporationLevel})`,
                 met: currentPlayer.corporationLevel >= selected.requiredCorpLevel,
               },
             ]
@@ -144,7 +159,10 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 currentPlayer.influence.social;
               return [
                 {
-                  label: `Łączne Wpływy Polityczne: min. ${selected.requiredInfluenceScore} pkt (masz ${Math.round(totalInf)} pkt)`,
+                  label:
+                    lang === 'en'
+                      ? `Total Political Influence: min. ${selected.requiredInfluenceScore} pts (yours: ${Math.round(totalInf)} pts)`
+                      : `Łączne Wpływy Polityczne: min. ${selected.requiredInfluenceScore} pkt (masz ${Math.round(totalInf)} pkt)`,
                   met: totalInf >= selected.requiredInfluenceScore,
                 },
               ];
@@ -153,7 +171,10 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
         ...(selected.requiredGlobalTechCount
           ? [
               {
-                label: `Zbadane technologie R&D: min. ${selected.requiredGlobalTechCount} (masz ${doneTechCount})`,
+                label:
+                  lang === 'en'
+                    ? `Researched R&D techs: min. ${selected.requiredGlobalTechCount} (yours: ${doneTechCount})`
+                    : `Zbadane technologie R&D: min. ${selected.requiredGlobalTechCount} (masz ${doneTechCount})`,
                 met: doneTechCount >= selected.requiredGlobalTechCount,
               },
             ]
@@ -171,10 +192,14 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
         <div className="px-4 py-2.5 border-b border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base md:text-lg font-bold text-slate-100">
-              👤 Drzewko Przedsiębiorcy ({currentPlayer.name} · {skills.length} Węzłów)
+              {lang === 'en'
+                ? `👤 CEO Skill Tree (${currentPlayer.name} · ${skills.length} Nodes)`
+                : `👤 Drzewko Przedsiębiorcy (${currentPlayer.name} · ${skills.length} Węzłów)`}
             </h2>
             <p className="text-[11px] text-slate-400">
-              Chwytaj i przesuwaj tło (Pan & Zoom kółkiem myszy) lub przeskocz od razu do wybranej gałęzi
+              {lang === 'en'
+                ? 'Drag canvas to pan (mouse wheel to zoom) or jump directly to any branch'
+                : 'Chwytaj i przesuwaj tło (Pan & Zoom kółkiem myszy) lub przeskocz od razu do wybranej gałęzi'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 shrink-0">
@@ -200,7 +225,7 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 type="button"
                 onClick={() => focusCenter(CX, CY, 0.58)}
                 className="px-1.5 py-0.5 text-sky-300 hover:text-white border-l border-[#243044] ml-0.5"
-                title="Wyśrodkuj widok na PREZESIE"
+                title={lang === 'en' ? 'Center view on CEO' : 'Wyśrodkuj widok na PREZESIE'}
               >
                 ⌖ Reset
               </button>
@@ -229,9 +254,9 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 : 'bg-[#111827] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🌐 Cała Sieć ({skills.filter((s) => currentPlayer.entrepreneurSkills[s.id] === 'done').length}/{skills.length})
+            {lang === 'en' ? '🌐 Full Network' : '🌐 Cała Sieć'} ({skills.filter((s) => currentPlayer.entrepreneurSkills[s.id] === 'done').length}/{skills.length})
           </button>
-          {(Object.keys(BRANCH_NAMES) as EntrepreneurBranch[]).map((br) => (
+          {(Object.keys(branchNames) as EntrepreneurBranch[]).map((br) => (
             <button
               key={br}
               type="button"
@@ -244,7 +269,7 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 borderColor: activeBranchFilter === br ? BRANCH_COLORS[br] : '#243044',
               }}
             >
-              ● {BRANCH_NAMES[br]}
+              ● {branchNames[br]}
             </button>
           ))}
         </div>
@@ -317,14 +342,14 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 style={{ left: CX - 56, top: CY - 26 }}
                 className="absolute w-[112px] h-[52px] rounded-full bg-[#1a2438] border-2 border-amber-400 flex items-center justify-center text-sm font-extrabold text-amber-300 shadow-[0_0_24px_rgba(245,158,11,0.35)]"
               >
-                PREZES
+                {lang === 'en' ? 'CEO' : 'PREZES'}
               </div>
 
               {skills.map((sk) => {
                 const st = currentPlayer.entrepreneurSkills[sk.id] ?? 'locked';
                 const col = BRANCH_COLORS[sk.branch];
                 const isSel = selected?.id === sk.id;
-                const isApex = Boolean(sk.isApex || sk.tier === 8);
+                const isFlagship = Boolean(sk.isApex || sk.tier === 8);
                 const dimmed = activeBranchFilter !== 'all' && activeBranchFilter !== sk.branch;
                 return (
                   <button
@@ -334,7 +359,7 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                     style={{
                       left: CX + sk.position.x - 66,
                       top: CY + sk.position.y - 28,
-                      borderColor: isApex && st !== 'locked'
+                      borderColor: isFlagship && st !== 'locked'
                         ? '#facc15'
                         : st === 'done'
                           ? col
@@ -349,12 +374,12 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                         : st === 'available'
                           ? 'bg-[#141c2b] text-slate-200 animate-node-avail hover:scale-105'
                           : 'bg-[#0e131d] text-slate-500 opacity-70'
-                    } ${isApex ? 'ring-1 ring-amber-400/60 shadow-[0_0_14px_rgba(250,204,21,0.2)]' : ''} ${
+                    } ${isFlagship ? 'ring-1 ring-amber-400/60 shadow-[0_0_14px_rgba(250,204,21,0.2)]' : ''} ${
                       isSel ? 'ring-2 ring-white' : ''
                     }`}
                   >
                     <div className="text-[10px] font-mono flex items-center justify-between" style={{ color: st === 'locked' ? '#64748b' : col }}>
-                      <span>{isApex ? '★ EKSTRA' : `T${sk.tier ?? 1}`}</span>
+                      <span>{isFlagship ? (lang === 'en' ? '★ FLAGSHIP' : '★ FLAGOWY') : `T${sk.tier ?? 1}`}</span>
                       <span>
                         {st === 'done' ? '✅' : st === 'available' ? `✨${sk.skillPointCost}SP` : `🔒${sk.skillPointCost}SP`}
                       </span>
@@ -378,11 +403,11 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                       color: BRANCH_COLORS[selected.branch],
                     }}
                   >
-                    {BRANCH_NAMES[selected.branch]} · Poziom {selected.tier ?? 1}
+                    {branchNames[selected.branch]} · {lang === 'en' ? `Tier ${selected.tier ?? 1}` : `Poziom ${selected.tier ?? 1}`}
                   </span>
                   {(selected.isApex || selected.tier === 8) && (
                     <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-300 text-[10px] font-bold">
-                      ★ SZCZYT GAŁĘZI
+                      {lang === 'en' ? '★ BRANCH PEAK' : '★ SZCZYT GAŁĘZI'}
                     </span>
                   )}
                 </div>
@@ -392,7 +417,9 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
 
                 <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Koszt wdrożenia:</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Deployment cost:' : 'Koszt wdrożenia:'}
+                    </span>
                     <span
                       className={`font-mono font-semibold ${
                         currentPlayer.cash >= selected.cashCost ? 'text-amber-300' : 'text-rose-400'
@@ -402,7 +429,9 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Punkty Rozwoju (SP):</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Skill Points (SP):' : 'Punkty Rozwoju (SP):'}
+                    </span>
                     <span
                       className={`font-mono font-semibold ${
                         currentPlayer.skillPoints >= selected.skillPointCost ? 'text-sky-300' : 'text-rose-400'
@@ -416,14 +445,14 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 {(selected.prerequisites.length > 0 || extraChecks.length > 0) && (
                   <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#1e293b] space-y-1 text-xs">
                     <div className="text-[10px] font-semibold uppercase text-slate-400">
-                      Wymagania odblokowania
+                      {lang === 'en' ? 'Unlock requirements' : 'Wymagania odblokowania'}
                     </div>
                     {selected.prerequisites.map((pid) => {
                       const pre = skills.find((s) => s.id === pid);
                       const ok = currentPlayer.entrepreneurSkills[pid] === 'done';
                       return (
                         <div key={pid} className={ok ? 'text-emerald-400' : 'text-rose-400'}>
-                          {ok ? '✓' : '✕'} Poprzednik: {pre?.name ?? pid}
+                          {ok ? '✓' : '✕'} {lang === 'en' ? 'Prerequisite:' : 'Poprzednik:'} {pre?.name ?? pid}
                         </div>
                       );
                     })}
@@ -436,7 +465,9 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                 )}
 
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-emerald-300">Premie Pasywne:</div>
+                  <div className="text-xs font-semibold text-emerald-300">
+                    {lang === 'en' ? 'Passive Bonuses:' : 'Premie Pasywne:'}
+                  </div>
                   <ul className="list-disc list-inside text-xs text-slate-200 space-y-1">
                     {selected.effects.map((ef, i) => (
                       <li key={i}>{ef}</li>
@@ -450,7 +481,7 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
               <div>
                 {currentPlayer.entrepreneurSkills[selected.id] === 'done' ? (
                   <div className="w-full py-2.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-center text-xs font-semibold">
-                    ✅ Umiejętność Aktywna
+                    {lang === 'en' ? '✅ Skill Active' : '✅ Umiejętność Aktywna'}
                   </div>
                 ) : currentPlayer.entrepreneurSkills[selected.id] === 'available' ? (
                   <button
@@ -464,12 +495,16 @@ export const EntrepreneurPanel: React.FC<EntrepreneurPanelProps> = ({
                     className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-40 transition-colors"
                   >
                     {!allExtraMet
-                      ? 'Niespełnione progi korporacyjne'
-                      : `Odblokuj (${selected.skillPointCost} SP · ${formatMoney(selected.cashCost)})`}
+                      ? lang === 'en'
+                        ? 'Corporate thresholds not met'
+                        : 'Niespełnione progi korporacyjne'
+                      : `${lang === 'en' ? 'Unlock' : 'Odblokuj'} (${selected.skillPointCost} SP · ${formatMoney(selected.cashCost)})`}
                   </button>
                 ) : (
                   <div className="w-full py-2.5 rounded-lg bg-slate-800/70 text-slate-400 text-center text-xs">
-                    🔒 Odblokuj poprzedni poziom w tej gałęzi
+                    {lang === 'en'
+                      ? '🔒 Unlock the previous tier in this branch'
+                      : '🔒 Odblokuj poprzedni poziom w tej gałęzi'}
                   </div>
                 )}
               </div>

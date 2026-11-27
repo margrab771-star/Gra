@@ -1,4 +1,5 @@
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import type { Coalition, GameState, NonAggressionPact, Player } from './types';
 
 function uid(prefix: string): string {
@@ -75,20 +76,38 @@ export function createCoalitionForPlayer(
   tag: string,
   color: string
 ): { ok: boolean; error?: string } {
-  if (player.isEliminated) return { ok: false, error: 'Zbankrutowany gracz nie może tworzyć koalicji.' };
+  const en = getCurrentLanguage() === 'en';
+  if (player.isEliminated) {
+    return {
+      ok: false,
+      error: en ? 'An eliminated player cannot form a coalition.' : 'Zbankrutowany gracz nie może tworzyć koalicji.',
+    };
+  }
   if (getPlayerCoalition(state, player.id)) {
-    return { ok: false, error: 'Należysz już do koalicji. Najpierw z niej wystąp.' };
+    return {
+      ok: false,
+      error: en
+        ? 'You already belong to a coalition. Leave it first.'
+        : 'Należysz już do koalicji. Najpierw z niej wystąp.',
+    };
   }
   if ((player.leftCoalitionCooldown ?? 0) > 0) {
     return {
       ok: false,
-      error: `Karencja dyplomatyczna: odczekaj jeszcze ${player.leftCoalitionCooldown} tur po opuszczeniu poprzedniej koalicji.`,
+      error: en
+        ? `Diplomatic cooldown: wait ${player.leftCoalitionCooldown} more ticks after leaving your previous coalition.`
+        : `Karencja dyplomatyczna: odczekaj jeszcze ${player.leftCoalitionCooldown} tur po opuszczeniu poprzedniej koalicji.`,
     };
   }
   const cleanName = name.trim().slice(0, 28);
   const cleanTag = tag.trim().toUpperCase().slice(0, 5) || 'KLC';
   if (cleanName.length < 3) {
-    return { ok: false, error: 'Nazwa koalicji musi mieć co najmniej 3 znaki.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Coalition name must be at least 3 characters long.'
+        : 'Nazwa koalicji musi mieć co najmniej 3 znaki.',
+    };
   }
 
   state.coalitions = state.coalitions ?? [];
@@ -122,25 +141,54 @@ export function inviteToCoalitionForPlayer(
   player: Player,
   targetPlayerId: string
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const coalition = getPlayerCoalition(state, player.id);
-  if (!coalition) return { ok: false, error: 'Nie należysz do żadnej koalicji.' };
+  if (!coalition) {
+    return {
+      ok: false,
+      error: en ? 'You do not belong to any coalition.' : 'Nie należysz do żadnej koalicji.',
+    };
+  }
   if (coalition.leaderId !== player.id) {
-    return { ok: false, error: 'Tylko lider koalicji może zapraszać nowych członków.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Only the coalition leader can invite new members.'
+        : 'Tylko lider koalicji może zapraszać nowych członków.',
+    };
   }
   const maxMembers = getMaxCoalitionMembers(state);
   if (coalition.memberIds.length >= maxMembers) {
-    return { ok: false, error: `Koalicja osiągnęła maksymalny limit ${maxMembers} członków dla tej liczby graczy.` };
+    return {
+      ok: false,
+      error: en
+        ? `Coalition reached the cap of ${maxMembers} members for this player count.`
+        : `Koalicja osiągnęła maksymalny limit ${maxMembers} członków dla tej liczby graczy.`,
+    };
   }
   const target = state.players.find((p) => p.id === targetPlayerId);
-  if (!target || target.isEliminated) return { ok: false, error: 'Wybrany gracz jest niedostępny.' };
+  if (!target || target.isEliminated) {
+    return { ok: false, error: en ? 'Selected player is unavailable.' : 'Wybrany gracz jest niedostępny.' };
+  }
   if (getPlayerCoalition(state, targetPlayerId)) {
-    return { ok: false, error: 'Ten gracz należy już do koalicji.' };
+    return {
+      ok: false,
+      error: en ? 'That player already belongs to a coalition.' : 'Ten gracz należy już do koalicji.',
+    };
   }
   if ((target.leftCoalitionCooldown ?? 0) > 0) {
-    return { ok: false, error: `${target.companyName} odbywa jeszcze karencję dyplomatyczną.` };
+    return {
+      ok: false,
+      error: en
+        ? `${target.companyName} is still on diplomatic cooldown.`
+        : `${target.companyName} odbywa jeszcze karencję dyplomatyczną.`,
+    };
   }
   if (coalition.invitedPlayerIds.includes(targetPlayerId)) {
-    return { ok: false, error: 'Zaproszenie do tego gracza zostało już wysłane.' };
+    return {
+      ok: false,
+      error: en ? 'An invitation has already been sent to this player.' : 'Zaproszenie do tego gracza zostało już wysłane.',
+    };
   }
   coalition.invitedPlayerIds.push(targetPlayerId);
 
@@ -158,19 +206,28 @@ export function respondToCoalitionInvite(
   coalitionId: string,
   accept: boolean
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const coalitions = state.coalitions ?? [];
   const coalition = coalitions.find((c) => c.id === coalitionId);
-  if (!coalition) return { ok: false, error: 'Koalicja już nie istnieje.' };
+  if (!coalition) {
+    return { ok: false, error: en ? 'Coalition no longer exists.' : 'Koalicja już nie istnieje.' };
+  }
 
   coalition.invitedPlayerIds = coalition.invitedPlayerIds.filter((id) => id !== player.id);
   if (!accept) return { ok: true };
 
   if (getPlayerCoalition(state, player.id)) {
-    return { ok: false, error: 'Należysz już do innej koalicji.' };
+    return {
+      ok: false,
+      error: en ? 'You already belong to another coalition.' : 'Należysz już do innej koalicji.',
+    };
   }
   const maxMembers = getMaxCoalitionMembers(state);
   if (coalition.memberIds.length >= maxMembers) {
-    return { ok: false, error: `Koalicja osiągnęła limit ${maxMembers} członków.` };
+    return {
+      ok: false,
+      error: en ? `Coalition reached the ${maxMembers}-member limit.` : `Koalicja osiągnęła limit ${maxMembers} członków.`,
+    };
   }
 
   coalition.memberIds.push(player.id);
@@ -188,9 +245,15 @@ export function respondToCoalitionInvite(
 }
 
 export function leaveCoalitionForPlayer(state: GameState, player: Player): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const coalitions = state.coalitions ?? [];
   const coalition = coalitions.find((c) => c.memberIds.includes(player.id));
-  if (!coalition) return { ok: false, error: 'Nie należysz do żadnej koalicji.' };
+  if (!coalition) {
+    return {
+      ok: false,
+      error: en ? 'You do not belong to any coalition.' : 'Nie należysz do żadnej koalicji.',
+    };
+  }
 
   coalition.memberIds = coalition.memberIds.filter((id) => id !== player.id);
   player.coalitionId = null;
@@ -214,10 +277,21 @@ export function leaveCoalitionForPlayer(state: GameState, player: Player): { ok:
 }
 
 export function toggleCoalitionGeology(state: GameState, player: Player): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const coalition = getPlayerCoalition(state, player.id);
-  if (!coalition) return { ok: false, error: 'Nie należysz do żadnej koalicji.' };
+  if (!coalition) {
+    return {
+      ok: false,
+      error: en ? 'You do not belong to any coalition.' : 'Nie należysz do żadnej koalicji.',
+    };
+  }
   if (coalition.leaderId !== player.id) {
-    return { ok: false, error: 'Tylko lider koalicji może zmienić współdzielenie geologii.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Only the coalition leader can toggle shared geology.'
+        : 'Tylko lider koalicji może zmienić współdzielenie geologii.',
+    };
   }
   coalition.shareGeology = !coalition.shareGeology;
   return { ok: true };
@@ -228,14 +302,30 @@ export function proposeNAPForPlayer(
   player: Player,
   targetPlayerId: string
 ): { ok: boolean; error?: string } {
-  if (player.id === targetPlayerId) return { ok: false, error: 'Nie można zawrzeć paktu z samym sobą.' };
+  const en = getCurrentLanguage() === 'en';
+  if (player.id === targetPlayerId) {
+    return {
+      ok: false,
+      error: en ? 'You cannot sign a pact with yourself.' : 'Nie można zawrzeć paktu z samym sobą.',
+    };
+  }
   const target = state.players.find((p) => p.id === targetPlayerId);
-  if (!target || target.isEliminated) return { ok: false, error: 'Cel nie istnieje.' };
+  if (!target || target.isEliminated) {
+    return { ok: false, error: en ? 'Target does not exist.' : 'Cel nie istnieje.' };
+  }
   if (hasActiveNAP(state, player.id, targetPlayerId)) {
-    return { ok: false, error: 'Aktywny pakt o nieagresji już obowiązuje.' };
+    return {
+      ok: false,
+      error: en ? 'An active non-aggression pact is already in force.' : 'Aktywny pakt o nieagresji już obowiązuje.',
+    };
   }
   if (hasActiveEmbargo(state, player.id, targetPlayerId)) {
-    return { ok: false, error: 'Najpierw musi wygasnąć wzajemne embargo handlowe.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Mutual trade embargoes must expire first.'
+        : 'Najpierw musi wygasnąć wzajemne embargo handlowe.',
+    };
   }
 
   state.naps = state.naps ?? [];
@@ -245,7 +335,12 @@ export function proposeNAPForPlayer(
       n.playerAId === player.id &&
       n.playerBId === targetPlayerId
   );
-  if (existing) return { ok: false, error: 'Propozycja paktu oczekuje już na decyzję.' };
+  if (existing) {
+    return {
+      ok: false,
+      error: en ? 'A pact proposal is already pending decision.' : 'Propozycja paktu oczekuje już na decyzję.',
+    };
+  }
 
   const nap: NonAggressionPact = {
     id: uid('nap'),
@@ -269,10 +364,16 @@ export function proposeNAPForPlayer(
 }
 
 export function acceptNAPForPlayer(state: GameState, player: Player, napId: string): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const naps = state.naps ?? [];
   const nap = naps.find((n) => n.id === napId);
-  if (!nap) return { ok: false, error: 'Propozycja paktu nie istnieje.' };
-  if (nap.playerBId !== player.id) return { ok: false, error: 'Nie możesz zaakceptować cudzej propozycji.' };
+  if (!nap) return { ok: false, error: en ? 'Pact proposal not found.' : 'Propozycja paktu nie istnieje.' };
+  if (nap.playerBId !== player.id) {
+    return {
+      ok: false,
+      error: en ? 'You cannot accept another player’s proposal.' : 'Nie możesz zaakceptować cudzej propozycji.',
+    };
+  }
 
   nap.status = 'active';
   nap.expiresTick = state.time.tick + 80;
@@ -284,15 +385,33 @@ export function imposeEmbargoForPlayer(
   player: Player,
   targetPlayerId: string
 ): { ok: boolean; error?: string } {
-  if (player.id === targetPlayerId) return { ok: false, error: 'Nie możesz nałożyć embarga na siebie.' };
+  const en = getCurrentLanguage() === 'en';
+  if (player.id === targetPlayerId) {
+    return {
+      ok: false,
+      error: en ? 'You cannot embargo yourself.' : 'Nie możesz nałożyć embarga na siebie.',
+    };
+  }
   const target = state.players.find((p) => p.id === targetPlayerId);
-  if (!target || target.isEliminated) return { ok: false, error: 'Wybrana firma jest nieaktywna.' };
+  if (!target || target.isEliminated) {
+    return { ok: false, error: en ? 'Selected company is inactive.' : 'Wybrana firma jest nieaktywna.' };
+  }
   if (arePlayersAllied(state, player.id, targetPlayerId)) {
-    return { ok: false, error: 'Nie możesz nałożyć embarga na członka własnej koalicji.' };
+    return {
+      ok: false,
+      error: en
+        ? 'You cannot embargo a member of your own coalition.'
+        : 'Nie możesz nałożyć embarga na członka własnej koalicji.',
+    };
   }
   const cost = 120_000;
   if (player.cash < cost) {
-    return { ok: false, error: `Nałożenie embarga i sankcji celnych kosztuje ${cost.toLocaleString('pl-PL')} zł.` };
+    return {
+      ok: false,
+      error: en
+        ? `Trade embargo and customs sanctions cost ${formatMoney(cost)}.`
+        : `Nałożenie embarga i sankcji celnych kosztuje ${formatMoney(cost)}.`,
+    };
   }
   player.cash -= cost;
 

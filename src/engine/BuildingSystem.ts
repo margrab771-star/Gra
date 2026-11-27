@@ -2,7 +2,14 @@ import { CORPORATION_LEVELS, DIFFICULTY_PRESETS, GAME_CONFIG, GOVERNMENT_CONFIGS
 import { getArchetypeDefinition } from '../data/archetypes';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
+import {
+  localizeCorpLevel,
+  localizeResourceName,
+  localizeTerrain,
+} from '../i18n/dataTranslations';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import {
   calculateTransportCostForBuilding,
   getPlayerEntrepreneurModifiers,
@@ -164,17 +171,31 @@ export function getPowerPlantFuelSpec(type: BuildingType): PowerPlantFuelSpec | 
 export function toggleEmergencyFuelImport(
   building: Building
 ): { ok: boolean; enabled: boolean; message: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const spec = getPowerPlantFuelSpec(building.type);
   if (!spec) {
-    return { ok: false, enabled: false, message: 'Ten obiekt nie zużywa fizycznego paliwa elektrowni.' };
+    return {
+      ok: false,
+      enabled: false,
+      message: en
+        ? 'This facility does not consume physical power-plant fuel.'
+        : 'Ten obiekt nie zużywa fizycznego paliwa elektrowni.',
+    };
   }
   building.emergencyMarketImport = !building.emergencyMarketImport;
+  const bName = en ? BUILDINGS_EN[building.type]?.name ?? building.name : building.name;
+  const fLabel = localizeResourceName(spec.primaryResource, spec.label, lang);
   return {
     ok: true,
     enabled: Boolean(building.emergencyMarketImport),
     message: building.emergencyMarketImport
-      ? `Włączono awaryjny import ${spec.label} z rynku (+35% narzutu) dla ${building.name}.`
-      : `Wyłączono awaryjny import z rynku dla ${building.name}.`,
+      ? en
+        ? `Enabled emergency market import of ${fLabel} (+35% markup) for ${bName}.`
+        : `Włączono awaryjny import ${spec.label} z rynku (+35% narzutu) dla ${bName}.`
+      : en
+        ? `Disabled emergency market import for ${bName}.`
+        : `Wyłączono awaryjny import z rynku dla ${bName}.`,
   };
 }
 import type {
@@ -210,54 +231,93 @@ export function checkBuildingRequirements(
   buildingType: BuildingType,
   state: GameState
 ): { ok: boolean; reason?: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const def = BUILDING_DEFINITIONS[buildingType];
-  if (!def) return { ok: false, reason: 'Nieznany typ struktury.' };
+  if (!def) return { ok: false, reason: en ? 'Unknown structure type.' : 'Nieznany typ struktury.' };
+  const bName = en ? BUILDINGS_EN[buildingType]?.name ?? def.name : def.name;
   if (state.settings.weeklyBannedBuildings?.includes(buildingType)) {
-    return { ok: false, reason: `Reguły Wyzwania Tygodnia zakazują budowy obiektu "${def.name}".` };
+    return {
+      ok: false,
+      reason: en
+        ? `Weekly Challenge rules prohibit constructing "${bName}".`
+        : `Reguły Wyzwania Tygodnia zakazują budowy obiektu "${bName}".`,
+    };
   }
   if (state.settings.scenarioId === 'green_transition' && state.greenTransitionEntered && buildingType === 'wasteIncinerator') {
-    return { ok: false, reason: 'Scenariusz Zielona Transformacja: zakaz budowy nowych spalarni odpadów!' };
+    return {
+      ok: false,
+      reason: en
+        ? 'Green Transition scenario: new waste incinerators are banned!'
+        : 'Scenariusz Zielona Transformacja: zakaz budowy nowych spalarni odpadów!',
+    };
   }
   if (def.requiredCosmeticUnlockId) {
     const ownedMonuments = player.playerCard?.unlockedMonumentIds ?? [];
     if (!ownedMonuments.includes(buildingType)) {
-      return { ok: false, reason: `Dekoracja "${def.name}" wymaga odblokowania w Karnecie Sezonu 1 lub Sklepie Prezesa.` };
+      return {
+        ok: false,
+        reason: en
+          ? `Monument "${bName}" must be unlocked in Season 1 Pass or CEO Shop.`
+          : `Dekoracja "${bName}" wymaga odblokowania w Karnecie Sezonu 1 lub Sklepie Prezesa.`,
+      };
     }
   }
   if (player.corporationLevel < def.requiredCorpLevel) {
-    const lvlInfo = CORPORATION_LEVELS[def.requiredCorpLevel];
+    const lvlInfo = localizeCorpLevel(CORPORATION_LEVELS[def.requiredCorpLevel], lang);
     return {
       ok: false,
-      reason: `Wymaga Poziomu Korporacji ${def.requiredCorpLevel} (${lvlInfo.name}: ${lvlInfo.requiresTechOrEdu}).`,
+      reason: en
+        ? `Requires Corporation Level ${def.requiredCorpLevel} (${lvlInfo.name}: ${lvlInfo.requiresTechOrEdu}).`
+        : `Wymaga Poziomu Korporacji ${def.requiredCorpLevel} (${lvlInfo.name}: ${lvlInfo.requiresTechOrEdu}).`,
     };
   }
-  if (plot.ownerId !== player.id) return { ok: false, reason: 'Działka nie należy do Ciebie.' };
+  if (plot.ownerId !== player.id) {
+    return { ok: false, reason: en ? 'You do not own this plot.' : 'Działka nie należy do Ciebie.' };
+  }
   if ((plot.irradiatedTicks ?? 0) > 0) {
     return {
       ok: false,
-      reason: `Działka skażona promieniowaniem nuklearnym (jeszcze ${plot.irradiatedTicks} tur).`,
+      reason: en
+        ? `Plot contaminated by nuclear fallout (${plot.irradiatedTicks} ticks remaining).`
+        : `Działka skażona promieniowaniem nuklearnym (jeszcze ${plot.irradiatedTicks} tur).`,
     };
   }
-  if (plot.building !== null) return { ok: false, reason: 'Na działce stoi już obiekt.' };
+  if (plot.building !== null) {
+    return { ok: false, reason: en ? 'A facility already occupies this plot.' : 'Na działce stoi już obiekt.' };
+  }
   if (
     buildingType === 'corporateHQ' &&
     state.plots.some((p) => p.ownerId === player.id && p.building?.type === 'corporateHQ')
   ) {
-    return { ok: false, reason: 'Możesz posiadać tylko jedną Siedzibę Główną (HQ) na imperium.' };
+    return {
+      ok: false,
+      reason: en
+        ? 'You may own only one Corporate HQ per empire.'
+        : 'Możesz posiadać tylko jedną Siedzibę Główną (HQ) na imperium.',
+    };
   }
   if (!def.requiredTerrain.includes(plot.terrain)) {
-    const allowed = def.requiredTerrain.map((t) => TERRAIN_NAMES[t]).join(', ');
-    return { ok: false, reason: `Wymagany teren: ${allowed}.` };
+    const allowed = def.requiredTerrain
+      .map((t) => localizeTerrain(t, TERRAIN_NAMES[t], lang))
+      .join(', ');
+    return {
+      ok: false,
+      reason: en ? `Required terrain: ${allowed}.` : `Wymagany teren: ${allowed}.`,
+    };
   }
   if (def.requiredDeposit) {
     const hasDeposit =
       hasPlayerDiscoveredPlot(plot, player.id, player, state) &&
       plot.deposits.some((d) => d.type === def.requiredDeposit);
     if (!hasDeposit) {
-      const genName = RESOURCE_DEFINITIONS[def.requiredDeposit].genitiveName;
+      const rd = RESOURCE_DEFINITIONS[def.requiredDeposit];
+      const genName = en ? localizeResourceName(def.requiredDeposit, rd.name, 'en') : rd.genitiveName;
       return {
         ok: false,
-        reason: `Wymaga odkrytego złoża ${genName}. Wykonaj Badanie Geologiczne, aby sprawdzić grunt.`,
+        reason: en
+          ? `Requires a discovered ${genName} deposit. Run a Geological Survey to inspect the tile.`
+          : `Wymaga odkrytego złoża ${genName}. Wykonaj Badanie Geologiczne, aby sprawdzić grunt.`,
       };
     }
   }
@@ -265,12 +325,18 @@ export function checkBuildingRequirements(
   const reqEval = evaluateNonFinancialRequirements(def.requirements, player, state, undefined, plot);
   if (!reqEval.allMet) {
     const firstMissing = reqEval.items.find((i) => !i.met);
-    return { ok: false, reason: firstMissing?.label ?? 'Niespełnione wymagania.' };
+    return {
+      ok: false,
+      reason: firstMissing?.label ?? (en ? 'Requirements not met.' : 'Niespełnione wymagania.'),
+    };
   }
 
   const buildPrice = getBuildingConstructionCost(buildingType, state, player);
   if (player.cash < buildPrice) {
-    return { ok: false, reason: `Brak kapitału (${buildPrice.toLocaleString('pl-PL')} zł).` };
+    return {
+      ok: false,
+      reason: en ? `Insufficient funds (${formatMoney(buildPrice)}).` : `Brak kapitału (${formatMoney(buildPrice)}).`,
+    };
   }
   return { ok: true };
 }
@@ -469,8 +535,12 @@ export function demolishBuildingOnPlot(
   player: Player,
   plot: Plot
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (plot.ownerId !== player.id || !plot.building) {
-    return { ok: false, error: 'Brak własnego budynku do wyburzenia.' };
+    return {
+      ok: false,
+      error: en ? 'No own facility on this plot to demolish.' : 'Brak własnego budynku do wyburzenia.',
+    };
   }
   const def = BUILDING_DEFINITIONS[plot.building.type];
   if (plot.building.destroyedRuins) {
@@ -478,7 +548,9 @@ export function demolishBuildingOnPlot(
     if (player.cash < clearanceCost) {
       return {
         ok: false,
-        error: `Uprzątnięcie ruin po katastrofie kosztuje ${clearanceCost.toLocaleString('pl-PL')} zł.`,
+        error: en
+          ? `Clearing disaster ruins costs ${formatMoney(clearanceCost)}.`
+          : `Uprzątnięcie ruin po katastrofie kosztuje ${formatMoney(clearanceCost)}.`,
       };
     }
     player.cash -= clearanceCost;
@@ -538,11 +610,17 @@ export function cloneBuildingOnPlot(
   source: Building,
   includeUpgrades: boolean
 ): { ok: boolean; error?: string; building?: Building; blueprint?: CloneBlueprint } {
+  const en = getCurrentLanguage() === 'en';
   if (source.type === 'corporateHQ') {
-    return { ok: false, error: 'Siedziby Głównej (HQ) nie można klonować — limit 1 na korporację.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Corporate HQ cannot be cloned — limit 1 per corporation.'
+        : 'Siedziby Głównej (HQ) nie można klonować — limit 1 na korporację.',
+    };
   }
   if (source.destroyedRuins) {
-    return { ok: false, error: 'Nie można sklonować zawalonych ruin.' };
+    return { ok: false, error: en ? 'Cannot clone collapsed ruins.' : 'Nie można sklonować zawalonych ruin.' };
   }
   const check = checkBuildingRequirements(player, targetPlot, source.type, state);
   if (!check.ok) return { ok: false, error: check.reason };
@@ -551,7 +629,9 @@ export function cloneBuildingOnPlot(
   if (player.cash < blueprint.totalCost) {
     return {
       ok: false,
-      error: `Klonowanie 1:1 wymaga pełnego budżetu ${blueprint.totalCost.toLocaleString('pl-PL')} zł (baza + ulepszenia + flota).`,
+      error: en
+        ? `1:1 Cloning requires the full budget of ${formatMoney(blueprint.totalCost)} (base + upgrades + fleet).`
+        : `Klonowanie 1:1 wymaga pełnego budżetu ${formatMoney(blueprint.totalCost)} (baza + ulepszenia + flota).`,
     };
   }
 
@@ -611,8 +691,13 @@ export function getInsurancePremiumPerTick(building: Building): number {
 export function toggleBuildingInsurance(
   building: Building
 ): { ok: boolean; insured: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   if (building.destroyedRuins) {
-    return { ok: false, insured: false, message: 'Nie można ubezpieczyć zawalonych ruin.' };
+    return {
+      ok: false,
+      insured: false,
+      message: en ? 'Cannot insure collapsed ruins.' : 'Nie można ubezpieczyć zawalonych ruin.',
+    };
   }
   building.insured = !building.insured;
   const prem = getInsurancePremiumPerTick(building);
@@ -620,8 +705,12 @@ export function toggleBuildingInsurance(
     ok: true,
     insured: Boolean(building.insured),
     message: building.insured
-      ? `Polisa ubezpieczeniowa WŁĄCZONA (składka ${prem.toLocaleString('pl-PL')} zł/T, zwrot 65% przy szkodzie).`
-      : 'Polisa ubezpieczeniowa WYŁĄCZONA.',
+      ? en
+        ? `Insurance Policy ENABLED (premium ${formatMoney(prem)}/T, 65% damage payout).`
+        : `Polisa ubezpieczeniowa WŁĄCZONA (składka ${formatMoney(prem)}/T, zwrot 65% przy szkodzie).`
+      : en
+        ? 'Insurance Policy DISABLED.'
+        : 'Polisa ubezpieczeniowa WYŁĄCZONA.',
   };
 }
 
@@ -664,18 +753,29 @@ export function repairBuilding(
   building: Building,
   player: Player
 ): { ok: boolean; error?: string; cost?: number } {
+  const en = getCurrentLanguage() === 'en';
   if (building.destroyedRuins) {
     return {
       ok: false,
-      error: 'Obiekt uległ całkowitemu zniszczeniu (Ruiny). Uprzątnij działkę za pomocą rozbiórki gruzu.',
+      error: en
+        ? 'Facility completely collapsed (Ruins). Clear the plot by removing debris.'
+        : 'Obiekt uległ całkowitemu zniszczeniu (Ruiny). Uprzątnij działkę za pomocą rozbiórki gruzu.',
     };
   }
   if (building.damagePercent <= 0.5 && !building.activeHazard) {
-    return { ok: false, error: 'Obiekt ma 0% zniszczenia i jest w idealnym stanie.' };
+    return {
+      ok: false,
+      error: en ? 'Facility is at 0% damage and in pristine shape.' : 'Obiekt ma 0% zniszczenia i jest w idealnym stanie.',
+    };
   }
   const cost = getRepairCost(building);
   if (player.cash < cost) {
-    return { ok: false, error: `Brak środków na remont (${cost.toLocaleString('pl-PL')} zł).` };
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient funds for repair (${formatMoney(cost)}).`
+        : `Brak środków na remont (${formatMoney(cost)}).`,
+    };
   }
 
   player.cash -= cost;
@@ -693,24 +793,44 @@ export function startBuildingTechResearch(
   state: GameState,
   plot?: Plot
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (building.activeResearchId) {
-    return { ok: false, error: 'W budynku trwa już wdrażanie innego modułu.' };
+    return {
+      ok: false,
+      error: en ? 'Another module is already being deployed here.' : 'W budynku trwa już wdrażanie innego modułu.',
+    };
   }
   const node = building.techTree.find((n) => n.id === nodeId);
-  if (!node) return { ok: false, error: 'Nie znaleziono modułu technologicznego.' };
-  if (node.status !== 'available') return { ok: false, error: 'Moduł nie jest dostępny.' };
+  if (!node) return { ok: false, error: en ? 'Tech module not found.' : 'Nie znaleziono modułu technologicznego.' };
+  if (node.status !== 'available') {
+    return { ok: false, error: en ? 'Module is not available.' : 'Moduł nie jest dostępny.' };
+  }
 
   const targetPlot = plot ?? state.plots.find((p) => p.id === building.plotId);
   const reqEval = evaluateNonFinancialRequirements(node.requirements, player, state, building, targetPlot);
   if (!reqEval.allMet) {
     const first = reqEval.items.find((i) => !i.met);
-    return { ok: false, error: first ? `Niespełniony warunek: ${first.label}` : 'Niespełnione wymagania.' };
+    return {
+      ok: false,
+      error: first
+        ? en
+          ? `Unmet requirement: ${first.label}`
+          : `Niespełniony warunek: ${first.label}`
+        : en
+          ? 'Unmet requirements.'
+          : 'Niespełnione wymagania.',
+    };
   }
 
   const entMods = getPlayerEntrepreneurModifiers(state, player);
   const actualCost = Math.round(node.cost * (1 - entMods.researchDiscount));
   if (player.cash < actualCost) {
-    return { ok: false, error: `Brak kapitału na wdrożenie (${actualCost.toLocaleString('pl-PL')} zł).` };
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient capital for deployment (${formatMoney(actualCost)}).`
+        : `Brak kapitału na wdrożenie (${formatMoney(actualCost)}).`,
+    };
   }
 
   player.cash -= actualCost;

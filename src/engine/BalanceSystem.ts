@@ -1,5 +1,7 @@
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_LIST } from '../data/resources';
+import { getCurrentLanguage } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
 import {
   getAggregatedBuildingModifiers,
   getPowerPlantFuelSpec,
@@ -120,6 +122,7 @@ export function computePlayerUtilityAndResourceBalance(
         ? (b.productionPerTick.electricity ??
             (def.electricityUsage < 0 ? Math.abs(def.electricityUsage) * (b.efficiency / 100) : 0))
         : 0;
+    const bLabelName = getCurrentLanguage() === 'en' ? BUILDINGS_EN[b.type]?.name ?? b.name : b.name;
     if (def.electricityUsage < 0 || b.type === 'copperCablePlant') {
       const prodMW =
         roadAccessOk && hasFuelForPower
@@ -129,7 +132,7 @@ export function computePlayerUtilityAndResourceBalance(
       ca.electricityProduced += prodMW;
       if (prodMW > 0) {
         electricityByPlant.push({
-          label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+          label: `${b.icon} ${bLabelName} (${plot.gridX},${plot.gridY})`,
           produced: prodMW,
         });
       }
@@ -138,7 +141,7 @@ export function computePlayerUtilityAndResourceBalance(
       electricityConsumed += consMW;
       ca.electricityConsumed += consMW;
       electricityConsumers.push({
-        label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+        label: `${b.icon} ${bLabelName} (${plot.gridX},${plot.gridY})`,
         consumed: consMW,
       });
     }
@@ -152,7 +155,7 @@ export function computePlayerUtilityAndResourceBalance(
       ca.waterProduced += prodW;
       if (prodW > 0) {
         waterSources.push({
-          label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+          label: `${b.icon} ${bLabelName} (${plot.gridX},${plot.gridY})`,
           produced: prodW,
         });
       }
@@ -161,7 +164,7 @@ export function computePlayerUtilityAndResourceBalance(
       waterConsumed += consW;
       ca.waterConsumed += consW;
       waterConsumers.push({
-        label: `${b.icon} ${b.name} (${plot.gridX},${plot.gridY})`,
+        label: `${b.icon} ${bLabelName} (${plot.gridX},${plot.gridY})`,
         consumed: consW,
       });
     }
@@ -264,7 +267,14 @@ export function computePlayerUtilityAndResourceBalance(
           : 0;
     return {
       clusterId: ca.clusterId,
-      label: ca.clusterId === 0 ? 'Odizolowane działki' : `Sieć #${idx + 1}`,
+      label:
+        ca.clusterId === 0
+          ? getCurrentLanguage() === 'en'
+            ? 'Isolated Plots'
+            : 'Odizolowane działki'
+          : getCurrentLanguage() === 'en'
+            ? `Grid #${idx + 1}`
+            : `Sieć #${idx + 1}`,
       electricityProduced: ca.electricityProduced,
       electricityConsumed: ca.electricityConsumed,
       electricityNet: ca.electricityProduced - ca.electricityConsumed,

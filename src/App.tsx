@@ -32,6 +32,8 @@ import { TechTreePanel } from './components/Panels/TechTreePanel';
 import { GAME_CONFIG } from './config/gameConfig';
 import { useGameLoop } from './hooks/useGameLoop';
 import { useResponsive } from './hooks/useResponsive';
+import { BUILDINGS_EN } from './i18n/buildingsEn';
+import { useI18n } from './i18n/useI18n';
 import { getLocalPlayer, useGameStore } from './store/gameStore';
 
 export function App() {
@@ -85,6 +87,7 @@ export function App() {
 
   const actions = useGameStore.getState();
   const { isMobile } = useResponsive();
+  const { t, lang } = useI18n();
 
   useEffect(() => {
     document.title = GAME_CONFIG.title;
@@ -342,10 +345,9 @@ export function App() {
           <div className="max-w-md w-full rounded-2xl bg-[#111827] border border-[#243044] p-6 text-center space-y-4 shadow-2xl">
             <div className="w-10 h-10 mx-auto rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
             <div>
-              <h2 className="text-base font-bold text-white">Synchronizacja rozgrywki z Hostem...</h2>
+              <h2 className="text-base font-bold text-white">{t('app.syncTitle')}</h2>
               <p className="text-xs text-slate-400 mt-1">
-                Pobieranie mapy i początkowego stanu gospodarki ({lobbyState?.mapSize ?? 24}×
-                {lobbyState?.mapSize ?? 24}). To zajmuje zazwyczaj ułamek sekundy.
+                {t('app.syncDesc', { size: lobbyState?.mapSize ?? 24 })}
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2 pt-1">
@@ -354,14 +356,14 @@ export function App() {
                 onClick={actions.requestFullSync}
                 className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-semibold text-white cursor-pointer"
               >
-                🔄 Poproś o pełny stan gry
+                {t('app.requestSyncBtn')}
               </button>
               <button
                 type="button"
                 onClick={actions.leaveMultiplayer}
                 className="px-4 py-2 rounded-lg bg-[#1c2434] hover:bg-rose-950/60 text-xs text-slate-300 cursor-pointer"
               >
-                Wyjdź do Menu
+                {t('app.exitToMenuBtn')}
               </button>
             </div>
           </div>
@@ -443,14 +445,11 @@ export function App() {
         onDemolish={actions.demolishBuilding}
         onCloneBuilding={(bType) => {
           actions.setCloneBuildingType(bType);
-          actions.showToast(true, 'Kliknij wolną własną działkę, aby postawić ten sam obiekt.');
+          actions.showToast(true, t('app.cloneToast'));
         }}
         onStartCloneBlueprint={(buildingId, buildingType) => {
           actions.setCloneBlueprintSource({ buildingId, buildingType, includeUpgrades: true });
-          actions.showToast(
-            true,
-            'Klonowanie 1:1 aktywne — klikaj puste własne działki seryjnie (Esc lub PPM kończy).'
-          );
+          actions.showToast(true, t('app.cloneBlueprintToast'));
         }}
         onToggleInsurance={actions.toggleInsurance}
         onToggleEmergencyFuelImport={actions.toggleEmergencyFuelImport}
@@ -499,18 +498,18 @@ export function App() {
     label: string;
     badge?: number;
   }[] = [
-    { key: 'newspaper', icon: '📰', label: 'Gazeta', badge: unreadNewsCount },
-    { key: 'finance', icon: '📊', label: 'Finanse & Giełda' },
-    { key: 'tech', icon: '🔬', label: 'Technologie' },
-    { key: 'entrepreneur', icon: '👤', label: 'Prezes' },
-    { key: 'influence', icon: '🏛️', label: 'Wpływy' },
+    { key: 'newspaper', icon: '📰', label: t('app.dockNewspaper'), badge: unreadNewsCount },
+    { key: 'finance', icon: '📊', label: t('app.dockFinance') },
+    { key: 'tech', icon: '🔬', label: t('app.dockTech') },
+    { key: 'entrepreneur', icon: '👤', label: t('app.dockEntrepreneur') },
+    { key: 'influence', icon: '🏛️', label: t('app.dockInfluence') },
     {
       key: 'contracts',
       icon: '🤝',
-      label: 'B2B / Wykupy',
+      label: t('app.dockContracts'),
       badge: pendingContractsCount + pendingPlotOffersCount,
     },
-    { key: 'leaderboard', icon: '🏆', label: 'Ranking' },
+    { key: 'leaderboard', icon: '🏆', label: t('app.dockLeaderboard') },
   ];
 
   return (
@@ -637,7 +636,7 @@ export function App() {
             {isMultiplayer && (
               <button
                 type="button"
-                title="Czat & Pingi Mapy"
+                title={t('app.dockChatTitle')}
                 onClick={() => {
                   const next = !chatOpen;
                   setSeenChatCount(chatTotalCount);
@@ -650,7 +649,7 @@ export function App() {
                 }`}
               >
                 <span>💬</span>
-                <span className="hidden sm:inline">Czat & Pingi</span>
+                <span className="hidden sm:inline">{t('app.dockChat')}</span>
                 {unreadChatCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold shadow animate-pulse pointer-events-none">
                     {unreadChatCount}
@@ -674,8 +673,15 @@ export function App() {
         <BottomSheet
           title={
             selectedPlot?.building
-              ? `${selectedPlot.building.icon} ${selectedPlot.building.name}`
-              : `Działka (${selectedPlot?.gridX}, ${selectedPlot?.gridY})`
+              ? `${selectedPlot.building.icon} ${
+                  (lang === 'en'
+                    ? BUILDINGS_EN[selectedPlot.building.type]?.name
+                    : undefined) ?? selectedPlot.building.name
+                }`
+              : t('app.plotSheetTitle', {
+                  x: selectedPlot?.gridX ?? 0,
+                  y: selectedPlot?.gridY ?? 0,
+                })
           }
           onClose={() => actions.selectPlot(null)}
         >

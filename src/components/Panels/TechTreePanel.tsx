@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import type { GameState, Player, TechBranch, TechNode } from '../../engine/types';
+import { localizePatent, localizeTechNode } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatMoney } from '../../utils/formatters';
 
 interface TechTreePanelProps {
@@ -9,12 +11,20 @@ interface TechTreePanelProps {
   onClose: () => void;
 }
 
-const BRANCHES: { key: TechBranch; label: string; desc: string }[] = [
+const BRANCHES_PL: { key: TechBranch; label: string; desc: string }[] = [
   { key: 'industrial', label: '🏭 Przemysł i Wydobycie', desc: 'Kopalnie, metalurgia, automatyzacja i przemysł ciężki.' },
   { key: 'modern', label: '⚛️ Nauka i Energetyka', desc: 'Krzem, fotowoltaika, reaktory atomowe i centrum kosmiczne.' },
   { key: 'logistics', label: '🚢 Logistyka i Handel', desc: 'Drogi, porty morskie, lotniska cargo i sieci B2B.' },
   { key: 'safety', label: '🚒 BHP, Medycyna i Atrakcje', desc: 'Straż pożarna, HAZMAT, szpitale i parki rozrywki.' },
   { key: 'military', label: '🛡️ Nauka Militarna', desc: 'Wywiad, ochrona korporacyjna, sabotaż i zamach stanu.' },
+];
+
+const BRANCHES_EN: { key: TechBranch; label: string; desc: string }[] = [
+  { key: 'industrial', label: '🏭 Industry & Mining', desc: 'Mines, metallurgy, robotics, and heavy manufacturing.' },
+  { key: 'modern', label: '⚛️ Science & Energy', desc: 'Silicon, photovoltaics, nuclear reactors & orbital hub.' },
+  { key: 'logistics', label: '🚢 Logistics & Trade', desc: 'Roads, maritime cargo ports, air freight & B2B networks.' },
+  { key: 'safety', label: '🚒 Safety, Health & Leisure', desc: 'Fire brigades, HAZMAT, hospitals & entertainment districts.' },
+  { key: 'military', label: '🛡️ Military Science', desc: 'Intelligence, corporate security, sabotage & covert ops.' },
 ];
 
 export const TechTreePanel: React.FC<TechTreePanelProps> = ({
@@ -23,9 +33,13 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
   onResearchTech,
   onClose,
 }) => {
+  const { lang } = useI18n();
+  const branches = lang === 'en' ? BRANCHES_EN : BRANCHES_PL;
   const [branch, setBranch] = useState<TechBranch>('industrial');
   const [zoom, setZoom] = useState<number>(1);
-  const nodes = gameState.globalTechDefs.filter((n) => n.branch === branch);
+  const nodes = gameState.globalTechDefs
+    .filter((n) => n.branch === branch)
+    .map((n) => localizeTechNode(n, lang));
   const [selectedId, setSelectedId] = useState<string>(nodes[0]?.id ?? '');
 
   const selectedNode: TechNode | undefined =
@@ -42,10 +56,14 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex items-center justify-between gap-2">
           <div>
             <h2 className="text-base md:text-lg font-bold text-slate-100">
-              🔬 Globalne Drzewka Technologiczne (5 Gałęzi)
+              {lang === 'en'
+                ? '🔬 Global Technology Trees (5 Branches)'
+                : '🔬 Globalne Drzewka Technologiczne (5 Gałęzi)'}
             </h2>
             <p className="text-xs text-slate-400">
-              Zasilane przez Szkoły Średnie, Uniwersytety, Szpitale i Laboratoria R&D
+              {lang === 'en'
+                ? 'Powered by High Schools, Universities, Hospitals, and R&D Labs'
+                : 'Zasilane przez Szkoły Średnie, Uniwersytety, Szpitale i Laboratoria R&D'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -64,7 +82,8 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
               ))}
             </div>
             <div className="px-3 py-1 rounded-lg bg-sky-500/15 border border-sky-400/40 font-mono text-xs text-sky-300">
-              Punkty Badań: <strong>{Math.floor(currentPlayer.researchPoints)} RP</strong>
+              {lang === 'en' ? 'Research Points:' : 'Punkty Badań:'}{' '}
+              <strong>{Math.floor(currentPlayer.researchPoints)} RP</strong>
             </div>
             <button
               type="button"
@@ -78,7 +97,7 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
 
         {/* Zakładki gałęzi */}
         <div className="px-4 py-2 border-b border-[#243044] flex flex-wrap gap-1.5">
-          {BRANCHES.map((b) => (
+          {branches.map((b) => (
             <button
               key={b.key}
               type="button"
@@ -155,7 +174,9 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
                     <div className="flex items-center justify-between text-[10px] font-mono mb-1">
                       <span>
                         {st === 'done'
-                          ? '✅ ZBADANO'
+                          ? lang === 'en'
+                            ? '✅ RESEARCHED'
+                            : '✅ ZBADANO'
                           : st === 'researching'
                             ? `⚙️ ${Math.round(prog)}%`
                             : st === 'available'
@@ -181,47 +202,77 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
             {selectedNode && (
               <div className="space-y-3">
                 <div className="text-xs font-mono text-sky-400 uppercase">
-                  {BRANCHES.find((b) => b.key === selectedNode.branch)?.label}
+                  {branches.find((b) => b.key === selectedNode.branch)?.label}
                 </div>
                 <h3 className="text-lg font-bold text-slate-100">{selectedNode.name}</h3>
                 <p className="text-xs text-slate-300 leading-relaxed">{selectedNode.description}</p>
                 {(() => {
-                  const patent = (gameState.patents ?? []).find((p) => p.techId === selectedNode.id);
-                  if (!patent) return null;
+                  const rawPatent = (gameState.patents ?? []).find((p) => p.techId === selectedNode.id);
+                  if (!rawPatent) return null;
+                  const patent = localizePatent(rawPatent, lang);
                   return (
                     <div className="p-2 rounded bg-amber-950/40 border border-amber-400/50 text-[11px] text-amber-200">
-                      🏅 <strong>Patent Wyłączny:</strong> Właściciel <strong>{patent.ownerName}</strong> pobiera{' '}
-                      {formatMoney(patent.royaltyPerTick)}/T tantiem (do tury #{patent.expiresTick}).
+                      {lang === 'en' ? (
+                        <>
+                          🏅 <strong>Exclusive Patent:</strong> Owner <strong>{patent.ownerName}</strong> collects{' '}
+                          {formatMoney(patent.royaltyPerTick)}/T royalties (until tick #{patent.expiresTick}).
+                        </>
+                      ) : (
+                        <>
+                          🏅 <strong>Patent Wyłączny:</strong> Właściciel <strong>{patent.ownerName}</strong> pobiera{' '}
+                          {formatMoney(patent.royaltyPerTick)}/T tantiem (do tury #{patent.expiresTick}).
+                        </>
+                      )}
                     </div>
                   );
                 })()}
                 {currentPlayer.secretNuclearRevealed && branch === 'military' && (
                   <div className="p-2.5 rounded bg-lime-950/35 border border-lime-400/50 text-[11px] text-lime-200">
-                    ☢️ <strong>Odblokowano Tajny Program Jądrowy!</strong> Zarządzaj produkcją głowicy w oknie{' '}
-                    <strong>🏛️ Wpływy → Arsenał</strong>.
+                    {lang === 'en' ? (
+                      <>
+                        ☢️ <strong>Secret Nuclear Program Unlocked!</strong> Manage warhead assembly inside{' '}
+                        <strong>🏛️ Influence → Arsenal</strong>.
+                      </>
+                    ) : (
+                      <>
+                        ☢️ <strong>Odblokowano Tajny Program Jądrowy!</strong> Zarządzaj produkcją głowicy w oknie{' '}
+                        <strong>🏛️ Wpływy → Arsenał</strong>.
+                      </>
+                    )}
                   </div>
                 )}
 
                 <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Koszt Naukowy:</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Research Cost:' : 'Koszt Naukowy:'}
+                    </span>
                     <span className="font-mono text-sky-300">{selectedNode.cost} RP</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Budżet Wdrożenia:</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Deployment Budget:' : 'Budżet Wdrożenia:'}
+                    </span>
                     <span className="font-mono text-amber-300">{formatMoney(selectedNode.moneyCost)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Czas Badań:</span>
-                    <span className="font-mono text-slate-200">{selectedNode.researchTicks} cykli</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Research Duration:' : 'Czas Badań:'}
+                    </span>
+                    <span className="font-mono text-slate-200">
+                      {selectedNode.researchTicks} {lang === 'en' ? 'ticks' : 'cykli'}
+                    </span>
                   </div>
                 </div>
 
                 {selectedNode.prerequisites.length > 0 && (
                   <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#1e293b] space-y-1 text-xs">
-                    <div className="text-[10px] font-semibold uppercase text-slate-400">Wymagane Technologie</div>
+                    <div className="text-[10px] font-semibold uppercase text-slate-400">
+                      {lang === 'en' ? 'Required Technologies' : 'Wymagane Technologie'}
+                    </div>
                     {selectedNode.prerequisites.map((pid) => {
-                      const pre = gameState.globalTechDefs.find((t) => t.id === pid);
+                      const rawPre = gameState.globalTechDefs.find((t) => t.id === pid);
+                      const pre = rawPre ? localizeTechNode(rawPre, lang) : undefined;
                       const ok = getStatus(pid) === 'done';
                       return (
                         <div key={pid} className={ok ? 'text-emerald-400' : 'text-rose-400'}>
@@ -233,7 +284,9 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
                 )}
 
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-emerald-300">Efekty Strategiczne:</div>
+                  <div className="text-xs font-semibold text-emerald-300">
+                    {lang === 'en' ? 'Strategic Effects:' : 'Efekty Strategiczne:'}
+                  </div>
                   <ul className="list-disc list-inside text-xs text-slate-300 space-y-1">
                     {selectedNode.effects.map((e, i) => (
                       <li key={i}>{e}</li>
@@ -247,11 +300,13 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
               <div>
                 {getStatus(selectedNode.id) === 'done' ? (
                   <div className="w-full py-2.5 text-center rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold text-xs">
-                    ✅ Technologia Wdrożona
+                    {lang === 'en' ? '✅ Technology Researched' : '✅ Technologia Wdrożona'}
                   </div>
                 ) : getStatus(selectedNode.id) === 'researching' ? (
                   <div className="w-full py-2.5 text-center rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-semibold text-xs">
-                    ⚙️ Badania w toku ({Math.round(getProgress(selectedNode.id))}%)
+                    {lang === 'en'
+                      ? `⚙️ Researching (${Math.round(getProgress(selectedNode.id))}%)`
+                      : `⚙️ Badania w toku (${Math.round(getProgress(selectedNode.id))}%)`}
                   </div>
                 ) : getStatus(selectedNode.id) === 'available' ? (
                   <button
@@ -263,11 +318,15 @@ export const TechTreePanel: React.FC<TechTreePanelProps> = ({
                     onClick={() => onResearchTech(selectedNode.id)}
                     className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm disabled:opacity-40 transition-colors"
                   >
-                    Rozpocznij Badania ({selectedNode.cost} RP)
+                    {lang === 'en'
+                      ? `Start Research (${selectedNode.cost} RP)`
+                      : `Rozpocznij Badania (${selectedNode.cost} RP)`}
                   </button>
                 ) : (
                   <div className="w-full py-2.5 text-center rounded-lg bg-slate-800/70 text-slate-400 text-xs">
-                    🔒 Zbadaj najpierw technologie poprzedzające
+                    {lang === 'en'
+                      ? '🔒 Research prerequisite technologies first'
+                      : '🔒 Zbadaj najpierw technologie poprzedzające'}
                   </div>
                 )}
               </div>

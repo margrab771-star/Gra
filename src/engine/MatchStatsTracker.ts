@@ -1,3 +1,4 @@
+import { getCurrentLanguage } from '../i18n';
 import { formatCompactMoney, formatGameDate } from '../utils/formatters';
 import type { GameState, MatchFunAward, MatchStatSample } from './types';
 
@@ -98,6 +99,7 @@ export function updatePlayerMatchStatsAccumTick(state: GameState): void {
 export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
   const candidates = state.players;
   if (candidates.length === 0) return [];
+  const en = getCurrentLanguage() === 'en';
   const awards: MatchFunAward[] = [];
 
   const pickTop = (
@@ -121,8 +123,10 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_debt_king',
       emoji: '💳',
-      title: 'Król Długów',
-      subtitle: 'Najwyższe szczytowe zadłużenie kredytowe w meczu',
+      title: en ? 'King of Leverage' : 'Król Długów',
+      subtitle: en
+        ? 'Highest peak credit & bond debt during the match'
+        : 'Najwyższe szczytowe zadłużenie kredytowe w meczu',
       playerId: debtKing.player.id,
       companyName: debtKing.player.companyName,
       color: debtKing.player.color,
@@ -144,8 +148,10 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_toll_master',
       emoji: '🛣️',
-      title: 'Mistrz Myta',
-      subtitle: 'Najwyższy zysk zebrany na bramkach autostradowych',
+      title: en ? 'Highway Toll Baron' : 'Mistrz Myta',
+      subtitle: en
+        ? 'Highest cumulative tolls collected at private highway gates'
+        : 'Najwyższy zysk zebrany na bramkach autostradowych',
       playerId: tollMaster.player.id,
       companyName: tollMaster.player.companyName,
       color: tollMaster.player.color,
@@ -161,8 +167,10 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_polluter',
       emoji: '🌫️',
-      title: 'Największy Truciciel',
-      subtitle: 'Rekordowe kary za emisję spalin i przemysł ciężki',
+      title: en ? 'Heaviest Polluter' : 'Największy Truciciel',
+      subtitle: en
+        ? 'Record emission fines and heavy-industry pollution charges'
+        : 'Rekordowe kary za emisję spalin i przemysł ciężki',
       playerId: polluter.player.id,
       companyName: polluter.player.companyName,
       color: polluter.player.color,
@@ -175,12 +183,14 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_eco',
       emoji: '🌿',
-      title: 'Samarytanin / Eko-Lider',
-      subtitle: 'Najwyższa reputacja społeczna i inwestycje w OZE/parki',
+      title: en ? 'Green Samaritan' : 'Samarytanin / Eko-Lider',
+      subtitle: en
+        ? 'Highest public reputation and investments in renewables & parks'
+        : 'Najwyższa reputacja społeczna i inwestycje w OZE/parki',
       playerId: ecoLeader.player.id,
       companyName: ecoLeader.player.companyName,
       color: ecoLeader.player.color,
-      valueLabel: `${Math.round(ecoLeader.value)} pkt`,
+      valueLabel: `${Math.round(ecoLeader.value)} ${en ? 'pts' : 'pkt'}`,
     });
   }
 
@@ -189,12 +199,14 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_stock_shark',
       emoji: '🦈',
-      title: 'Rekin Giełdowy',
-      subtitle: 'Najsilniejsza aktywność kapitałowa, wykupy i wpływy finansowe',
+      title: en ? 'Market Shark' : 'Rekin Giełdowy',
+      subtitle: en
+        ? 'Strongest capital trading, hostile buyouts & financial influence'
+        : 'Najsilniejsza aktywność kapitałowa, wykupy i wpływy finansowe',
       playerId: stockShark.player.id,
       companyName: stockShark.player.companyName,
       color: stockShark.player.color,
-      valueLabel: `${Math.round(stockShark.value)} pkt`,
+      valueLabel: `${Math.round(stockShark.value)} ${en ? 'pts' : 'pkt'}`,
     });
   }
 
@@ -206,12 +218,14 @@ export function computeMatchFunAwards(state: GameState): MatchFunAward[] {
     awards.push({
       id: 'award_bailiff',
       emoji: '🔨',
-      title: 'Magnes na Komornika',
-      subtitle: 'Najczęstsze wizyty egzekutora sądowego',
+      title: en ? 'Bailiff Magnet' : 'Magnes na Komornika',
+      subtitle: en
+        ? 'Most frequent court bailiff liquidations & seizures'
+        : 'Najczęstsze wizyty egzekutora sądowego',
       playerId: bailiffMagnet.player.id,
       companyName: bailiffMagnet.player.companyName,
       color: bailiffMagnet.player.color,
-      valueLabel: `${Math.round(bailiffMagnet.value)} egzekucji`,
+      valueLabel: `${Math.round(bailiffMagnet.value)} ${en ? 'seizures' : 'egzekucji'}`,
     });
   }
 

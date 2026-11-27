@@ -21,6 +21,15 @@ import type {
   TechBranch,
 } from '../../engine/types';
 import { formatMoney } from '../../utils/formatters';
+import { translateBuildingDef } from '../../i18n/buildingsEn';
+import {
+  localizeBuildingCategory,
+  localizeCorpLevel,
+  localizeResourceName,
+  localizeTechNode,
+  localizeTerrain,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { DarkToggle } from '../HUD/DarkControls';
 
 interface BuildSelectorProps {
@@ -33,12 +42,20 @@ interface BuildSelectorProps {
   onBack: () => void;
 }
 
-const TECH_BRANCH_LABELS: Record<TechBranch, string> = {
+const TECH_BRANCH_LABELS_PL: Record<TechBranch, string> = {
   industrial: 'Przemysł i Wydobycie',
   modern: 'Nauka i Energetyka',
   logistics: 'Logistyka i Handel',
   safety: 'BHP, Medycyna i Atrakcje',
   military: 'Nauka Militarna',
+};
+
+const TECH_BRANCH_LABELS_EN: Record<TechBranch, string> = {
+  industrial: 'Industry & Mining',
+  modern: 'Science & Energy',
+  logistics: 'Logistics & Trade',
+  safety: 'Safety, Health & Leisure',
+  military: 'Military Science',
 };
 
 export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
@@ -51,6 +68,8 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
     onHoverBuildingType,
     onBack,
   }) => {
+    const { lang } = useI18n();
+    const techBranchLabels = lang === 'en' ? TECH_BRANCH_LABELS_EN : TECH_BRANCH_LABELS_PL;
     const [selectedCategory, setSelectedCategory] = useState<BuildingCategory | 'all'>('all');
     const [showLockedTiers, setShowLockedTiers] = useState<boolean>(false);
 
@@ -60,10 +79,13 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
       };
     }, [onHoverBuildingType]);
 
-    const corpTier = CORPORATION_LEVELS[currentPlayer.corporationLevel];
+    const corpTier = localizeCorpLevel(CORPORATION_LEVELS[currentPlayer.corporationLevel], lang);
     const nextTier =
       currentPlayer.corporationLevel < 5
-        ? CORPORATION_LEVELS[(currentPlayer.corporationLevel + 1) as 2 | 3 | 4 | 5]
+        ? localizeCorpLevel(
+            CORPORATION_LEVELS[(currentPlayer.corporationLevel + 1) as 2 | 3 | 4 | 5],
+            lang
+          )
         : null;
 
     const ownedBldCount = gameState.plots.filter(
@@ -89,16 +111,17 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
     const lockedCount = categoryFiltered.length - buildableNow.length;
     const filtered = showLockedTiers ? categoryFiltered : buildableNow;
     const plotHasRoadAccess = hasRoadAccess(gameState, plot, currentPlayer.id);
+    const terrainLabel = localizeTerrain(plot.terrain, TERRAIN_NAMES[plot.terrain], lang);
 
     return (
       <div id="build-selector" className="space-y-3 animate-fadeIn">
         <div className="flex items-center justify-between border-b border-[#243044] pb-2 gap-2">
           <div className="min-w-0">
             <div className="text-xs font-mono text-amber-400 truncate">
-              INWESTYCJA NA ({plot.gridX}, {plot.gridY}) · {TERRAIN_NAMES[plot.terrain]}
+              {lang === 'en' ? 'INVESTMENT AT' : 'INWESTYCJA NA'} ({plot.gridX}, {plot.gridY}) · {terrainLabel}
             </div>
             <h3 className="text-sm font-semibold text-slate-100">
-              Katalog Struktur ({filtered.length}/{categoryFiltered.length})
+              {lang === 'en' ? 'Structure Catalog' : 'Katalog Struktur'} ({filtered.length}/{categoryFiltered.length})
             </h3>
           </div>
           <button
@@ -109,7 +132,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
             }}
             className="px-2.5 py-1.5 rounded bg-[#1c2434] hover:bg-[#263146] text-xs text-slate-200 shrink-0 transition-colors"
           >
-            ← Wróć
+            {lang === 'en' ? '← Back' : '← Wróć'}
           </button>
         </div>
 
@@ -118,7 +141,15 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
           <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/60 text-rose-200 text-[11px] leading-snug flex items-start gap-2">
             <span className="shrink-0">🚫🛣️</span>
             <span>
-              Na sąsiednich polach (N/S/E/W) brakuje drogi lub HQ. Nowe budynki (poza Siedzibą Główną HQ i Parkiem Miejskim) wygenerują <strong>0 zł</strong> i <strong>0</strong> produkcji, dopóki nie doprowadzisz drogi!
+              {lang === 'en' ? (
+                <>
+                  No road or HQ on adjacent tiles (N/S/E/W). New buildings (other than Corporate HQ and City Park) produce <strong>{formatMoney(0)}</strong> and <strong>0</strong> output until connected by road!
+                </>
+              ) : (
+                <>
+                  Na sąsiednich polach (N/S/E/W) brakuje drogi lub HQ. Nowe budynki (poza Siedzibą Główną HQ i Parkiem Miejskim) wygenerują <strong>0 zł</strong> i <strong>0</strong> produkcji, dopóki nie doprowadzisz drogi!
+                </>
+              )}
             </span>
           </div>
         )}
@@ -127,22 +158,31 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
         <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2 text-[11px]">
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-amber-300">
-              Etap {corpTier.level}/5: {corpTier.name}
+              {lang === 'en' ? `Tier ${corpTier.level}/5:` : `Etap ${corpTier.level}/5:`} {corpTier.name}
             </span>
             {nextTier && (
               <span className="text-slate-400 truncate" title={nextTier.description}>
-                Następny: {formatMoney(nextTier.minNetWorth)}, {nextTier.minBuildings} bud.
+                {lang === 'en' ? 'Next:' : 'Następny:'} {formatMoney(nextTier.minNetWorth)}, {nextTier.minBuildings}{' '}
+                {lang === 'en' ? 'bldg.' : 'bud.'}
               </span>
             )}
           </div>
           <DarkToggle
             checked={showLockedTiers}
             onChange={setShowLockedTiers}
-            label={`Podgląd przyszłych / zablokowanych struktur (${lockedCount})`}
+            label={
+              lang === 'en'
+                ? `Preview future / locked structures (${lockedCount})`
+                : `Podgląd przyszłych / zablokowanych struktur (${lockedCount})`
+            }
             sublabel={
               showLockedTiers
-                ? 'Widzisz wszystkie budynki z pełną checklistą wymagań'
-                : 'Pokazuje wyłącznie odblokowane inwestycje na Twoim etapie'
+                ? lang === 'en'
+                  ? 'Showing all buildings with full requirement checklists'
+                  : 'Widzisz wszystkie budynki z pełną checklistą wymagań'
+                : lang === 'en'
+                  ? 'Showing only investments unlocked at your current tier'
+                  : 'Pokazuje wyłącznie odblokowane inwestycje na Twoim etapie'
             }
           />
         </div>
@@ -158,41 +198,49 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🌐 Wszystkie
+            {lang === 'en' ? '🌐 All' : '🌐 Wszystkie'}
           </button>
-          {BUILDING_CATEGORIES.map((cat) => (
-            <button
-              key={cat.key}
-              type="button"
-              onClick={() => setSelectedCategory(cat.key)}
-              title={cat.label}
-              className={`px-2 py-1 rounded-md text-[11px] font-medium border flex items-center gap-1 transition-colors ${
-                selectedCategory === cat.key
-                  ? 'bg-sky-500/20 border-sky-400 text-sky-300'
-                  : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>{cat.icon}</span>
-              <span>{cat.label}</span>
-            </button>
-          ))}
+          {BUILDING_CATEGORIES.map((cat) => {
+            const catLabel = localizeBuildingCategory(cat.key, cat.label, lang);
+            return (
+              <button
+                key={cat.key}
+                type="button"
+                onClick={() => setSelectedCategory(cat.key)}
+                title={catLabel}
+                className={`px-2 py-1 rounded-md text-[11px] font-medium border flex items-center gap-1 transition-colors ${
+                  selectedCategory === cat.key
+                    ? 'bg-sky-500/20 border-sky-400 text-sky-300'
+                    : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>{cat.icon}</span>
+                <span>{catLabel}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Lista struktur */}
         <div className="space-y-2.5 max-h-[54vh] md:max-h-[58vh] overflow-y-auto pr-1">
           {filtered.length === 0 ? (
             <div className="p-4 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-xs text-slate-400 space-y-2">
-              <div>Brak odblokowanych struktur w tej kategorii na obecnym etapie.</div>
+              <div>
+                {lang === 'en'
+                  ? 'No unlocked structures in this category at your current corporate tier.'
+                  : 'Brak odblokowanych struktur w tej kategorii na obecnym etapie.'}
+              </div>
               <button
                 type="button"
                 onClick={() => setShowLockedTiers(true)}
                 className="px-3 py-1.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-200 font-semibold"
               >
-                Włącz podgląd przyszłych struktur
+                {lang === 'en' ? 'Enable locked structure preview' : 'Włącz podgląd przyszłych struktur'}
               </button>
             </div>
           ) : (
-            filtered.map((def) => {
+            filtered.map((rawDef) => {
+              const def = translateBuildingDef(rawDef, lang);
               const check = checkBuildingRequirements(currentPlayer, plot, def.type, gameState);
               const totalCost = getBuildingConstructionCost(def.type, gameState, currentPlayer);
               const inputEntries = Object.entries(def.inputs);
@@ -206,7 +254,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                 plot
               );
 
-              const requiredCorpInfo = CORPORATION_LEVELS[def.requiredCorpLevel];
+              const requiredCorpInfo = localizeCorpLevel(CORPORATION_LEVELS[def.requiredCorpLevel], lang);
               const corpMet = currentPlayer.corporationLevel >= def.requiredCorpLevel;
               const terrainMet = def.requiredTerrain.includes(plot.terrain);
               const depositMet = def.requiredDeposit
@@ -214,9 +262,10 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                   plot.deposits.some((d) => d.type === def.requiredDeposit)
                 : true;
               const cashMet = currentPlayer.cash >= totalCost;
-              const unlockTechDef = def.unlockTech
+              const rawUnlockTechDef = def.unlockTech
                 ? gameState.globalTechDefs.find((t) => t.id === def.unlockTech)
                 : undefined;
+              const unlockTechDef = rawUnlockTechDef ? localizeTechNode(rawUnlockTechDef, lang) : undefined;
               const unlockTechMet = def.unlockTech
                 ? currentPlayer.globalTech[def.unlockTech]?.status === 'done'
                 : true;
@@ -251,17 +300,17 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                           </span>
                           {!corpMet && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-[10px] font-semibold text-amber-300">
-                              🔒 Etap {def.requiredCorpLevel}: {requiredCorpInfo.name}
+                              🔒 {lang === 'en' ? 'Tier' : 'Etap'} {def.requiredCorpLevel}: {requiredCorpInfo.name}
                             </span>
                           )}
                           {def.type === 'corporateHQ' && (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] font-semibold text-sky-300">
-                              Maks. 1 / firma
+                              {lang === 'en' ? 'Max 1 / corp' : 'Maks. 1 / firma'}
                             </span>
                           )}
                           {!plotHasRoadAccess && !isRoadExemptBuilding(def.type) && (
                             <span className="px-1.5 py-0.5 rounded bg-rose-500/15 border border-rose-500/50 text-[10px] font-semibold text-rose-300">
-                              🚫 Brak drogi obok
+                              {lang === 'en' ? '🚫 No adjacent road' : '🚫 Brak drogi obok'}
                             </span>
                           )}
                           {synPreview.netPercent !== 0 && (
@@ -272,7 +321,8 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                                   : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
                               }`}
                             >
-                              Synergia: {synPreview.netPercent > 0 ? `+${synPreview.netPercent}%` : `${synPreview.netPercent}%`}
+                              {lang === 'en' ? 'Synergy:' : 'Synergia:'}{' '}
+                              {synPreview.netPercent > 0 ? `+${synPreview.netPercent}%` : `${synPreview.netPercent}%`}
                             </span>
                           )}
                         </div>
@@ -294,27 +344,33 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                   <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                     {inputEntries.length > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
-                        Wsad:{' '}
+                        {lang === 'en' ? 'Inputs:' : 'Wsad:'}{' '}
                         {inputEntries
-                          .map(([r, q]) => `${RESOURCE_DEFINITIONS[r as ResourceType].name} (${q})`)
+                          .map(
+                            ([r, q]) =>
+                              `${localizeResourceName(r as ResourceType, RESOURCE_DEFINITIONS[r as ResourceType].name, lang)} (${q})`
+                          )
                           .join(', ')}
                       </span>
                     )}
                     {outputEntries.length > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                        Produkcja:{' '}
+                        {lang === 'en' ? 'Output:' : 'Produkcja:'}{' '}
                         {outputEntries
-                          .map(([r, q]) => `${RESOURCE_DEFINITIONS[r as ResourceType].name} (${q})`)
+                          .map(
+                            ([r, q]) =>
+                              `${localizeResourceName(r as ResourceType, RESOURCE_DEFINITIONS[r as ResourceType].name, lang)} (${q})`
+                          )
                           .join(', ')}
                       </span>
                     )}
                     {def.baseRevenue > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                        Usługi: {formatMoney(def.baseRevenue)}/T
+                        {lang === 'en' ? 'Services:' : 'Usługi:'} {formatMoney(def.baseRevenue)}/T
                       </span>
                     )}
                     <span className="px-1.5 py-0.5 rounded bg-[#182130] text-slate-300">
-                      👥 {def.maxWorkers} et. · ⚡{' '}
+                      👥 {def.maxWorkers} {lang === 'en' ? 'staff' : 'et.'} · ⚡{' '}
                       {def.electricityUsage < 0
                         ? `+${Math.abs(def.electricityUsage)} MW`
                         : `-${def.electricityUsage} MW`}{' '}
@@ -333,16 +389,16 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                   {showFullChecklist && (
                     <div className="mt-2 p-2 rounded bg-[#111827] border border-[#1e293b] space-y-1 text-[11px]">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Checklista Wymagań i Odblokowania
+                        {lang === 'en' ? 'Requirements & Unlock Checklist' : 'Checklista Wymagań i Odblokowania'}
                       </div>
 
                       {def.requiredCorpLevel > 1 && (
                         <div className={corpMet ? 'text-emerald-400' : 'text-rose-400'}>
                           <span className="font-bold mr-1">{corpMet ? '✓' : '✕'}</span>
                           <span>
-                            Etap {def.requiredCorpLevel}/5: {requiredCorpInfo.name} (Wycena{' '}
+                            {lang === 'en' ? 'Tier' : 'Etap'} {def.requiredCorpLevel}/5: {requiredCorpInfo.name} ({lang === 'en' ? 'Net Worth' : 'Wycena'}{' '}
                             {formatMoney(currentPlayer.netWorth)} /{' '}
-                            {formatMoney(requiredCorpInfo.minNetWorth)} · Budynki:{' '}
+                            {formatMoney(requiredCorpInfo.minNetWorth)} · {lang === 'en' ? 'Buildings:' : 'Budynki:'}{' '}
                             {ownedBldCount}/{requiredCorpInfo.minBuildings})
                           </span>
                           {!corpMet && (
@@ -358,7 +414,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                           <div className={unlockTechMet ? 'text-emerald-400' : 'text-rose-400'}>
                             <span className="font-bold mr-1">{unlockTechMet ? '✓' : '✕'}</span>
                             <span>
-                              Technologia [{TECH_BRANCH_LABELS[unlockTechDef.branch]}]:{' '}
+                              {lang === 'en' ? 'Technology' : 'Technologia'} [{techBranchLabels[unlockTechDef.branch]}]:{' '}
                               {unlockTechDef.name}
                             </span>
                           </div>
@@ -367,7 +423,8 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       <div className={terrainMet ? 'text-emerald-400' : 'text-rose-400'}>
                         <span className="font-bold mr-1">{terrainMet ? '✓' : '✕'}</span>
                         <span>
-                          Teren: {def.requiredTerrain.map((t) => TERRAIN_NAMES[t]).join(', ')}
+                          {lang === 'en' ? 'Terrain:' : 'Teren:'}{' '}
+                          {def.requiredTerrain.map((t) => localizeTerrain(t, TERRAIN_NAMES[t], lang)).join(', ')}
                         </span>
                       </div>
 
@@ -375,8 +432,9 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                         <div className={depositMet ? 'text-emerald-400' : 'text-rose-400'}>
                           <span className="font-bold mr-1">{depositMet ? '✓' : '✕'}</span>
                           <span>
-                            Odkryte złoże {RESOURCE_DEFINITIONS[def.requiredDeposit].genitiveName}{' '}
-                            (przez Badanie Geologiczne)
+                            {lang === 'en'
+                              ? `Discovered ${localizeResourceName(def.requiredDeposit, RESOURCE_DEFINITIONS[def.requiredDeposit].name, lang)} seam (via Geological Survey)`
+                              : `Odkryte złoże ${RESOURCE_DEFINITIONS[def.requiredDeposit].genitiveName} (przez Badanie Geologiczne)`}
                           </span>
                         </div>
                       )}
@@ -384,7 +442,11 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       {hqDuplicate && (
                         <div className="text-rose-400">
                           <span className="font-bold mr-1">✕</span>
-                          <span>Siedziba Główna HQ została już zbudowana w Twoim imperium.</span>
+                          <span>
+                            {lang === 'en'
+                              ? 'Corporate HQ has already been constructed in your empire.'
+                              : 'Siedziba Główna HQ została już zbudowana w Twoim imperium.'}
+                          </span>
                         </div>
                       )}
 
@@ -412,7 +474,7 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                               disabled={currentPlayer.cash < item.missingResource.spotCost}
                               className="px-1.5 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/40 border border-sky-400/40 text-sky-200 text-[10px] shrink-0 disabled:opacity-40"
                             >
-                              +Kup ({formatMoney(item.missingResource.spotCost)})
+                              {lang === 'en' ? '+Buy' : '+Kup'} ({formatMoney(item.missingResource.spotCost)})
                             </button>
                           )}
                         </div>
@@ -421,15 +483,17 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       {constructionEntries.length > 0 && (
                         <div className="text-slate-300 pt-0.5">
                           <span className="text-sky-400 mr-1">🧱</span>
-                          Koszt surowcowy budowy: brak (wymagany tylko budżet i technologia)
+                          {lang === 'en'
+                            ? 'Commodity build cost: none (only cash budget & tech required)'
+                            : 'Koszt surowcowy budowy: brak (wymagany tylko budżet i technologia)'}
                         </div>
                       )}
 
                       <div className={cashMet ? 'text-emerald-400' : 'text-rose-400'}>
                         <span className="font-bold mr-1">{cashMet ? '✓' : '✕'}</span>
                         <span>
-                          Budżet budowy: {formatMoney(totalCost)} (masz{' '}
-                          {formatMoney(currentPlayer.cash)})
+                          {lang === 'en' ? 'Build budget:' : 'Budżet budowy:'} {formatMoney(totalCost)} (
+                          {lang === 'en' ? 'cash' : 'masz'} {formatMoney(currentPlayer.cash)})
                         </span>
                       </div>
                     </div>
@@ -448,7 +512,13 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
                       onClick={() => onBuild(plot.id, def.type)}
                       className="px-3.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold shrink-0 transition-colors"
                     >
-                      {check.ok ? 'Buduj' : 'Zablokowane'}
+                      {check.ok
+                        ? lang === 'en'
+                          ? 'Build'
+                          : 'Buduj'
+                        : lang === 'en'
+                          ? 'Locked'
+                          : 'Zablokowane'}
                     </button>
                   </div>
                 </div>

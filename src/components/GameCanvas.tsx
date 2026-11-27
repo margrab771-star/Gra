@@ -19,6 +19,14 @@ import {
 import { stepVehiclePositions } from '../engine/TransportSystem';
 import type { BuildingType, GameState, MapHeatmapMode, Plot } from '../engine/types';
 import { useIsometricCamera } from '../hooks/useIsometricCamera';
+import { getCurrentLanguage, translate } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
+import {
+  localizeHeatmapMode,
+  localizeTerrain,
+  localizeTollRate,
+} from '../i18n/dataTranslations';
+import { useI18n } from '../i18n/useI18n';
 import { IsometricRenderer } from '../renderer/IsometricRenderer';
 import { TILE_HEIGHT, TILE_WIDTH } from '../renderer/utils';
 import { formatCompactMoney, formatMoney } from '../utils/formatters';
@@ -281,9 +289,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         return;
       }
 
+      const curLang = getCurrentLanguage();
       box.style.opacity = '1';
       box.style.transform = `translate3d(${Math.min(localX + 14, containerWidthRef.current - 230)}px, ${Math.max(12, localY - 12)}px, 0)`;
-      titleEl.textContent = `(${plot.gridX}, ${plot.gridY}) · ${TERRAIN_NAMES[plot.terrain]}`;
+      titleEl.textContent = `(${plot.gridX}, ${plot.gridY}) · ${localizeTerrain(plot.terrain, TERRAIN_NAMES[plot.terrain], curLang)}`;
 
       const curPid = stateRef.current.currentPlayerId;
       const curPlayer = stateRef.current.players.find((p) => p.id === curPid);
@@ -291,45 +300,69 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         const visible = isPlotBuildingVisibleToViewer(plot, curPid, curPlayer, stateRef.current);
         if (!visible) {
           subEl.className = 'text-amber-300 font-mono mt-0.5';
-          subEl.textContent = '🌫️ Obiekt Nieznany (Mgła Wojny)';
+          subEl.textContent = translate('canvas.unknownFog', undefined, curLang);
         } else {
+          const bName =
+            curLang === 'en'
+              ? BUILDINGS_EN[plot.building.type]?.name ?? plot.building.name
+              : plot.building.name;
           subEl.className = 'text-emerald-400 font-mono mt-0.5';
-          subEl.textContent = `${plot.building.icon} ${plot.building.name} (${Math.round(plot.building.damagePercent)}% zniszcz.)`;
+          subEl.textContent = `${plot.building.icon} ${bName} (${translate('canvas.damagePct', { pct: Math.round(plot.building.damagePercent) }, curLang)})`;
         }
       } else if (plot.hasRoad) {
         const owner = plot.ownerId
           ? stateRef.current.players.find((p) => p.id === plot.ownerId)?.companyName
-          : 'Droga';
+          : translate('canvas.roadGeneric', undefined, curLang);
         const roadName =
           plot.roadType === 'bridge'
-            ? 'Most Drogowy'
+            ? translate('canvas.roadBridge', undefined, curLang)
             : plot.roadType === 'highway'
-              ? 'Autostrada'
-              : 'Droga Zwykła';
+              ? translate('canvas.roadHighway', undefined, curLang)
+              : translate('canvas.roadLocal', undefined, curLang);
         const tollTxt = plot.roadBlocked
-          ? 'BLOKADA'
-          : TOLL_RATE_CONFIG[plot.tollRate ?? 'free'].label;
+          ? translate('canvas.roadBlocked', undefined, curLang)
+          : localizeTollRate(
+              plot.tollRate ?? 'free',
+              TOLL_RATE_CONFIG[plot.tollRate ?? 'free'].label,
+              curLang
+            );
         subEl.className = plot.roadType === 'bridge' ? 'text-sky-300 mt-0.5' : 'text-amber-300 mt-0.5';
         subEl.textContent = `${plot.roadType === 'bridge' ? '🌉' : '🛣️'} ${roadName} (${owner ?? ''}) · ${tollTxt}`;
       } else if (plot.terrain === 'water') {
         subEl.className = 'text-sky-300 mt-0.5';
-        subEl.textContent = `🌉 Kliknij lub przeciągnij, aby wybudować Most Drogowy (${formatMoney(GAME_CONFIG.bridgeCost)})`;
+        subEl.textContent = translate(
+          'canvas.waterBridgeHint',
+          { cost: formatMoney(GAME_CONFIG.bridgeCost, curLang) },
+          curLang
+        );
       } else if (plot.ownerId) {
         const owner = stateRef.current.players.find((p) => p.id === plot.ownerId);
         subEl.className = 'text-sky-400 mt-0.5';
-        subEl.textContent = `Właściciel: ${owner?.companyName ?? 'Gracz'}`;
+        subEl.textContent = translate(
+          'canvas.ownerLabel',
+          { name: owner?.companyName ?? translate('canvas.playerFallback', undefined, curLang) },
+          curLang
+        );
       } else {
         const surveyedTxt = hasPlayerSurveyedPlot(plot, curPid)
           ? plot.deposits.length > 0
-            ? ' · Złoże odkryte!'
-            : ' · Zbadano: pusto'
+            ? translate('canvas.depositFound', undefined, curLang)
+            : translate('canvas.surveyEmpty', undefined, curLang)
           : '';
         const viewer = stateRef.current.players.find((p) => p.id === curPid);
         const ownedCnt = viewer ? getPlayerOwnedPlotCount(stateRef.current, viewer.id) : 0;
         const effectivePrice = getPlotPurchasePrice(plot, ownedCnt);
         const expMult = getExpansionPriceMultiplier(ownedCnt);
         subEl.className = 'text-amber-400 font-mono mt-0.5';
-        subEl.textContent = `Cena: ${formatCompactMoney(effectivePrice)}${ownedCnt > 0 ? ` (×${expMult.toFixed(2)})` : ''}${surveyedTxt}`;
+        subEl.textContent = translate(
+          'canvas.priceLabel',
+          {
+            price: formatCompactMoney(effectivePrice, curLang),
+            mult: ownedCnt > 0 ? ` (×${expMult.toFixed(2)})` : '',
+            survey: surveyedTxt,
+          },
+          curLang
+        );
       }
     };
 
@@ -499,6 +532,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
       }
     };
 
+    const { t, lang } = useI18n();
     const localPlayer =
       gameState.players.find((p) => p.id === gameState.currentPlayerId) ?? gameState.players[0];
     const selectedPlotsObjs =
@@ -577,21 +611,47 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#0e1522]/95 border border-rose-500/60 shadow-2xl backdrop-blur-md max-w-[calc(100%-24px)]">
             <span className="text-xs font-semibold text-rose-100">
               {targetMode === 'nuke'
-                ? '☢️ Wskaż działkę na mapie dla ataku jądrowego 5×5'
+                ? t('canvas.bannerNuke')
                 : targetMode === 'missile'
-                  ? '🚀 Wskaż cel uderzenia taktycznego 3×3'
+                  ? t('canvas.bannerMissile')
                   : roadPreviewInfo
-                    ? `${mapToolMode === 'road_bridge' ? '🌉 Rysowanie Mostu / Drogi' : '🛣️ Rysowanie odcinka'}: ${roadPreviewInfo.count} pól · Koszt: ${formatMoney(roadPreviewInfo.cost)}`
+                    ? t('canvas.roadDrawInfo', {
+                        prefix:
+                          mapToolMode === 'road_bridge'
+                            ? t('canvas.bannerBridge')
+                            : t('canvas.bannerRoad'),
+                        count: roadPreviewInfo.count,
+                        cost: formatMoney(roadPreviewInfo.cost),
+                      })
                     : cloneBlueprintSource && cloneBlueprintCost
-                      ? `🧪 Klonowanie 1:1 „${BUILDING_DEFINITIONS[cloneBlueprintSource.buildingType]?.name ?? cloneBlueprintSource.buildingType}” · Koszt: ${formatMoney(cloneBlueprintCost.totalCost)} (baza ${formatCompactMoney(cloneBlueprintCost.baseCost)} + ulepszenia/flota ${formatCompactMoney(cloneBlueprintCost.upgradesCost + cloneBlueprintCost.fleetCost)}) · Klikaj seryjnie puste działki`
-                      : `🧪 Tryb klonowania: Kliknij wolną własną działkę, aby postawić "${BUILDING_DEFINITIONS[cloneBuildingType!]?.name ?? cloneBuildingType}"`}
+                      ? t('canvas.cloneBlueprintBanner', {
+                          name:
+                            (lang === 'en'
+                              ? BUILDINGS_EN[cloneBlueprintSource.buildingType]?.name
+                              : undefined) ??
+                            BUILDING_DEFINITIONS[cloneBlueprintSource.buildingType]?.name ??
+                            cloneBlueprintSource.buildingType,
+                          total: formatMoney(cloneBlueprintCost.totalCost),
+                          base: formatCompactMoney(cloneBlueprintCost.baseCost),
+                          extra: formatCompactMoney(
+                            cloneBlueprintCost.upgradesCost + cloneBlueprintCost.fleetCost
+                          ),
+                        })
+                      : t('canvas.cloneBasicBanner', {
+                          name:
+                            (lang === 'en' && cloneBuildingType
+                              ? BUILDINGS_EN[cloneBuildingType]?.name
+                              : undefined) ??
+                            BUILDING_DEFINITIONS[cloneBuildingType!]?.name ??
+                            cloneBuildingType!,
+                        })}
             </span>
             {cloneBlueprintSource && onToggleCloneUpgrades && (
               <div className="text-[11px] bg-[#162033] px-2 py-1 rounded border border-[#2d3b52]">
                 <DarkToggle
                   checked={cloneBlueprintSource.includeUpgrades}
                   onChange={onToggleCloneUpgrades}
-                  label="Ulepszenia 1:1"
+                  label={t('canvas.cloneUpgradesToggle')}
                 />
               </div>
             )}
@@ -601,7 +661,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
                 onClick={onCancelSpecialMode}
                 className="px-2 py-0.5 rounded bg-[#0f1623] border border-[#243044] text-[11px] text-slate-300 hover:text-white"
               >
-                Anuluj (Esc/PPM)
+                {t('canvas.cancelMode')}
               </button>
             )}
           </div>
@@ -611,7 +671,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         {areaSelectedPlotIds.length > 0 && (
           <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0e1522]/95 border border-sky-500/60 shadow-2xl backdrop-blur-md text-xs">
             <span className="font-semibold text-sky-300">
-              📐 Zaznaczono: {areaSelectedPlotIds.length} pól
+              {t('canvas.areaSelected', { count: areaSelectedPlotIds.length })}
             </span>
             {onBatchBuyPlots && buyableAreaPlots.length > 0 && (
               <button
@@ -620,7 +680,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
                 onClick={() => onBatchBuyPlots(buyableAreaPlots.map((p) => p.id))}
                 className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
               >
-                💰 Kup wolne ({buyableAreaPlots.length} · {formatCompactMoney(buyAreaTotalCost)})
+                {t('canvas.batchBuy', {
+                  count: buyableAreaPlots.length,
+                  cost: formatCompactMoney(buyAreaTotalCost),
+                })}
               </button>
             )}
             {onBatchSurveyPlots && surveyableAreaPlots.length > 0 && (
@@ -630,7 +693,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
                 onClick={() => onBatchSurveyPlots(surveyableAreaPlots.map((p) => p.id))}
                 className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold"
               >
-                🔍 Geologia ({surveyableAreaPlots.length} · {formatCompactMoney(surveyAreaTotalCost)})
+                {t('canvas.batchSurvey', {
+                  count: surveyableAreaPlots.length,
+                  cost: formatCompactMoney(surveyAreaTotalCost),
+                })}
               </button>
             )}
             <button
@@ -638,7 +704,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
               onClick={() => onAreaSelectionChange?.([])}
               className="px-2 py-1 rounded bg-[#182235] border border-[#2d3b52] text-slate-300"
             >
-              Wyczyść
+              {t('canvas.clear')}
             </button>
           </div>
         )}
@@ -647,22 +713,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1.5 max-w-[calc(100%-20px)]">
           {onChangeHeatmapMode && (
             <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#0b0f17]/90 border border-[#243044] backdrop-blur-md shadow-xl">
-              {HEATMAP_MODE_OPTIONS.map((hm) => (
-                <button
-                  key={hm.key}
-                  type="button"
-                  onClick={() => onChangeHeatmapMode(hm.key)}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
-                    heatmapMode === hm.key
-                      ? 'bg-amber-500/20 border border-amber-400/60 text-amber-200'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#151e2e]'
-                  }`}
-                  title={`Nakładka mapy: ${hm.label}`}
-                >
-                  <span>{hm.icon}</span>
-                  <span className="hidden sm:inline">{hm.label}</span>
-                </button>
-              ))}
+              {HEATMAP_MODE_OPTIONS.map((hm) => {
+                const hmLabel = localizeHeatmapMode(hm.key, hm.label, lang);
+                return (
+                  <button
+                    key={hm.key}
+                    type="button"
+                    onClick={() => onChangeHeatmapMode(hm.key)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
+                      heatmapMode === hm.key
+                        ? 'bg-amber-500/20 border border-amber-400/60 text-amber-200'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-[#151e2e]'
+                    }`}
+                    title={t('canvas.heatmapTitle', { label: hmLabel })}
+                  >
+                    <span>{hm.icon}</span>
+                    <span className="hidden sm:inline">{hmLabel}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -670,11 +739,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
             <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#0b0f17]/90 border border-[#243044] backdrop-blur-md shadow-xl w-fit">
               {(
                 [
-                  { id: 'normal', icon: '🖱️', label: 'Zwykły' },
-                  { id: 'area_select', icon: '📐', label: 'Obszar (Shift)' },
-                  { id: 'road_local', icon: '🛣️', label: 'Rysuj Drogę (R)' },
-                  { id: 'road_highway', icon: '🟨', label: 'Rysuj Autostradę' },
-                  { id: 'road_bridge', icon: '🌉', label: 'Rysuj Most' },
+                  { id: 'normal', icon: '🖱️', label: t('canvas.toolNormal') },
+                  { id: 'area_select', icon: '📐', label: t('canvas.toolArea') },
+                  { id: 'road_local', icon: '🛣️', label: t('canvas.toolRoadLocal') },
+                  { id: 'road_highway', icon: '🟨', label: t('canvas.toolRoadHighway') },
+                  { id: 'road_bridge', icon: '🌉', label: t('canvas.toolRoadBridge') },
                 ] as { id: MapToolMode; icon: string; label: string }[]
               ).map((tool) => (
                 <button
@@ -701,7 +770,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
             type="button"
             onClick={() => zoomBy(1.22)}
             className="w-9 h-9 rounded-lg bg-[#111827]/90 border border-[#243044] text-slate-200 hover:border-sky-400 hover:text-sky-300 font-mono text-base flex items-center justify-center shadow-lg transition-colors"
-            title="Przybliż mapę"
+            title={t('canvas.zoomIn')}
           >
             +
           </button>
@@ -709,7 +778,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
             type="button"
             onClick={() => zoomBy(0.82)}
             className="w-9 h-9 rounded-lg bg-[#111827]/90 border border-[#243044] text-slate-200 hover:border-sky-400 hover:text-sky-300 font-mono text-base flex items-center justify-center shadow-lg transition-colors"
-            title="Oddal mapę"
+            title={t('canvas.zoomOut')}
           >
             −
           </button>
@@ -722,7 +791,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
               }
             }}
             className="w-9 h-9 rounded-lg bg-[#111827]/90 border border-[#243044] text-slate-200 hover:border-amber-400 hover:text-amber-300 text-xs flex items-center justify-center shadow-lg transition-colors"
-            title="Wyśrodkuj widok"
+            title={t('canvas.centerView')}
           >
             ⌖
           </button>

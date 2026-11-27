@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useI18n } from '../../i18n/useI18n';
 
 interface BottomSheetProps {
   title: string;
@@ -8,6 +9,7 @@ interface BottomSheetProps {
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({ title, onClose, children }) => {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useI18n();
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col bg-[#111827] border-t border-[#2d3b52] rounded-t-2xl shadow-[0_-12px_40px_rgba(0,0,0,0.65)] transition-all duration-200"
@@ -29,7 +31,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({ title, onClose, childr
             }}
             className="px-2 py-1 text-xs rounded bg-[#1a2232] text-slate-300"
           >
-            {expanded ? 'Zwiń' : 'Rozwiń'}
+            {expanded ? t('bs.collapse') : t('bs.expand')}
           </button>
           <button
             type="button"

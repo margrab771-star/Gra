@@ -23,6 +23,17 @@ import {
 } from '../../engine/profileManager';
 import type { AchievementCategory, HQVariantId, UiThemeId, UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney } from '../../utils/formatters';
+import {
+  localizeAchievement,
+  localizeAchievementCategory,
+  localizeCosmetic,
+  localizePvPDivisionLabel,
+  localizeScenario,
+  localizeTitle,
+  localizeUiTheme,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
+import { LanguageSwitcher } from '../HUD/LanguageSwitcher';
 import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface ProfileModalProps {
@@ -42,6 +53,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onOpenBattlePass,
   onClose,
 }) => {
+  const { lang, t } = useI18n();
   const [tab, setTab] = useState<'card' | 'achievements' | 'records' | 'transfer'>('card');
   const [achCat, setAchCat] = useState<AchievementCategory | 'all'>('all');
   const [copiedCode, setCopiedCode] = useState(false);
@@ -57,8 +69,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const curTitle = TITLES_CATALOG.find((t) => t.id === profile.titleId)?.label ?? 'Pionier Rynku';
+  const rawTitle = TITLES_CATALOG.find((titleItem) => titleItem.id === profile.titleId);
+  const curTitle = rawTitle
+    ? localizeTitle(rawTitle, lang).label
+    : lang === 'en'
+      ? 'Market Pioneer'
+      : 'Pionier Rynku';
   const division = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
+  const divLabel = localizePvPDivisionLabel(division.id, division.label, lang);
   const bp = computeBattlePassLevel(profile.battlePassXp);
   const curFrameCls =
     profile.frameId === 'frame_gold'
@@ -120,10 +138,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   {profile.nick}
                 </h2>
                 <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 font-mono text-[11px] text-amber-300">
-                  Poz. {profile.level} · {profile.xp} XP
+                  {t('common.level')} {profile.level} · {profile.xp} XP
                 </span>
                 <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${division.badgeClass}`}>
-                  {division.icon} {division.label}
+                  {division.icon} {divLabel}
                 </span>
                 <span className="px-2 py-0.5 rounded bg-amber-950/45 border border-amber-400/45 text-amber-200 font-mono text-[11px] font-bold flex items-center gap-1">
                   <MCoinIcon size={13} />
@@ -131,7 +149,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-slate-400">
-                Tytuł: <span className="text-sky-300 font-medium">{curTitle}</span> · Odblokowane osiągnięcia:{' '}
+                {lang === 'en' ? 'Title:' : 'Tytuł:'}{' '}
+                <span className="text-sky-300 font-medium">{curTitle}</span> ·{' '}
+                {lang === 'en' ? 'Achievements unlocked:' : 'Odblokowane osiągnięcia:'}{' '}
                 <strong className="text-emerald-300">
                   {profile.unlockedAchievements.length}/{ACHIEVEMENTS.length}
                 </strong>
@@ -140,6 +160,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <LanguageSwitcher compact />
             {onOpenShop && (
               <button
                 type="button"
@@ -147,7 +168,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 className="px-2.5 py-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-400/50 text-amber-200 text-xs font-semibold flex items-center gap-1.5"
               >
                 <MCoinIcon size={14} />
-                <span>Sklep</span>
+                <span>{lang === 'en' ? 'Shop' : 'Sklep'}</span>
               </button>
             )}
             {onOpenBattlePass && (
@@ -156,7 +177,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 onClick={onOpenBattlePass}
                 className="px-2.5 py-1.5 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-200 text-xs font-semibold"
               >
-                🎖️ Karnet ({bp.level}/30)
+                🎖️ {lang === 'en' ? 'Pass' : 'Karnet'} ({bp.level}/30)
               </button>
             )}
             <button
@@ -164,7 +185,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               onClick={onOpenAuth}
               className="px-3 py-1.5 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-300 text-xs font-semibold"
             >
-              🔄 Zmień Konto
+              🔄 {lang === 'en' ? 'Switch Account' : 'Zmień Konto'}
             </button>
             <button
               type="button"
@@ -179,22 +200,28 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         {/* Zakładki */}
         <div className="px-4 py-2 border-b border-[#243044] flex flex-wrap gap-1.5 text-xs">
           {[
-            { id: 'card', label: '🪪 Karta Prezesa & Kosmetyka HQ' },
-            { id: 'achievements', label: `🏆 Osiągnięcia (${profile.unlockedAchievements.length}/${ACHIEVEMENTS.length})` },
-            { id: 'records', label: '📜 Księga Rekordów & 20 Meczów' },
-            { id: 'transfer', label: '📦 Przenoszenie Profilu' },
-          ].map((t) => (
+            { id: 'card', label: `🪪 ${t('prof.tabOverview')}` },
+            {
+              id: 'achievements',
+              label: `🏆 ${t('prof.tabAchievements', {
+                done: profile.unlockedAchievements.length,
+                total: ACHIEVEMENTS.length,
+              })}`,
+            },
+            { id: 'records', label: `📜 ${t('prof.tabHistory')}` },
+            { id: 'transfer', label: `📦 ${t('prof.tabAccount')}` },
+          ].map((tabOpt) => (
             <button
-              key={t.id}
+              key={tabOpt.id}
               type="button"
-              onClick={() => setTab(t.id as typeof tab)}
+              onClick={() => setTab(tabOpt.id as typeof tab)}
               className={`px-3 py-1.5 rounded-lg font-semibold border transition-colors ${
-                tab === t.id
+                tab === tabOpt.id
                   ? 'bg-amber-500/20 border-amber-400 text-amber-300'
                   : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t.label}
+              {tabOpt.label}
             </button>
           ))}
         </div>
@@ -222,11 +249,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {profile.pinnedBadgeIds.length === 0 ? (
-                      <span className="text-[11px] text-slate-500 italic">Brak przypiętych odznak</span>
+                      <span className="text-[11px] text-slate-500 italic">
+                        {lang === 'en' ? 'No pinned badges' : 'Brak przypiętych odznak'}
+                      </span>
                     ) : (
                       profile.pinnedBadgeIds.map((bid) => {
-                        const ach = ACHIEVEMENTS.find((a) => a.id === bid);
-                        if (!ach) return null;
+                        const rawAch = ACHIEVEMENTS.find((a) => a.id === bid);
+                        if (!rawAch) return null;
+                        const ach = localizeAchievement(rawAch, lang);
                         return (
                           <span
                             key={bid}
@@ -242,7 +272,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] text-slate-400">
-                    <span>Postęp Poziomu {profile.level} → {profile.level + 1}</span>
+                    <span>
+                      {lang === 'en'
+                        ? `Level Progress ${profile.level} → ${profile.level + 1}`
+                        : `Postęp Poziomu ${profile.level} → ${profile.level + 1}`}
+                    </span>
                     <span className="font-mono text-emerald-300">{xpIntoLevel} / {xpNext} XP ({xpPct}%)</span>
                   </div>
                   <div className="h-2 rounded-full bg-[#0b0f17] border border-[#243044] overflow-hidden">
@@ -256,15 +290,24 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-bold text-amber-300">
-                      ★ System Prestiżu (Poziom {profile.level} / {PRESTIGE_REQUIRED_ACCOUNT_LEVEL})
+                      ★ {t('prof.prestigeTitle')} ({t('common.level')} {profile.level} / {PRESTIGE_REQUIRED_ACCOUNT_LEVEL})
                     </div>
                     <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-200 font-mono text-[10px]">
-                      Prestiż #{profile.prestigeLevel}
+                      {lang === 'en' ? `Prestige #${profile.prestigeLevel}` : `Prestiż #${profile.prestigeLevel}`}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300 leading-relaxed">
-                    Po osiągnięciu Poziomu {PRESTIGE_REQUIRED_ACCOUNT_LEVEL} zresetujesz poziom na 1 (zachowując wszystkie osiągnięcia, odznaki, Sklep, Karnet i Monety M), zdobywając stałą Złotą Gwiazdę ★,{' '}
-                    {profile.prestigeLevel >= 1 ? 'Platynowe' : 'Złote'} ramki granic swoich działek na mapie 2.5D oraz +500 M!
+                    {lang === 'en' ? (
+                      <>
+                        Upon reaching Level {PRESTIGE_REQUIRED_ACCOUNT_LEVEL}, reset to Level 1 (keeping all achievements, badges, Shop unlocks, Pass & M-Coins) to claim a permanent Golden Star ★,{' '}
+                        {profile.prestigeLevel >= 1 ? 'Platinum' : 'Golden'} plot borders on the 2.5D map, plus +250 M!
+                      </>
+                    ) : (
+                      <>
+                        Po osiągnięciu Poziomu {PRESTIGE_REQUIRED_ACCOUNT_LEVEL} zresetujesz poziom na 1 (zachowując wszystkie osiągnięcia, odznaki, Sklep, Karnet i Monety M), zdobywając stałą Złotą Gwiazdę ★,{' '}
+                        {profile.prestigeLevel >= 1 ? 'Platynowe' : 'Złote'} ramki granic swoich działek na mapie 2.5D oraz +250 M!
+                      </>
+                    )}
                   </p>
                   {prestigeMsg && (
                     <div className="p-2 rounded bg-emerald-950/40 border border-emerald-400/50 text-emerald-200 text-[11px]">
@@ -278,24 +321,28 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       const res = activatePrestige(profile);
                       if (res.ok) {
                         onUpdateProfile(res.profile);
-                        setPrestigeMsg(res.message ?? 'Prestiż aktywowany!');
+                        setPrestigeMsg(
+                          lang === 'en'
+                            ? `★ Prestige #${res.profile.prestigeLevel} activated! Claimed Golden Star, plot borders & +250 M!`
+                            : res.message ?? 'Prestiż aktywowany!'
+                        );
                       }
                     }}
                     className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-[#151c28] disabled:text-slate-500 text-slate-950 font-bold text-xs"
                   >
                     {profile.level >= PRESTIGE_REQUIRED_ACCOUNT_LEVEL
-                      ? '★ Aktywuj Prestiż (+500 M i Złote Granice)'
-                      : `🔒 Odblokuje się na Poziomie ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}`}
+                      ? t('prof.prestigeBtn')
+                      : t('prof.prestigeLocked', { lvl: profile.level })}
                   </button>
                 </div>
 
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2">
                   <div className="font-semibold text-slate-200">
-                    🎨 Motyw Kolorystyczny Interfejsu (0% Pay-to-Win)
+                    🎨 {t('prof.themeLabel')}
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     {(Object.keys(UI_THEME_META) as UiThemeId[]).map((tId) => {
-                      const meta = UI_THEME_META[tId];
+                      const meta = localizeUiTheme(UI_THEME_META[tId], lang);
                       const unlocked = profile.unlockedCosmetics.includes(tId);
                       const active = profile.uiThemeId === tId;
                       return (
@@ -335,10 +382,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               {/* Wybór wariantu HQ 2.5D (Zero Pay-to-Win) */}
               <div className="space-y-2">
                 <h3 className="font-semibold text-slate-200 uppercase tracking-wider">
-                  🏛️ Kosmetyczny Wygląd Siedziby Głównej (HQ) na mapie 2.5D
+                  🏛️ {t('prof.hqSkinLabel')} (0% Pay-to-Win)
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {HQ_COSMETICS.map((hq) => {
+                  {HQ_COSMETICS.map((rawHq) => {
+                    const hq = localizeCosmetic(rawHq, lang);
                     const unlocked = profile.unlockedCosmetics.includes(hq.id);
                     const active = profile.hqVariant === hq.hqVariantId;
                     return (
@@ -362,12 +410,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         <div className="flex items-center justify-between font-bold">
                           <span>{hq.preview} {hq.name}</span>
                           <span className="text-[10px] font-mono">
-                            {active ? '✓ AKTYWNY' : unlocked ? 'Odblokowany' : '🔒 Zablokowany'}
+                            {active
+                              ? lang === 'en'
+                                ? '✓ ACTIVE'
+                                : '✓ AKTYWNY'
+                              : unlocked
+                                ? t('common.unlocked')
+                                : `🔒 ${t('common.locked')}`}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 mt-1">{hq.description}</p>
                         {!unlocked && (
-                          <div className="text-[10px] text-amber-300/80 mt-1">Wymaganie: {hq.unlockHint}</div>
+                          <div className="text-[10px] text-amber-300/80 mt-1">
+                            {lang === 'en' ? 'Requirement:' : 'Wymaganie:'} {hq.unlockHint}
+                          </div>
                         )}
                       </button>
                     );
@@ -378,18 +434,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               {/* Wybór Tytułu, Ramki i Avatara */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2">
-                  <div className="font-semibold text-slate-300">Tytuł Prezesa w Lobby</div>
+                  <div className="font-semibold text-slate-300">{t('prof.titleLabel')}</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {TITLES_CATALOG.map((t) => {
-                      const unlocked = profile.unlockedCosmetics.includes(t.id);
-                      const active = profile.titleId === t.id;
+                    {TITLES_CATALOG.map((rawTitleItem) => {
+                      const titleItem = localizeTitle(rawTitleItem, lang);
+                      const unlocked = profile.unlockedCosmetics.includes(titleItem.id);
+                      const active = profile.titleId === titleItem.id;
                       return (
                         <button
-                          key={t.id}
+                          key={titleItem.id}
                           type="button"
                           disabled={!unlocked}
-                          title={t.unlockHint}
-                          onClick={() => onUpdateProfile(updateProfileCosmetics(profile, { titleId: t.id }))}
+                          title={titleItem.unlockHint}
+                          onClick={() => onUpdateProfile(updateProfileCosmetics(profile, { titleId: titleItem.id }))}
                           className={`px-2.5 py-1 rounded-lg border text-[11px] ${
                             active
                               ? 'bg-sky-500/20 border-sky-400 text-sky-200 font-bold'
@@ -398,7 +455,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                                 : 'bg-[#0b0f17] border-[#1e293b] text-slate-600 cursor-not-allowed'
                           }`}
                         >
-                          {unlocked ? t.label : `🔒 ${t.label}`}
+                          {unlocked ? titleItem.label : `🔒 ${titleItem.label}`}
                         </button>
                       );
                     })}
@@ -406,9 +463,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2">
-                  <div className="font-semibold text-slate-300">Ramka Karty & Avatar</div>
+                  <div className="font-semibold text-slate-300">{t('prof.frameLabel')} & {t('prof.avatarLabel')}</div>
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {FRAME_COSMETICS.map((fr) => {
+                    {FRAME_COSMETICS.map((rawFr) => {
+                      const fr = localizeCosmetic(rawFr, lang);
                       const unlocked = profile.unlockedCosmetics.includes(fr.id);
                       const active = profile.frameId === fr.id;
                       return (
@@ -453,15 +511,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               {/* Przypinanie maks. 3 Odznak */}
               <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2">
                 <div className="font-semibold text-slate-300">
-                  Przypnij maks. 3 Odznaki do Karty w Lobby ({profile.pinnedBadgeIds.length}/3)
+                  {t('prof.pinnedBadges', { count: profile.pinnedBadgeIds.length })}
                 </div>
                 {earnedBadges.length === 0 ? (
                   <p className="text-slate-500 italic">
-                    Zdobywaj osiągnięcia w grach Single Player lub Multiplayer, aby odblokować odznaki!
+                    {lang === 'en'
+                      ? 'Earn achievements in Single Player or Multiplayer matches to unlock badges!'
+                      : 'Zdobywaj osiągnięcia w grach Single Player lub Multiplayer, aby odblokować odznaki!'}
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
-                    {earnedBadges.map((ach) => {
+                    {earnedBadges.map((rawAch) => {
+                      const ach = localizeAchievement(rawAch, lang);
                       const pinned = profile.pinnedBadgeIds.includes(ach.id);
                       return (
                         <button
@@ -496,7 +557,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       : 'bg-[#0b0f17] border-[#243044] text-slate-400'
                   }`}
                 >
-                  Wszystkie ({ACHIEVEMENTS.length})
+                  {lang === 'en' ? `All (${ACHIEVEMENTS.length})` : `Wszystkie (${ACHIEVEMENTS.length})`}
                 </button>
                 {ACHIEVEMENT_CATEGORIES.map((c) => (
                   <button
@@ -509,14 +570,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         : 'bg-[#0b0f17] border-[#243044] text-slate-400'
                     }`}
                   >
-                    {c.icon} {c.label}
+                    {c.icon} {localizeAchievementCategory(c.key, c.label, lang)}
                   </button>
                 ))}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {filteredAch.map((ach) => {
+                {filteredAch.map((rawAch) => {
+                  const ach = localizeAchievement(rawAch, lang);
                   const unlocked = profile.unlockedAchievements.includes(ach.id);
+                  const titleObj = ach.unlockTitle
+                    ? TITLES_CATALOG.find((titleOpt) => titleOpt.id === ach.unlockTitle)
+                    : undefined;
+                  const locTitleLabel = titleObj ? localizeTitle(titleObj, lang).label : '';
                   return (
                     <div
                       key={ach.id}
@@ -536,16 +602,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             unlocked ? 'bg-emerald-500/25 text-emerald-300' : 'bg-[#151c28] text-slate-400'
                           }`}
                         >
-                          {unlocked ? '✓ ZDOBYTE' : `+${ach.xpReward} XP`}
+                          {unlocked ? (lang === 'en' ? '✓ UNLOCKED' : '✓ ZDOBYTE') : `+${ach.xpReward} XP`}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">{ach.description}</p>
                       {(ach.unlockCosmetic || ach.unlockTitle) && (
                         <div className="mt-1.5 text-[10px] text-amber-300">
-                          🎁 Nagroda:{' '}
+                          🎁 {lang === 'en' ? 'Reward:' : 'Nagroda:'}{' '}
                           {ach.unlockCosmetic
                             ? ach.unlockCosmetic.label
-                            : `Tytuł "${TITLES_CATALOG.find((t) => t.id === ach.unlockTitle)?.label}"`}
+                            : `${lang === 'en' ? 'Title' : 'Tytuł'} "${locTitleLabel}"`}
                         </div>
                       )}
                     </div>
@@ -559,27 +625,27 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044]">
-                  <div className="text-slate-400">Najwyższa Wycena</div>
+                  <div className="text-slate-400">{t('prof.bestNetWorth')}</div>
                   <div className="font-mono font-bold text-base text-amber-300">
                     {formatCompactMoney(profile.records.highestNetWorth)}
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044]">
-                  <div className="text-slate-400">Najszybsza Dominacja</div>
+                  <div className="text-slate-400">{t('prof.fastestWin')}</div>
                   <div className="font-mono font-bold text-base text-sky-300">
                     {profile.records.fastestDominanceTicks !== null
-                      ? `${profile.records.fastestDominanceTicks} cykli`
+                      ? t('prof.ticksUnit', { ticks: profile.records.fastestDominanceTicks })
                       : '—'}
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044]">
-                  <div className="text-slate-400">Najdłuższa Seria Wygranych</div>
+                  <div className="text-slate-400">{lang === 'en' ? 'Longest Win Streak' : 'Najdłuższa Seria Wygranych'}</div>
                   <div className="font-mono font-bold text-base text-emerald-300">
-                    {profile.records.longestWinStreak} (obecna: {profile.records.currentWinStreak})
+                    {profile.records.longestWinStreak} ({lang === 'en' ? 'current' : 'obecna'}: {profile.records.currentWinStreak})
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044]">
-                  <div className="text-slate-400">Bilans Meczów & Cele</div>
+                  <div className="text-slate-400">{lang === 'en' ? 'Matches & Goals' : 'Bilans Meczów & Cele'}</div>
                   <div className="font-mono font-bold text-base text-slate-100">
                     {profile.records.matchesWon}/{profile.records.matchesPlayed} · 🎯{profile.records.secretGoalsCompleted}
                   </div>
@@ -590,10 +656,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/40 flex items-center justify-between">
                   <div>
                     <div className="font-bold text-amber-300">
-                      🏆 Rekord Wyzwania Tygodnia ({profile.records.weeklyBestScore.weekKey})
+                      🏆 {lang === 'en' ? 'Weekly Challenge Best' : 'Rekord Wyzwania Tygodnia'} ({profile.records.weeklyBestScore.weekKey})
                     </div>
                     <div className="text-[11px] text-slate-400">
-                      Data: {profile.records.weeklyBestScore.date}
+                      {lang === 'en' ? 'Date:' : 'Data:'} {profile.records.weeklyBestScore.date}
                     </div>
                   </div>
                   <div className="text-right font-mono">
@@ -601,41 +667,53 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       {formatCompactMoney(profile.records.weeklyBestScore.netWorth)}
                     </div>
                     <div className="text-[11px] text-slate-300">
-                      {profile.records.weeklyBestScore.ticks} dni gry
+                      {t('prof.ticksUnit', { ticks: profile.records.weeklyBestScore.ticks })}
                     </div>
                   </div>
                 </div>
               )}
 
               <div className="space-y-1.5">
-                <h3 className="font-semibold text-slate-300">Historia ostatnich 20 meczów</h3>
+                <h3 className="font-semibold text-slate-300">
+                  {lang === 'en' ? 'Last 20 Matches History' : 'Historia ostatnich 20 meczów'}
+                </h3>
                 {profile.matchHistory.length === 0 ? (
                   <div className="p-4 rounded-xl bg-[#0b0f17] border border-[#243044] text-slate-500 text-center">
-                    Brak zakończonych rozgrywek na tym koncie.
+                    {t('prof.historyEmpty')}
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    {profile.matchHistory.map((m) => (
-                      <div
-                        key={m.id}
-                        className="p-2.5 rounded-xl bg-[#0b0f17] border border-[#243044] flex flex-wrap items-center justify-between gap-2"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-100">
-                            {m.won ? '🏆 ZWYCIĘSTWO' : '📊 KONIEC MECZU'} · Miejsce #{m.rank}/{m.totalPlayers}
-                            {m.isWeekly ? ` · Wyzwanie ${m.weekKey}` : ''}
+                    {profile.matchHistory.map((m) => {
+                      const rawScen = SCENARIO_DEFINITIONS.find((s) => s.id === m.scenario);
+                      const scenName = rawScen ? localizeScenario(rawScen, lang).name : m.scenario;
+                      return (
+                        <div
+                          key={m.id}
+                          className="p-2.5 rounded-xl bg-[#0b0f17] border border-[#243044] flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <div>
+                            <div className="font-semibold text-slate-100">
+                              {m.won
+                                ? lang === 'en'
+                                  ? '🏆 VICTORY'
+                                  : '🏆 ZWYCIĘSTWO'
+                                : lang === 'en'
+                                  ? '📊 MATCH ENDED'
+                                  : '📊 KONIEC MECZU'}{' '}
+                              · {lang === 'en' ? 'Rank' : 'Miejsce'} #{m.rank}/{m.totalPlayers}
+                              {m.isWeekly ? ` · ${lang === 'en' ? 'Weekly' : 'Wyzwanie'} ${m.weekKey}` : ''}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {m.date} · {m.mode} · {scenName} ({m.difficulty})
+                            </div>
                           </div>
-                          <div className="text-[11px] text-slate-400">
-                            {m.date} · {m.mode} ·{' '}
-                            {SCENARIO_DEFINITIONS.find((s) => s.id === m.scenario)?.name ?? m.scenario} ({m.difficulty})
+                          <div className="text-right font-mono">
+                            <div className="text-amber-300 font-bold">{formatCompactMoney(m.netWorth)}</div>
+                            <div className="text-[11px] text-emerald-400">+{m.xpEarned} XP · {m.durationTicks} T</div>
                           </div>
                         </div>
-                        <div className="text-right font-mono">
-                          <div className="text-amber-300 font-bold">{formatCompactMoney(m.netWorth)}</div>
-                          <div className="text-[11px] text-emerald-400">+{m.xpEarned} XP · {m.durationTicks} T</div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -645,10 +723,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {tab === 'transfer' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2.5">
-                <h3 className="font-bold text-white">📤 Eksportuj Kod Przenoszenia Profilu</h3>
-                <p className="text-slate-400">
-                  Skopiuj poniższy kod JSON/Base64 i zapisz go bezpiecznie — pozwoli Ci przenieść konto, XP, odznaki i rekordy na inny komputer lub telefon bez zewnętrznego serwera.
-                </p>
+                <h3 className="font-bold text-white">📤 {t('prof.exportTitle')}</h3>
+                <p className="text-slate-400">{t('prof.exportDesc')}</p>
                 <textarea
                   readOnly
                   rows={4}
@@ -664,17 +740,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   }}
                   className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold"
                 >
-                  {copiedCode ? '✅ Skopiowano Kod Profilu!' : '📋 Kopiuj Kod Profilu'}
+                  {copiedCode ? t('prof.copiedCode') : t('prof.copyCode')}
                 </button>
               </div>
 
               <div className="p-4 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2.5">
-                <h3 className="font-bold text-white">📥 Importuj Profil z Kodu</h3>
+                <h3 className="font-bold text-white">📥 {t('auth.importSubmit')}</h3>
                 <textarea
                   rows={3}
                   value={importInput}
                   onChange={(e) => setImportInput(e.target.value)}
-                  placeholder="Wklej kod zaczynający się od MDPROF1:..."
+                  placeholder={t('auth.transferPlaceholder')}
                   className="w-full px-3 py-2 rounded-lg bg-[#151c28] border border-[#243044] text-amber-200 font-mono text-[10px]"
                 />
                 {importMsg && <div className="text-amber-300">{importMsg}</div>}
@@ -684,7 +760,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     const res = importProfileTransferCode(importInput);
                     if (res.ok && res.profile) {
                       onUpdateProfile(res.profile);
-                      setImportMsg(`✅ Zaimportowano konto ${res.profile.nick} (Poz. ${res.profile.level})!`);
+                      setImportMsg(
+                        lang === 'en'
+                          ? `✅ Imported account ${res.profile.nick} (Lvl ${res.profile.level})!`
+                          : `✅ Zaimportowano konto ${res.profile.nick} (Poz. ${res.profile.level})!`
+                      );
                       setImportInput('');
                     } else {
                       setImportMsg(`⚠️ ${res.error}`);
@@ -692,7 +772,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   }}
                   className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
                 >
-                  📥 Wczytaj i Zastąp Aktywny Profil
+                  {t('auth.importSubmit')}
                 </button>
               </div>
             </div>

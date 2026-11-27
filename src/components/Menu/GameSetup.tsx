@@ -29,6 +29,13 @@ import {
   isArchetypeUnlocked,
   isScenarioUnlocked,
 } from '../../data/shopCatalog';
+import {
+  localizeArchetype,
+  localizeDifficultyLabel,
+  localizeDifficultyPreset,
+  localizeMapSizeLabel,
+  localizeScenario,
+} from '../../i18n/dataTranslations';
 import { useI18n } from '../../i18n/useI18n';
 import type {
   ArchetypeId,
@@ -153,10 +160,15 @@ export const GameSetup: React.FC<GameSetupProps> = ({
           },
         ];
 
-  const selectedArchetype = ARCHETYPE_LIST.find((a) => a.id === archetype) ?? ARCHETYPE_LIST[0];
-  const selectedPreset = DIFFICULTY_PRESETS[difficultyPreset];
-  const selectedScenario =
-    SCENARIO_DEFINITIONS.find((s) => s.id === scenarioId) ?? SCENARIO_DEFINITIONS[0];
+  const selectedArchetype = localizeArchetype(
+    ARCHETYPE_LIST.find((a) => a.id === archetype) ?? ARCHETYPE_LIST[0],
+    lang
+  );
+  const selectedPreset = localizeDifficultyPreset(DIFFICULTY_PRESETS[difficultyPreset], lang);
+  const selectedScenario = localizeScenario(
+    SCENARIO_DEFINITIONS.find((s) => s.id === scenarioId) ?? SCENARIO_DEFINITIONS[0],
+    lang
+  );
 
   const archetypeUnlocked = isArchetypeUnlocked(activeProfile.unlockedCosmetics, archetype);
   const scenarioUnlocked = isScenarioUnlocked(activeProfile.unlockedCosmetics, scenarioId);
@@ -297,6 +309,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {ARCHETYPE_LIST.map((arch) => {
+                  const locArch = localizeArchetype(arch, lang);
                   const unlocked = isArchetypeUnlocked(activeProfile.unlockedCosmetics, arch.id);
                   const reqUnlockId = ARCHETYPE_SHOP_ITEM_ID[arch.id];
                   const price = SHOP_ITEMS.find(
@@ -319,7 +332,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                     >
                       <div className="font-bold flex items-center justify-between gap-1 text-[11px]">
                         <span className="truncate">
-                          {arch.icon} {arch.shortName}
+                          {locArch.icon} {locArch.shortName}
                         </span>
                         {!unlocked && price && (
                           <span className="px-1 py-0.5 rounded bg-amber-950/60 border border-amber-400/40 text-amber-200 font-mono text-[9px] shrink-0">
@@ -328,7 +341,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                         )}
                       </div>
                       <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
-                        {arch.tagline}
+                        {locArch.tagline}
                       </div>
                     </button>
                   );
@@ -390,11 +403,14 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                     onChange={(e) => setDifficultyPreset(e.target.value as DifficultyPreset)}
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#151c28] border border-[#2d3b52] text-slate-100"
                   >
-                    {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map((k) => (
-                      <option key={k} value={k}>
-                        {DIFFICULTY_PRESETS[k].badge} {DIFFICULTY_PRESETS[k].label}
-                      </option>
-                    ))}
+                    {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map((k) => {
+                      const locP = localizeDifficultyPreset(DIFFICULTY_PRESETS[k], lang);
+                      return (
+                        <option key={k} value={k}>
+                          {locP.badge} {locP.label}
+                        </option>
+                      );
+                    })}
                   </select>
                   <div className="text-[10px] text-slate-400 leading-snug line-clamp-2">
                     {selectedPreset.description}
@@ -412,6 +428,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#151c28] border border-[#2d3b52] text-slate-100"
                   >
                     {SCENARIO_DEFINITIONS.map((sc) => {
+                      const locSc = localizeScenario(sc, lang);
                       const unlocked = isScenarioUnlocked(activeProfile.unlockedCosmetics, sc.id);
                       const reqUnlockId = SCENARIO_SHOP_ITEM_ID[sc.id];
                       const price = SHOP_ITEMS.find(
@@ -419,7 +436,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                       )?.priceMCoins;
                       return (
                         <option key={sc.id} value={sc.id}>
-                          {sc.icon} {sc.name}
+                          {locSc.icon} {locSc.name}
                           {!unlocked && price ? ` 🔒 (${price} M)` : ''}
                         </option>
                       );
@@ -471,7 +488,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                   >
                     {DIFFICULTY_LABELS.map((lbl, idx) => (
                       <option key={lbl} value={idx + 1}>
-                        {lbl}
+                        {localizeDifficultyLabel(idx, lbl, lang)}
                       </option>
                     ))}
                   </select>
@@ -488,7 +505,7 @@ export const GameSetup: React.FC<GameSetupProps> = ({
                   >
                     {MAP_SIZES.map((m) => (
                       <option key={m.value} value={m.value}>
-                        {m.label}
+                        {localizeMapSizeLabel(m.value, m.label, lang)}
                       </option>
                     ))}
                   </select>

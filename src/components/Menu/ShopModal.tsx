@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { SHOP_ITEMS, type ShopCategory } from '../../data/shopCatalog';
 import { purchaseShopItem, updateProfileCosmetics } from '../../engine/profileManager';
 import type { UserAccountProfile } from '../../engine/types';
+import { localizeShopItem } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
+import { LanguageSwitcher } from '../HUD/LanguageSwitcher';
 import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface ShopModalProps {
@@ -10,14 +13,14 @@ interface ShopModalProps {
   onClose: () => void;
 }
 
-const SHOP_TABS: { key: ShopCategory | 'all'; label: string }[] = [
-  { key: 'all', label: 'Wszystkie' },
-  { key: 'scenario', label: '🎬 Scenariusze' },
-  { key: 'archetype', label: '🧬 Archetypy' },
-  { key: 'theme', label: '🎨 Motywy UI' },
-  { key: 'hq', label: '🏛️ Skórki HQ' },
-  { key: 'frame', label: '💠 Ramki Anim.' },
-  { key: 'monument', label: '🗽 Pomniki 2.5D' },
+const SHOP_TABS: { key: ShopCategory | 'all'; labelPl: string; labelEn: string }[] = [
+  { key: 'all', labelPl: 'Wszystkie', labelEn: 'All' },
+  { key: 'scenario', labelPl: '🎬 Scenariusze', labelEn: '🎬 Scenarios' },
+  { key: 'archetype', labelPl: '🧬 Archetypy', labelEn: '🧬 Archetypes' },
+  { key: 'theme', labelPl: '🎨 Motywy UI', labelEn: '🎨 UI Themes' },
+  { key: 'hq', labelPl: '🏛️ Skórki HQ', labelEn: '🏛️ HQ Skins' },
+  { key: 'frame', labelPl: '💠 Ramki Anim.', labelEn: '💠 Animated Frames' },
+  { key: 'monument', labelPl: '🗽 Pomniki 2.5D', labelEn: '🗽 2.5D Monuments' },
 ];
 
 export const ShopModal: React.FC<ShopModalProps> = ({
@@ -27,6 +30,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
 }) => {
   const [category, setCategory] = useState<ShopCategory | 'all'>('all');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const { lang, t } = useI18n();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -40,11 +44,22 @@ export const ShopModal: React.FC<ShopModalProps> = ({
 
   const handleBuy = (itemId: string) => {
     const res = purchaseShopItem(profile, itemId);
+    const rawItem = SHOP_ITEMS.find((it) => it.id === itemId);
+    const locName = rawItem ? localizeShopItem(rawItem, lang).name : '';
     if (res.ok) {
       onUpdateProfile(res.profile);
-      setFeedback({ ok: true, text: res.message ?? 'Zakup zrealizowany!' });
+      setFeedback({
+        ok: true,
+        text: lang === 'en' ? `Unlocked: ${locName}!` : res.message ?? 'Zakup zrealizowany!',
+      });
     } else {
-      setFeedback({ ok: false, text: res.error ?? 'Nie udało się odblokować.' });
+      setFeedback({
+        ok: false,
+        text:
+          lang === 'en'
+            ? 'Insufficient M-Coins or item already owned.'
+            : res.error ?? 'Nie udało się odblokować.',
+      });
     }
   };
 
@@ -59,17 +74,16 @@ export const ShopModal: React.FC<ShopModalProps> = ({
         <div className="sticky top-0 z-20 px-5 py-4 bg-[#0b0f17]/95 backdrop-blur-md border-b border-[#243044] flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
-              <span>🏦 Sklep Prezesa</span>
+              <span>{t('shop.title')}</span>
               <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-mono">
-                ZERO PAY-TO-WIN
+                {t('shop.zeroP2w')}
               </span>
             </h2>
-            <p className="text-xs text-slate-400">
-              Wydawaj Złote Monety „M” za rozegrane partie, osiągnięcia i zadania
-            </p>
+            <p className="text-xs text-slate-400">{t('shop.subtitle')}</p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <LanguageSwitcher compact />
             <div className="px-3 py-1.5 rounded-xl bg-amber-950/40 border border-amber-400/50 flex items-center gap-2 font-mono font-bold text-amber-200 text-sm">
               <MCoinIcon size={18} />
               <span>{profile.mCoins} M</span>
@@ -79,7 +93,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
               onClick={onClose}
               className="px-3 py-1.5 rounded-lg bg-[#1c2434] hover:bg-[#2a364d] border border-[#2d3b52] text-xs font-semibold text-slate-200"
             >
-              ✕ Zamknij
+              ✕ {t('common.close')}
             </button>
           </div>
         </div>
@@ -87,7 +101,15 @@ export const ShopModal: React.FC<ShopModalProps> = ({
         <div className="p-5 space-y-4 text-xs">
           <div className="p-3 rounded-xl bg-sky-950/30 border border-sky-500/35 text-sky-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
             <span>
-              ⚖️ <strong>Uczciwy balans 0% P2W:</strong> kosmetyki i pomniki 2.5D nie dają żadnej przewagi liczbowej (pomniki działają 1:1 jak Park Miejski). Scenariusze Hosta działają dla wszystkich gości w pokoju!
+              {lang === 'en' ? (
+                <>
+                  ⚖️ <strong>Fair 0% P2W Balance:</strong> cosmetics and 2.5D monuments confer zero numerical advantage (monuments match City Park 1:1). Host scenarios share to everyone in the room!
+                </>
+              ) : (
+                <>
+                  ⚖️ <strong>Uczciwy balans 0% P2W:</strong> kosmetyki i pomniki 2.5D nie dają żadnej przewagi liczbowej (pomniki działają 1:1 jak Park Miejski). Scenariusze Hosta działają dla wszystkich gości w pokoju!
+                </>
+              )}
             </span>
           </div>
 
@@ -104,24 +126,25 @@ export const ShopModal: React.FC<ShopModalProps> = ({
           )}
 
           <div className="flex flex-wrap gap-1.5">
-            {SHOP_TABS.map((t) => (
+            {SHOP_TABS.map((tabItem) => (
               <button
-                key={t.key}
+                key={tabItem.key}
                 type="button"
-                onClick={() => setCategory(t.key)}
+                onClick={() => setCategory(tabItem.key)}
                 className={`px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
-                  category === t.key
+                  category === tabItem.key
                     ? 'bg-amber-500/20 border-amber-400 text-amber-200'
                     : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {t.label}
+                {lang === 'en' ? tabItem.labelEn : tabItem.labelPl}
               </button>
             ))}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {items.map((item) => {
+            {items.map((rawItem) => {
+              const item = localizeShopItem(rawItem, lang);
               const owned = item.unlockIdsGranted.every((id) =>
                 profile.unlockedCosmetics.includes(id)
               );
@@ -145,7 +168,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                       <div className="text-2xl">{item.preview}</div>
                       {owned ? (
                         <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-mono text-[10px] font-bold">
-                          ✓ POSIADANE
+                          {t('shop.owned')}
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-200 font-mono text-[11px] font-bold flex items-center gap-1">
@@ -171,7 +194,11 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                             frameId: item.frameId,
                           });
                           onUpdateProfile(next);
-                          setFeedback({ ok: true, text: `Aktywowano: ${item.name}` });
+                          setFeedback({
+                            ok: true,
+                            text:
+                              lang === 'en' ? `Activated: ${item.name}` : `Aktywowano: ${item.name}`,
+                          });
                         }}
                         className={`w-full py-2 rounded-lg font-bold text-xs ${
                           isEquipped
@@ -179,11 +206,11 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                             : 'bg-sky-600 hover:bg-sky-500 text-white'
                         }`}
                       >
-                        {isEquipped ? '✓ Aktywne w grze' : 'Aktywuj Teraz'}
+                        {isEquipped ? t('shop.activeNow') : t('shop.activateNow')}
                       </button>
                     ) : (
                       <div className="w-full py-2 text-center rounded-lg bg-emerald-950/35 border border-emerald-500/30 text-emerald-300 font-semibold text-xs">
-                        ✓ Gotowe do użycia w Lobby/Grze
+                        {t('shop.readyInLobby')}
                       </div>
                     )
                   ) : (
@@ -195,7 +222,9 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                     >
                       <MCoinIcon size={14} />
                       <span>
-                        {canAfford ? `Odblokuj za ${item.priceMCoins} M` : `Brakuje ${item.priceMCoins - profile.mCoins} M`}
+                        {canAfford
+                          ? t('shop.buyBtn', { price: item.priceMCoins })
+                          : t('shop.missingBtn', { missing: item.priceMCoins - profile.mCoins })}
                       </span>
                     </button>
                   )}

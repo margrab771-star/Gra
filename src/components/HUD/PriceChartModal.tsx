@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import type { ResourcePrice } from '../../engine/types';
+import {
+  localizeResourceDescription,
+  localizeResourceName,
+  localizeResourceUnit,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatMoney, formatPercent } from '../../utils/formatters';
 import { CandlestickChart } from './MiniChart';
 
@@ -11,7 +17,11 @@ interface PriceChartModalProps {
 
 export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onClose }) => {
   const [chartType, setChartType] = useState<'candle' | 'line'>('candle');
+  const { lang, t } = useI18n();
   const def = RESOURCE_DEFINITIONS[resource.type];
+  const resName = localizeResourceName(resource.type, resource.name, lang);
+  const resUnit = localizeResourceUnit(resource.unit, lang);
+  const resDesc = localizeResourceDescription(resource.type, def.description, lang);
   const isUp = resource.changePercent >= 0;
   const spreadFromBase = ((resource.price - resource.basePrice) / resource.basePrice) * 100;
 
@@ -36,9 +46,9 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
             <span className="text-xl">{resource.emoji}</span>
             <div>
               <div className="font-semibold text-slate-100 text-sm md:text-base">
-                {resource.name} ({resource.unit})
+                {resName} ({resUnit})
               </div>
-              <div className="text-xs text-slate-400">{def.description}</div>
+              <div className="text-xs text-slate-400">{resDesc}</div>
             </div>
           </div>
           <button
@@ -53,25 +63,25 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
         <div className="p-4 space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-              <div className="text-[11px] text-slate-400">Kurs Bieżący</div>
+              <div className="text-[11px] text-slate-400">{t('chart.currentRate')}</div>
               <div className="font-mono text-base font-bold text-slate-100">
                 {formatMoney(resource.price)}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-              <div className="text-[11px] text-slate-400">Zmiana (1T)</div>
+              <div className="text-[11px] text-slate-400">{t('chart.change1T')}</div>
               <div className={`font-mono text-base font-bold ${isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {formatPercent(resource.changePercent)}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-              <div className="text-[11px] text-slate-400">Odchylenie od Bazy</div>
+              <div className="text-[11px] text-slate-400">{t('chart.vsBase')}</div>
               <div className={`font-mono text-base font-bold ${spreadFromBase >= 0 ? 'text-amber-400' : 'text-sky-400'}`}>
                 {formatPercent(spreadFromBase)}
               </div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-              <div className="text-[11px] text-slate-400">Podaż / Popyt</div>
+              <div className="text-[11px] text-slate-400">{t('chart.supplyDemand')}</div>
               <div className="font-mono text-sm font-semibold text-slate-200">
                 {resource.supply} / {resource.demand}
               </div>
@@ -80,7 +90,7 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-              Notowania Historyczne Giełdy
+              {t('chart.historyHeader', { count: resource.history.length })}
             </span>
             <div className="flex gap-1 bg-[#0b0f17] p-0.5 rounded-lg border border-[#243044]">
               <button
@@ -90,7 +100,7 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
                   chartType === 'candle' ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Świece OHLC
+                {t('chart.ohlcMode')}
               </button>
               <button
                 type="button"
@@ -99,7 +109,7 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
                   chartType === 'line' ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Wykres Liniowy
+                {t('chart.lineMode')}
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import Peer from 'peerjs';
 import type { DataConnection, PeerOptions } from 'peerjs';
 import { AI_STRATEGY_LABELS, DEFAULT_MUTATORS, PLAYER_COLORS } from '../config/gameConfig';
 import { computeRewardMultiplier } from '../data/shopCatalog';
+import { getCurrentLanguage } from '../i18n';
 import type {
   AIStrategy,
   ArchetypeId,
@@ -573,28 +574,43 @@ export function translatePeerError(err: unknown): string {
     typeof err === 'object' && err !== null && 'type' in err
       ? String((err as { type?: unknown }).type)
       : '';
+  const en = getCurrentLanguage() === 'en';
   const rawMsg =
     err instanceof Error
       ? err.message
       : typeof err === 'string'
         ? err
-        : 'Nieznany błąd sieci';
+        : en
+          ? 'Unknown network error'
+          : 'Nieznany błąd sieci';
 
   switch (rawType) {
     case 'peer-unavailable':
-      return 'Nie znaleziono pokoju o podanym kodzie. Sprawdź kod lub upewnij się, że Host nadal ma otwartą grę.';
+      return en
+        ? 'No room found with that code. Check the code or confirm the Host still has the match open.'
+        : 'Nie znaleziono pokoju o podanym kodzie. Sprawdź kod lub upewnij się, że Host nadal ma otwartą grę.';
     case 'unavailable-id':
-      return 'Wygenerowany kod pokoju jest już zajęty. Spróbuj ponownie utworzyć pokój.';
+      return en
+        ? 'Generated room code is already taken. Try creating the room again.'
+        : 'Wygenerowany kod pokoju jest już zajęty. Spróbuj ponownie utworzyć pokój.';
     case 'network':
-      return 'Utracono połączenie z serwerem sygnalizacyjnym WebRTC. Sprawdź internet lub spróbuj ponownie.';
+      return en
+        ? 'Lost connection to the WebRTC signaling server. Check your internet and retry.'
+        : 'Utracono połączenie z serwerem sygnalizacyjnym WebRTC. Sprawdź internet lub spróbuj ponownie.';
     case 'browser-incompatible':
-      return 'Twoja przeglądarka nie obsługuje WebRTC DataChannel wymaganego do trybu sieciowego.';
+      return en
+        ? 'Your browser does not support WebRTC DataChannel required for online multiplayer.'
+        : 'Twoja przeglądarka nie obsługuje WebRTC DataChannel wymaganego do trybu sieciowego.';
     case 'ssl-unavailable':
-      return 'Serwer sygnalizacyjny wymaga bezpiecznego połączenia HTTPS/WSS.';
+      return en
+        ? 'The signaling server requires a secure HTTPS/WSS connection.'
+        : 'Serwer sygnalizacyjny wymaga bezpiecznego połączenia HTTPS/WSS.';
     case 'webrtc':
-      return 'Błąd połączenia P2P (NAT/Firewall zablokował bezpośredni kanał WebRTC).';
+      return en
+        ? 'P2P connection error (NAT/Firewall blocked direct WebRTC DataChannel).'
+        : 'Błąd połączenia P2P (NAT/Firewall zablokował bezpośredni kanał WebRTC).';
     default:
-      return `Błąd sieci WebRTC: ${rawMsg}`;
+      return en ? `WebRTC network error: ${rawMsg}` : `Błąd sieci WebRTC: ${rawMsg}`;
   }
 }
 
@@ -608,6 +624,7 @@ export interface P2PReadinessReport {
 
 export async function testP2PReadiness(): Promise<P2PReadinessReport> {
   const started = performance.now();
+  const en = getCurrentLanguage() === 'en';
   const protocol =
     typeof window !== 'undefined' ? window.location.protocol : 'https:';
 
@@ -617,7 +634,9 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
       protocol,
       stunConfigured: false,
       latencyMs: 0,
-      message: 'Przeglądarka nie obsługuje interfejsu RTCPeerConnection.',
+      message: en
+        ? 'Your browser does not support RTCPeerConnection.'
+        : 'Przeglądarka nie obsługuje interfejsu RTCPeerConnection.',
     };
   }
 
@@ -646,7 +665,9 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
     const timer = window.setTimeout(() => {
       finish(
         false,
-        'Przekroczono limit 8 s podczas testu serwera sygnalizacyjnego PeerJS (WSS/STUN).'
+        en
+          ? 'Timed out after 8s testing PeerJS signaling server (WSS/STUN).'
+          : 'Przekroczono limit 8 s podczas testu serwera sygnalizacyjnego PeerJS (WSS/STUN).'
       );
     }, 8_000);
 
@@ -655,7 +676,9 @@ export async function testP2PReadiness(): Promise<P2PReadinessReport> {
       tempPeer.on('open', (id) => {
         finish(
           true,
-          `Gotowość P2P potwierdzona (${protocol === 'https:' ? 'WSS/HTTPS' : 'WS'} + STUN, ID testowe: ${id.slice(0, 8)}…).`
+          en
+            ? `P2P ready (${protocol === 'https:' ? 'WSS/HTTPS' : 'WS'} + STUN, probe ID: ${id.slice(0, 8)}…).`
+            : `Gotowość P2P potwierdzona (${protocol === 'https:' ? 'WSS/HTTPS' : 'WS'} + STUN, ID testowe: ${id.slice(0, 8)}…).`
         );
       });
       tempPeer.on('error', (err) => {
@@ -803,7 +826,11 @@ export class MultiplayerManager {
     const peerId = roomCodeToPeerId(roomCode);
     this.isHostFlag = true;
     this.localPlayerId = 'player_1';
-    this.setStage('signaling', 'Łączenie z serwerem sygnalizacyjnym WebRTC...');
+    const en = getCurrentLanguage() === 'en';
+    this.setStage(
+      'signaling',
+      en ? 'Connecting to WebRTC signaling server...' : 'Łączenie z serwerem sygnalizacyjnym WebRTC...'
+    );
 
     const initialLobby: LobbyState = {
       roomCode,
@@ -818,7 +845,9 @@ export class MultiplayerManager {
       scenarioId: 'sandbox',
       mutators: { ...DEFAULT_MUTATORS },
       isPublic: opts?.isPublic ?? true,
-      roomName: opts?.roomName?.trim() || `Sesja ${hostName || 'Prezesa'} (${roomCode})`,
+      roomName:
+        opts?.roomName?.trim() ||
+        (en ? `${hostName || 'CEO'}'s Session (${roomCode})` : `Sesja ${hostName || 'Prezesa'} (${roomCode})`),
       hostDivision: opts?.hostDivision ?? opts?.playerCard?.pvpDivisionId ?? 'startup',
       hostPrestige: opts?.hostPrestige ?? opts?.playerCard?.prestigeLevel ?? 0,
       hostUnlockedScenarios: opts?.hostUnlockedScenarios ?? ['sandbox', 'gold_rush'],
@@ -850,7 +879,9 @@ export class MultiplayerManager {
         if (settled) return;
         settled = true;
         const msg =
-          'Przekroczono limit 10 s połączenia z serwerem sygnalizacyjnym WebRTC.';
+          getCurrentLanguage() === 'en'
+            ? 'Timed out after 10s connecting to the WebRTC signaling server.'
+            : 'Przekroczono limit 10 s połączenia z serwerem sygnalizacyjnym WebRTC.';
         this.setStage('error', msg);
         this.disconnect();
         reject(new Error(msg));
@@ -862,7 +893,12 @@ export class MultiplayerManager {
         clearTimeout(timeout);
         this.startHeartbeat();
         this.startPublicDirectoryHeartbeat();
-        this.setStage('connected', `Pokój ${roomCode} aktywny — oczekiwanie na graczy.`);
+        this.setStage(
+          'connected',
+          getCurrentLanguage() === 'en'
+            ? `Room ${roomCode} active — waiting for players.`
+            : `Pokój ${roomCode} aktywny — oczekiwanie na graczy.`
+        );
         this.callbacks.onLobbyChange?.(initialLobby);
         resolve(initialLobby);
       });
@@ -1000,7 +1036,10 @@ export class MultiplayerManager {
         }
         conn.send({
           kind: 'join_rejected',
-          reason: 'Rozgrywka w tym pokoju już się rozpoczęła.',
+          reason:
+            getCurrentLanguage() === 'en'
+              ? 'This match has already started.'
+              : 'Rozgrywka w tym pokoju już się rozpoczęła.',
         } satisfies NetworkMessage);
         return;
       }
@@ -1008,7 +1047,10 @@ export class MultiplayerManager {
       if (humanCount >= this.lobby.maxPlayers) {
         conn.send({
           kind: 'join_rejected',
-          reason: `Pokój jest już pełny (maks. ${this.lobby.maxPlayers} graczy).`,
+          reason:
+            getCurrentLanguage() === 'en'
+              ? `Room is already full (max ${this.lobby.maxPlayers} players).`
+              : `Pokój jest już pełny (maks. ${this.lobby.maxPlayers} graczy).`,
         } satisfies NetworkMessage);
         return;
       }
@@ -1102,7 +1144,11 @@ export class MultiplayerManager {
     this.disconnect();
     this.isHostFlag = false;
     const hostPeerId = roomCodeToPeerId(normalizedCode);
-    this.setStage('signaling', 'Łączenie z serwerem sygnalizacyjnym WebRTC...');
+    const en = getCurrentLanguage() === 'en';
+    this.setStage(
+      'signaling',
+      en ? 'Connecting to WebRTC signaling server...' : 'Łączenie z serwerem sygnalizacyjnym WebRTC...'
+    );
 
     return new Promise((resolve, reject) => {
       const peer = new Peer(getPeerOptions());
@@ -1113,16 +1159,21 @@ export class MultiplayerManager {
         if (settled) return;
         settled = true;
         const msg =
-          'Nie udało się połączyć z pokojem w ciągu 10 s. Sprawdź kod, czy Host ma aktywną kartę i ponów próbę.';
+          getCurrentLanguage() === 'en'
+            ? 'Failed to connect to room within 10s. Verify the code, ensure the Host keeps their tab active, and retry.'
+            : 'Nie udało się połączyć z pokojem w ciągu 10 s. Sprawdź kod, czy Host ma aktywną kartę i ponów próbę.';
         this.setStage('error', msg);
         this.disconnect();
         reject(new Error(msg));
       }, CONNECTION_TIMEOUT_MS);
 
       peer.on('open', () => {
+        const curEn = getCurrentLanguage() === 'en';
         this.setStage(
           'connecting_peer',
-          `Nawiązywanie bezpośredniego kanału P2P z pokojem ${normalizedCode}...`
+          curEn
+            ? `Establishing direct P2P channel with room ${normalizedCode}...`
+            : `Nawiązywanie bezpośredniego kanału P2P z pokojem ${normalizedCode}...`
         );
         const conn = peer.connect(hostPeerId, {
           reliable: true,
@@ -1131,7 +1182,12 @@ export class MultiplayerManager {
         this.hostConn = conn;
 
         conn.on('open', () => {
-          this.setStage('waiting_host', 'Połączono z Hostem — oczekiwanie na dołączenie...');
+          this.setStage(
+            'waiting_host',
+            getCurrentLanguage() === 'en'
+              ? 'Connected to Host — awaiting approval...'
+              : 'Połączono z Hostem — oczekiwanie na dołączenie...'
+          );
           conn.send({
             kind: 'join_request',
             name: playerName,
@@ -1158,7 +1214,12 @@ export class MultiplayerManager {
             };
             this.lobby = normalizedLobby;
             this.startHeartbeat();
-            this.setStage('connected', `Połączono z pokojem ${normalizedCode}.`);
+            this.setStage(
+              'connected',
+              getCurrentLanguage() === 'en'
+                ? `Connected to room ${normalizedCode}.`
+                : `Połączono z pokojem ${normalizedCode}.`
+            );
             this.callbacks.onLobbyChange?.(normalizedLobby);
             resolve({ lobby: normalizedLobby, playerId: msg.assignedPlayerId });
             if (normalizedLobby.gameStarted) {
@@ -1620,7 +1681,11 @@ export class MultiplayerManager {
     this.publishedRoomCode = this.lobby.roomCode;
     void publishOrHeartbeatPublicLobby({
       roomCode: this.lobby.roomCode,
-      roomName: this.lobby.roomName || `Pokój ${this.lobby.roomCode}`,
+      roomName:
+        this.lobby.roomName ||
+        (getCurrentLanguage() === 'en'
+          ? `Room ${this.lobby.roomCode}`
+          : `Pokój ${this.lobby.roomCode}`),
       hostName: host?.name ?? 'Host',
       hostDivision: this.lobby.hostDivision ?? host?.playerCard?.pvpDivisionId ?? 'startup',
       hostPrestige: this.lobby.hostPrestige ?? host?.playerCard?.prestigeLevel ?? 0,

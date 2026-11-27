@@ -16,6 +16,8 @@ import {
   computeRewardMultiplier,
   getUnlockedMonumentsForProfile,
 } from '../data/shopCatalog';
+import { getCurrentLanguage } from '../i18n';
+import { localizeBattlePassTierTitle, localizeShopItem } from '../i18n/dataTranslations';
 import type {
   GameState,
   HQVariantId,
@@ -242,16 +244,30 @@ export function registerAccount(
   pin: string,
   avatar = '👔'
 ): { ok: boolean; profile?: UserAccountProfile; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const cleanNick = nick.trim();
   if (cleanNick.length < 2 || cleanNick.length > 24) {
-    return { ok: false, error: 'Pseudonim musi mieć od 2 do 24 znaków.' };
+    return {
+      ok: false,
+      error: en ? 'Nickname must be 2–24 characters long.' : 'Pseudonim musi mieć od 2 do 24 znaków.',
+    };
   }
   if (pin.trim().length < 3) {
-    return { ok: false, error: 'Hasło lub kod PIN musi mieć co najmniej 3 znaki.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Password or PIN must be at least 3 characters.'
+        : 'Hasło lub kod PIN musi mieć co najmniej 3 znaki.',
+    };
   }
   const db = loadAccountsDatabase();
   if (db.some((a) => !a.isGuest && a.nick.toLowerCase() === cleanNick.toLowerCase())) {
-    return { ok: false, error: 'Konto o takim pseudonimie już istnieje w tej przeglądarce.' };
+    return {
+      ok: false,
+      error: en
+        ? 'An account with that nickname already exists in this browser.'
+        : 'Konto o takim pseudonimie już istnieje w tej przeglądarce.',
+    };
   }
 
   const acc: UserAccountProfile = {
@@ -271,14 +287,18 @@ export function loginAccount(
   nick: string,
   pin: string
 ): { ok: boolean; profile?: UserAccountProfile; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const cleanNick = nick.trim().toLowerCase();
   const db = loadAccountsDatabase();
   const found = db.find((a) => !a.isGuest && a.nick.toLowerCase() === cleanNick);
   if (!found) {
-    return { ok: false, error: 'Nie znaleziono konta o podanym pseudonimie.' };
+    return {
+      ok: false,
+      error: en ? 'No account found with that nickname.' : 'Nie znaleziono konta o podanym pseudonimie.',
+    };
   }
   if (found.pinHash !== simplePinHash(pin.trim())) {
-    return { ok: false, error: 'Nieprawidłowe hasło lub PIN.' };
+    return { ok: false, error: en ? 'Invalid password or PIN.' : 'Nieprawidłowe hasło lub PIN.' };
   }
   setActiveProfileId(found.id);
   return { ok: true, profile: found };
@@ -309,10 +329,16 @@ export function exportProfileTransferCode(profile: UserAccountProfile): string {
 export function importProfileTransferCode(
   code: string
 ): { ok: boolean; profile?: UserAccountProfile; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   try {
     const trimmed = code.trim();
     if (!trimmed.startsWith('MDPROF1:')) {
-      return { ok: false, error: 'Nieprawidłowy format Kodu Przenoszenia Profilu (oczekiwano MDPROF1:...).' };
+      return {
+        ok: false,
+        error: en
+          ? 'Invalid Profile Transfer Code format (expected MDPROF1:...).'
+          : 'Nieprawidłowy format Kodu Przenoszenia Profilu (oczekiwano MDPROF1:...).',
+      };
     }
     const b64 = trimmed.slice('MDPROF1:'.length);
     const bin = atob(b64);
@@ -323,12 +349,22 @@ export function importProfileTransferCode(
     const json = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(json) as UserAccountProfile;
     if (!parsed || typeof parsed.id !== 'string' || typeof parsed.nick !== 'string') {
-      return { ok: false, error: 'Uszkodzone dane w Kodzie Przenoszenia Profilu.' };
+      return {
+        ok: false,
+        error: en
+          ? 'Corrupted data in Profile Transfer Code.'
+          : 'Uszkodzone dane w Kodzie Przenoszenia Profilu.',
+      };
     }
     const saved = updateProfileInDb(parsed);
     return { ok: true, profile: saved };
   } catch {
-    return { ok: false, error: 'Nie udało się zdekodować Kodu Przenoszenia Profilu.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Failed to decode Profile Transfer Code.'
+        : 'Nie udało się zdekodować Kodu Przenoszenia Profilu.',
+    };
   }
 }
 
@@ -380,18 +416,35 @@ export function purchaseShopItem(
   profile: UserAccountProfile,
   itemId: string
 ): { ok: boolean; profile: UserAccountProfile; message?: string; error?: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const norm = normalizeAccount(profile);
   const item = SHOP_ITEMS.find((it) => it.id === itemId);
-  if (!item) return { ok: false, profile: norm, error: 'Nieznana pozycja w Sklepie Prezesa.' };
+  if (!item) {
+    return {
+      ok: false,
+      profile: norm,
+      error: en ? 'Unknown CEO Shop item.' : 'Nieznana pozycja w Sklepie Prezesa.',
+    };
+  }
+  const locItem = localizeShopItem(item, lang);
   const alreadyOwned = item.unlockIdsGranted.every((uid) => norm.unlockedCosmetics.includes(uid));
   if (alreadyOwned) {
-    return { ok: false, profile: norm, error: 'Ten element jest już odblokowany na Twoim koncie.' };
+    return {
+      ok: false,
+      profile: norm,
+      error: en
+        ? 'This item is already unlocked on your account.'
+        : 'Ten element jest już odblokowany na Twoim koncie.',
+    };
   }
   if (norm.mCoins < item.priceMCoins) {
     return {
       ok: false,
       profile: norm,
-      error: `Za mało Monet M (potrzeba ${item.priceMCoins} M, masz ${norm.mCoins} M).`,
+      error: en
+        ? `Not enough M-Coins (need ${item.priceMCoins} M, have ${norm.mCoins} M).`
+        : `Za mało Monet M (potrzeba ${item.priceMCoins} M, masz ${norm.mCoins} M).`,
     };
   }
   const updated: UserAccountProfile = {
@@ -404,22 +457,42 @@ export function purchaseShopItem(
   };
   if (item.uiThemeId) applyUiThemeToDocument(item.uiThemeId);
   const saved = updateProfileInDb(updated);
-  return { ok: true, profile: saved, message: `Odblokowano: ${item.name}!` };
+  return {
+    ok: true,
+    profile: saved,
+    message: en ? `Unlocked: ${locItem.name}!` : `Odblokowano: ${locItem.name}!`,
+  };
 }
 
 export function claimBattlePassReward(
   profile: UserAccountProfile,
   level: number
 ): { ok: boolean; profile: UserAccountProfile; message?: string; error?: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const norm = normalizeAccount(profile);
   const tier = BATTLE_PASS_SEASON_1.find((t) => t.level === level);
-  if (!tier) return { ok: false, profile: norm, error: 'Nieznany próg Karnetu Sezon 1.' };
+  if (!tier) {
+    return {
+      ok: false,
+      profile: norm,
+      error: en ? 'Unknown Season 1 Pass tier.' : 'Nieznany próg Karnetu Sezon 1.',
+    };
+  }
   const bpProgress = computeBattlePassLevel(norm.battlePassXp);
   if (bpProgress.level < level) {
-    return { ok: false, profile: norm, error: `Wymagany Poziom Karnetu ${level}.` };
+    return {
+      ok: false,
+      profile: norm,
+      error: en ? `Requires Pass Level ${level}.` : `Wymagany Poziom Karnetu ${level}.`,
+    };
   }
   if (norm.claimedPassLevels.includes(level)) {
-    return { ok: false, profile: norm, error: 'Nagroda została już odebrana.' };
+    return {
+      ok: false,
+      profile: norm,
+      error: en ? 'Reward already claimed.' : 'Nagroda została już odebrana.',
+    };
   }
 
   let mCoinsAdded = tier.mCoinsBonus ?? 0;
@@ -449,7 +522,14 @@ export function claimBattlePassReward(
     claimedPassLevels: [...norm.claimedPassLevels, level],
     unlockedCosmetics: Array.from(new Set([...norm.unlockedCosmetics, ...extraCosmetics])),
   });
-  return { ok: true, profile: saved, message: `Odebrano nagrodę Poziomu ${level}: ${tier.title}!` };
+  const tierTitle = localizeBattlePassTierTitle(level, tier.title, lang);
+  return {
+    ok: true,
+    profile: saved,
+    message: en
+      ? `Claimed Level ${level} reward: ${tierTitle}!`
+      : `Odebrano nagrodę Poziomu ${level}: ${tierTitle}!`,
+  };
 }
 
 export function activatePrestige(profile: UserAccountProfile): {
@@ -458,12 +538,15 @@ export function activatePrestige(profile: UserAccountProfile): {
   message?: string;
   error?: string;
 } {
+  const en = getCurrentLanguage() === 'en';
   const norm = normalizeAccount(profile);
   if (norm.level < PRESTIGE_REQUIRED_ACCOUNT_LEVEL) {
     return {
       ok: false,
       profile: norm,
-      error: `Prestiż wymaga osiągnięcia min. Poziomu Konta ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}.`,
+      error: en
+        ? `Prestige requires Account Level ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}.`
+        : `Prestiż wymaga osiągnięcia min. Poziomu Konta ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}.`,
     };
   }
   const nextPrestige = norm.prestigeLevel + 1;
@@ -479,7 +562,9 @@ export function activatePrestige(profile: UserAccountProfile): {
   return {
     ok: true,
     profile: saved,
-    message: `★ Aktywowano Prestiż #${nextPrestige}! Otrzymujesz Złotą Gwiazdę, granice działek na mapie i +250 Monet M!`,
+    message: en
+      ? `★ Prestige #${nextPrestige} Activated! Earned Gold Star badge, map plot borders, and +250 M-Coins!`
+      : `★ Aktywowano Prestiż #${nextPrestige}! Otrzymujesz Złotą Gwiazdę, granice działek na mapie i +250 Monet M!`,
   };
 }
 

@@ -1,7 +1,8 @@
 import { DIFFICULTY_PRESETS, GAME_CONFIG, GOVERNMENT_CONFIGS } from '../config/gameConfig';
 import { getArchetypeDefinition } from '../data/archetypes';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { formatCompactMoney, formatGameDate, formatMoney } from '../utils/formatters';
 export { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
 import type {
   Building,
@@ -558,26 +559,41 @@ export function takeBankLoan(
   amount: number,
   months: number
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (state.settings.mutators?.noLoans) {
     return {
       ok: false,
-      error: 'Mutator "Bez Kredytów": pożyczki bankowe są całkowicie zablokowane w tej rozgrywce.',
+      error: en
+        ? 'No Loans Mutator: bank loans are completely disabled in this match.'
+        : 'Mutator "Bez Kredytów": pożyczki bankowe są całkowicie zablokowane w tej rozgrywce.',
     };
   }
   const isMp = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
   if (isMp && player.loans.length >= GAME_CONFIG.maxMpLoans) {
     return {
       ok: false,
-      error: 'Osiągnięto limit 3 aktywnych kredytów w trybie Multiplayer. Spłać istniejące zobowiązanie.',
+      error: en
+        ? 'Reached limit of 3 active loans in Multiplayer. Repay an existing obligation first.'
+        : 'Osiągnięto limit 3 aktywnych kredytów w trybie Multiplayer. Spłać istniejące zobowiązanie.',
     };
   }
   if (amount <= 0 || amount > 5_000_000) {
-    return { ok: false, error: 'Kwota kredytu musi wynosić od 1 zł do 5 000 000 zł.' };
+    return {
+      ok: false,
+      error: en
+        ? `Loan amount must be between ${formatMoney(1)} and ${formatCompactMoney(5_000_000)}.`
+        : 'Kwota kredytu musi wynosić od 1 zł do 5 000 000 zł.',
+    };
   }
   const maxDebt = Math.max(1_500_000, player.netWorth * 1.1);
   const currentDebt = player.loans.reduce((s, l) => s + l.remainingAmount, 0);
   if (currentDebt + amount > maxDebt) {
-    return { ok: false, error: 'Przekroczono maksymalną zdolność kredytową konglomeratu.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Exceeded conglomerate maximum credit capacity.'
+        : 'Przekroczono maksymalną zdolność kredytową konglomeratu.',
+    };
   }
 
   const mods = getPlayerEntrepreneurModifiers(state, player);
@@ -598,7 +614,13 @@ export function takeBankLoan(
   player.cash += amount;
   player.loans.push({
     id: `loan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    bankName: hasBank ? 'Własny Bank Inwestycyjny' : 'Konsorcjum Bankowe',
+    bankName: hasBank
+      ? en
+        ? 'Own Investment Bank'
+        : 'Własny Bank Inwestycyjny'
+      : en
+        ? 'Banking Consortium'
+        : 'Konsorcjum Bankowe',
     principal: amount,
     interestRate: Number((rate * 100).toFixed(2)),
     remainingAmount: totalWithInterest,
@@ -610,11 +632,17 @@ export function takeBankLoan(
 }
 
 export function repayBankLoan(player: Player, loanId: string): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const idx = player.loans.findIndex((l) => l.id === loanId);
-  if (idx === -1) return { ok: false, error: 'Nie znaleziono kredytu.' };
+  if (idx === -1) return { ok: false, error: en ? 'Loan not found.' : 'Nie znaleziono kredytu.' };
   const loan = player.loans[idx];
   if (player.cash < loan.remainingAmount) {
-    return { ok: false, error: 'Brak środków na pełną spłatę kapitału kredytu.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Insufficient funds for full principal loan payoff.'
+        : 'Brak środków na pełną spłatę kapitału kredytu.',
+    };
   }
   player.cash -= loan.remainingAmount;
   player.loans.splice(idx, 1);

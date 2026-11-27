@@ -12,7 +12,16 @@ import { DEFAULT_ENTREPRENEUR_SKILLS } from '../data/entrepreneurTree';
 import { RESOURCE_DEFINITIONS, createInitialResourcePrices } from '../data/resources';
 import { assignSecretGoalsForPlayers, evaluateSecretGoalsTick } from '../data/secretGoals';
 import { DEFAULT_GLOBAL_TECH_TREE } from '../data/techTrees';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
+import {
+  localizeCorpLevel,
+  localizeResourceName,
+  localizeResourceUnit,
+  localizeSkillNode,
+  localizeTechNode,
+} from '../i18n/dataTranslations';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import { executeAITurn } from './AIBot';
 import { computePlayerUtilityAndResourceBalance } from './BalanceSystem';
 import {
@@ -761,7 +770,17 @@ export function stepGameSimulation(state: GameState): void {
           }
         }
         if (player.id === state.currentPlayerId) {
-          pushNotification(state, 'Badania ukończone', `Technologia "${def.name}" została wdrożona!`, 'success');
+          const lang = getCurrentLanguage();
+          const en = lang === 'en';
+          const locDef = localizeTechNode(def, lang);
+          pushNotification(
+            state,
+            en ? 'Research Complete' : 'Badania ukończone',
+            en
+              ? `Technology "${locDef.name}" has been deployed!`
+              : `Technologia "${locDef.name}" została wdrożona!`,
+            'success'
+          );
         }
       }
     }
@@ -891,10 +910,15 @@ export function stepGameSimulation(state: GameState): void {
         player.skillPoints += 2;
       }
       if (player.id === state.currentPlayerId) {
+        const lang = getCurrentLanguage();
+        const en = lang === 'en';
+        const lvl = localizeCorpLevel(CORPORATION_LEVELS[nextLevel], lang);
         pushNotification(
           state,
-          `Awans Korporacji: Poziom ${nextLevel}!`,
-          `Twoja firma osiągnęła status "${CORPORATION_LEVELS[nextLevel].name}", zdobyła +2 pkt Prezesa i odblokowała nowe sektory!`,
+          en ? `Corporation Promotion: Level ${nextLevel}!` : `Awans Korporacji: Poziom ${nextLevel}!`,
+          en
+            ? `Your company reached "${lvl.name}" status, earned +2 CEO Skill Pts, and unlocked new sectors!`
+            : `Twoja firma osiągnęła status "${lvl.name}", zdobyła +2 pkt Prezesa i odblokowała nowe sektory!`,
           'success'
         );
       }
@@ -969,6 +993,7 @@ function detectDominantStrategy(state: GameState, player: Player): string {
 }
 
 function checkVictoryConditions(state: GameState): void {
+  const en = getCurrentLanguage() === 'en';
   if (state.winnerId || state.challengeCompleted) return;
   if (state.settings.weeklyChallengeId && state.settings.weeklyTargetNetWorth) {
     const human = state.players.find((p) => !p.isAI && !p.isEliminated);
@@ -976,13 +1001,17 @@ function checkVictoryConditions(state: GameState): void {
       state.winnerId = human.id;
       state.challengeCompleted = true;
       state.speed = 0;
-      state.victoryReason = `Ukończono Wyzwanie Tygodnia (${state.settings.weeklyChallengeId}) osiągając ${human.netWorth.toLocaleString('pl-PL')} zł w ${state.time.tick} cykli!`;
+      state.victoryReason = en
+        ? `Completed Weekly Challenge (${state.settings.weeklyChallengeId}) reaching ${formatMoney(human.netWorth, 'en')} in ${state.time.tick} ticks!`
+        : `Ukończono Wyzwanie Tygodnia (${state.settings.weeklyChallengeId}) osiągając ${formatMoney(human.netWorth, 'pl')} w ${state.time.tick} cykli!`;
       return;
     }
     if (state.time.year >= (state.settings.weeklyMaxYear ?? 2034)) {
       state.challengeCompleted = true;
       state.speed = 0;
-      state.victoryReason = `Czas Wyzwania Tygodnia (${state.settings.weeklyChallengeId}) upłynął przed osiągnięciem celu wyceny.`;
+      state.victoryReason = en
+        ? `Weekly Challenge time (${state.settings.weeklyChallengeId}) expired before reaching the net-worth target.`
+        : `Czas Wyzwania Tygodnia (${state.settings.weeklyChallengeId}) upłynął przed osiągnięciem celu wyceny.`;
       return;
     }
   }
@@ -990,7 +1019,9 @@ function checkVictoryConditions(state: GameState): void {
   if (state.players.length > 1 && activePlayers.length === 1) {
     const survivor = activePlayers[0];
     state.winnerId = survivor.id;
-    state.victoryReason = `${survivor.companyName} przetrwała kryzys i została jedyną aktywną korporacją na rynku!`;
+    state.victoryReason = en
+      ? `${survivor.companyName} outlasted the crisis and became the sole surviving corporation!`
+      : `${survivor.companyName} przetrwała kryzys i została jedyną aktywną korporacją na rynku!`;
     if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
       state.phase = 'GameOver';
     }
@@ -1015,7 +1046,10 @@ function checkVictoryConditions(state: GameState): void {
         if ((wealthPct >= domThreshold || coalitionDominance >= domThreshold) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
           state.winningCoalitionId = col.id;
           state.winnerId = col.leaderId;
-          state.victoryReason = `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${Math.max(Math.round(wealthPct), coalitionDominance)}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;
+          const pctVal = Math.max(Math.round(wealthPct), coalitionDominance);
+          state.victoryReason = en
+            ? `Coalition [${col.tag}] ${col.name} achieved combined market domination (${pctVal}% at ${domThreshold}% threshold) and won as an alliance!`
+            : `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${pctVal}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;
           if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
             state.phase = 'GameOver';
           }
@@ -1032,8 +1066,12 @@ function checkVictoryConditions(state: GameState): void {
         state.winningCoalitionId = col?.id ?? null;
         state.winnerId = p.id;
         state.victoryReason = col
-          ? `Koalicja [${col.tag}] ${col.name} zdominowała rynek dzięki potędze ${p.companyName} (${dominance}% / cel ${domThreshold}%)!`
-          : `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}% przy progu ${domThreshold}%) na mapie i kontroluje rynek!`;
+          ? en
+            ? `Coalition [${col.tag}] ${col.name} dominated the market behind ${p.companyName} (${dominance}% / target ${domThreshold}%)!`
+            : `Koalicja [${col.tag}] ${col.name} zdominowała rynek dzięki potędze ${p.companyName} (${dominance}% / cel ${domThreshold}%)!`
+          : en
+            ? `${p.companyName} achieved monopolistic domination (${dominance}% at ${domThreshold}% threshold) and controls the market!`
+            : `${p.companyName} osiągnęła monopolistyczną dominację (${dominance}% przy progu ${domThreshold}%) na mapie i kontroluje rynek!`;
         if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
           state.phase = 'GameOver';
         }
@@ -1044,25 +1082,27 @@ function checkVictoryConditions(state: GameState): void {
 }
 
 export function applyPlayerAction(state: GameState, action: PlayerAction): { ok: boolean; message?: string } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const player = state.players.find((p) => p.id === action.playerId);
-  if (!player) return { ok: false, message: 'Nieznany gracz.' };
+  if (!player) return { ok: false, message: en ? 'Unknown player.' : 'Nieznany gracz.' };
 
   switch (action.type) {
     case 'buyPlot': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = buyPlotForPlayer(state, player, plot);
-      return { ok: r.ok, message: r.error ?? 'Kupiono działkę.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Plot purchased.' : 'Kupiono działkę.') };
     }
     case 'sellPlot': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = sellPlotForPlayer(state, player, plot);
-      return { ok: r.ok, message: r.error ?? 'Sprzedano działkę.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Plot sold.' : 'Sprzedano działkę.') };
     }
     case 'buildPlayerRoad': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const roadClass = action.roadClass ?? 'local';
       const r = buildPlayerRoadOnPlot(state, player, plot, roadClass);
       if (r.ok) {
@@ -1075,15 +1115,21 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         message:
           r.error ??
           (roadClass === 'bridge'
-            ? 'Wybudowano Most Drogowy łączący brzegi!'
+            ? en
+              ? 'Built a Road Bridge linking the shores!'
+              : 'Wybudowano Most Drogowy łączący brzegi!'
             : roadClass === 'highway'
-              ? 'Wybudowano Autostradę Płatną!'
-              : 'Wybudowano Drogę Zwykłą!'),
+              ? en
+                ? 'Built a Toll Highway!'
+                : 'Wybudowano Autostradę Płatną!'
+              : en
+                ? 'Built a Local Road!'
+                : 'Wybudowano Drogę Zwykłą!'),
       };
     }
     case 'setRoadPolicy': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = setRoadPolicyForPlayer(player, plot, {
         tollRate: action.tollRate,
         roadBlocked: action.roadBlocked,
@@ -1098,24 +1144,29 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     }
     case 'surveyArea': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = surveyAreaForPlayer(state, player, plot);
       return {
         ok: r.ok,
         message:
           r.error ??
-          `Georadar 3×3 zbadał ${r.scannedPlots} działek i wykrył ${r.foundCount} złóż!`,
+          (en
+            ? `3×3 Georadar scanned ${r.scannedPlots} plots and detected ${r.foundCount} deposits!`
+            : `Georadar 3×3 zbadał ${r.scannedPlots} działek i wykrył ${r.foundCount} złóż!`),
       };
     }
     case 'buyServiceVehicle': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku służby.' };
+      if (!b) return { ok: false, message: en ? 'Service station not found.' : 'Nie znaleziono budynku służby.' };
       const r = buyServiceVehicleForPlayer(b, player);
       if (r.ok) {
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
-      return { ok: r.ok, message: r.error ?? 'Dokupiono nowy pojazd do floty operacyjnej!' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Added a new vehicle to the operational fleet!' : 'Dokupiono nowy pojazd do floty operacyjnej!'),
+      };
     }
     case 'tradeStock': {
       return tradeCorporateStock(state, player, action.targetCompanyId, action.shareDeltaPercent);
@@ -1124,7 +1175,11 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const r = issueCorporateBondForPlayer(state, player, action.amount);
       return {
         ok: r.ok,
-        message: r.error ?? `Wyemitowano obligacje korporacyjne na ${action.amount.toLocaleString('pl-PL')} zł!`,
+        message:
+          r.error ??
+          (en
+            ? `Issued corporate bonds worth ${formatMoney(action.amount)}!`
+            : `Wyemitowano obligacje korporacyjne na ${formatMoney(action.amount)}!`),
       };
     }
     case 'greyMarketAction': {
@@ -1132,7 +1187,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     }
     case 'proposePlotOffer': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = proposePlotOfferForPlayer(state, player, plot, action.offeredPrice, action.includeBuilding);
       if (r.offer?.status === 'accepted') syncVehiclesForWorld(state);
       return { ok: r.ok, message: r.message };
@@ -1150,44 +1205,55 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     }
     case 'surveyPlot': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = surveyPlotForPlayer(state, player, plot);
       return {
         ok: r.ok,
-        message: r.error ?? (r.foundCount > 0 ? `Odkryto ${r.foundCount} nowych złóż!` : 'Brak ukrytych złóż pod tą działką.'),
+        message:
+          r.error ??
+          (r.foundCount > 0
+            ? en
+              ? `Discovered ${r.foundCount} new deposits!`
+              : `Odkryto ${r.foundCount} nowych złóż!`
+            : en
+              ? 'No hidden mineral deposits under this plot.'
+              : 'Brak ukrytych złóż pod tą działką.'),
       };
     }
     case 'buildOnPlot': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = constructBuildingOnPlot(state, player, plot, action.buildingType);
       if (r.ok) {
         computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
-      return { ok: r.ok, message: r.error ?? 'Obiekt wybudowany!' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Facility constructed!' : 'Obiekt wybudowany!') };
     }
     case 'demolishBuilding': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = demolishBuildingOnPlot(state, player, plot);
       if (r.ok) {
         computePlayerUtilityAndResourceBalance(state, player);
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
-      return { ok: r.ok, message: r.error ?? 'Budynek wyburzony.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Facility demolished.' : 'Budynek wyburzony.') };
     }
     case 'repairBuilding': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = repairBuilding(b, player);
-      return { ok: r.ok, message: r.error ?? 'Wykonano kapitalny remont (0% zniszczenia).' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Full overhaul completed (0% damage).' : 'Wykonano kapitalny remont (0% zniszczenia).'),
+      };
     }
     case 'setAutoRepair': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       b.autoRepairEnabled = action.enabled;
       b.autoRepairThreshold = Math.max(5, Math.min(90, Math.round(action.threshold)));
       return { ok: true };
@@ -1207,14 +1273,25 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       }
       return {
         ok: true,
-        message: `Szablon autonaprawy (${action.enabled ? `WŁ @ ${threshold}%` : 'WYŁ'}) zastosowany do ${count} obiektów.`,
+        message: en
+          ? `Auto-repair template (${action.enabled ? `ON @ ${threshold}%` : 'OFF'}) applied to ${count} facilities.`
+          : `Szablon autonaprawy (${action.enabled ? `WŁ @ ${threshold}%` : 'WYŁ'}) zastosowany do ${count} obiektów.`,
       };
     }
     case 'toggleStockpile': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       b.stockpileOutput = !b.stockpileOutput;
-      return { ok: true, message: b.stockpileOutput ? 'Tryb magazynowania włączony.' : 'Tryb sprzedaży bieżącej włączony.' };
+      return {
+        ok: true,
+        message: b.stockpileOutput
+          ? en
+            ? 'Warehouse stockpile mode enabled.'
+            : 'Tryb magazynowania włączony.'
+          : en
+            ? 'Spot market selling enabled.'
+            : 'Tryb sprzedaży bieżącej włączony.',
+      };
     }
     case 'setStockpileAllocation': {
       const hasWh = state.plots.some(
@@ -1241,7 +1318,7 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     case 'sellWarehouseStock': {
       const stock = player.warehouseStockpile[action.resource] ?? 0;
       const qty = Math.min(stock, action.amount);
-      if (qty <= 0) return { ok: false, message: 'Brak towaru w magazynie.' };
+      if (qty <= 0) return { ok: false, message: en ? 'No stock in warehouse.' : 'Brak towaru w magazynie.' };
       const revenue = Math.round(qty * getResourcePrice(state, action.resource));
       let rem = qty;
       if (player.stockLocations) {
@@ -1254,26 +1331,40 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         player.warehouseStockpile[action.resource] = Math.max(0, (player.warehouseStockpile[action.resource] ?? 0) - rem);
       }
       player.cash += revenue;
-      return { ok: true, message: `Sprzedano ${qty.toFixed(1)} jedn. za ${revenue.toLocaleString('pl-PL')} zł.` };
+      return {
+        ok: true,
+        message: en
+          ? `Sold ${qty.toFixed(1)} units for ${formatMoney(revenue)}.`
+          : `Sprzedano ${qty.toFixed(1)} jedn. za ${formatMoney(revenue)}.`,
+      };
     }
     case 'buyWarehouseStock': {
       const isMp = state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long';
       if (isMp) {
         return {
           ok: false,
-          message:
-            'Gospodarka zamknięta Multiplayer: nie można kupować towarów z zewnątrz. Produkuj własne lub zawrzyj kontrakt B2B z innym graczem!',
+          message: en
+            ? 'Closed MP Economy: market imports are disabled. Produce your own goods or sign a B2B contract!'
+            : 'Gospodarka zamknięta Multiplayer: nie można kupować towarów z zewnątrz. Produkuj własne lub zawrzyj kontrakt B2B z innym graczem!',
         };
       }
       const rdef = RESOURCE_DEFINITIONS[action.resource];
       if (!rdef || rdef.tradeable === false) {
-        return { ok: false, message: 'Tego medium nie można kupić na giełdzie.' };
+        return {
+          ok: false,
+          message: en ? 'This utility cannot be bought on the exchange.' : 'Tego medium nie można kupić na giełdzie.',
+        };
       }
-      if (action.amount <= 0) return { ok: false, message: 'Nieprawidłowa ilość.' };
+      if (action.amount <= 0) return { ok: false, message: en ? 'Invalid quantity.' : 'Nieprawidłowa ilość.' };
       const unitPrice = getResourcePrice(state, action.resource);
       const totalCost = Math.round(action.amount * unitPrice);
       if (player.cash < totalCost) {
-        return { ok: false, message: `Brak środków na zakup na giełdzie (${totalCost.toLocaleString('pl-PL')} zł).` };
+        return {
+          ok: false,
+          message: en
+            ? `Insufficient cash for exchange purchase (${formatMoney(totalCost)}).`
+            : `Brak środków na zakup na giełdzie (${formatMoney(totalCost)}).`,
+        };
       }
       const deliveryPlot =
         state.plots.find(
@@ -1293,99 +1384,129 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         player.warehouseStockpile[action.resource] =
           (player.warehouseStockpile[action.resource] ?? 0) + action.amount;
       }
+      const unitLabel = localizeResourceUnit(rdef.unit, lang);
+      const rName = localizeResourceName(action.resource, rdef.name, lang);
       return {
         ok: true,
-        message: `Kupiono ${action.amount} ${rdef.unit} ${rdef.genitiveName} do magazynu za ${totalCost.toLocaleString('pl-PL')} zł.`,
+        message: en
+          ? `Purchased ${action.amount} ${unitLabel} ${rName} into storage for ${formatMoney(totalCost)}.`
+          : `Kupiono ${action.amount} ${rdef.unit} ${rdef.genitiveName} do magazynu za ${formatMoney(totalCost)}.`,
       };
     }
     case 'researchBuildingTech': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = startBuildingTechResearch(b, player, action.nodeId, state);
-      return { ok: r.ok, message: r.error ?? 'Rozpoczęto wdrażanie modułu.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Module deployment started.' : 'Rozpoczęto wdrażanie modułu.') };
     }
     case 'hireWorkers': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = hireWorkersForBuilding(b, player, action.count);
       return { ok: r.ok, message: r.error };
     }
     case 'fireWorkers': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = fireWorkersFromBuilding(b, player, action.count);
       return { ok: r.ok, message: r.error };
     }
     case 'trainWorkers': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = trainBuildingWorkers(b, player);
-      return { ok: r.ok, message: r.error ?? 'Załoga przeszkolona!' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Crew training complete!' : 'Załoga przeszkolona!') };
     }
     case 'researchGlobalTech': {
-      const def = state.globalTechDefs.find((t) => t.id === action.nodeId);
+      const rawDef = state.globalTechDefs.find((t) => t.id === action.nodeId);
       const gt = player.globalTech[action.nodeId];
-      if (!def || !gt || gt.status !== 'available') {
-        return { ok: false, message: 'Technologia niedostępna.' };
+      if (!rawDef || !gt || gt.status !== 'available') {
+        return { ok: false, message: en ? 'Technology unavailable.' : 'Technologia niedostępna.' };
       }
+      const def = localizeTechNode(rawDef, lang);
       const entMods = getPlayerEntrepreneurModifiers(state, player);
       const archPatentCostMult = getArchetypeDefinition(player.archetype).modifiers.labPatentCostMult;
       const doneTechs = Object.values(player.globalTech).filter((t) => t.status === 'done').length;
       const expScale = Math.pow(1.06, doneTechs);
-      const rpCost = Math.round(def.cost * expScale * archPatentCostMult);
-      const moneyCost = Math.round(def.moneyCost * (1 - entMods.researchDiscount) * archPatentCostMult);
+      const rpCost = Math.round(rawDef.cost * expScale * archPatentCostMult);
+      const moneyCost = Math.round(rawDef.moneyCost * (1 - entMods.researchDiscount) * archPatentCostMult);
       if (player.researchPoints < rpCost) {
-        return { ok: false, message: `Wymaga ${rpCost} pkt badań (masz ${Math.floor(player.researchPoints)}).` };
+        return {
+          ok: false,
+          message: en
+            ? `Requires ${rpCost} research pts (have ${Math.floor(player.researchPoints)}).`
+            : `Wymaga ${rpCost} pkt badań (masz ${Math.floor(player.researchPoints)}).`,
+        };
       }
       if (player.cash < moneyCost) {
-        return { ok: false, message: `Wymaga ${moneyCost.toLocaleString('pl-PL')} zł.` };
+        return {
+          ok: false,
+          message: en ? `Requires ${formatMoney(moneyCost)}.` : `Wymaga ${formatMoney(moneyCost)}.`,
+        };
       }
       player.researchPoints -= rpCost;
       player.cash -= moneyCost;
       gt.status = 'researching';
       gt.progress = 0;
-      return { ok: true, message: `Rozpoczęto badania: ${def.name}` };
+      return { ok: true, message: en ? `Research started: ${def.name}` : `Rozpoczęto badania: ${def.name}` };
     }
     case 'unlockSkill': {
-      const def = state.entrepreneurSkillDefs.find((s) => s.id === action.nodeId);
+      const rawDef = state.entrepreneurSkillDefs.find((s) => s.id === action.nodeId);
       const cur = player.entrepreneurSkills[action.nodeId];
-      if (!def || cur !== 'available') return { ok: false, message: 'Umiejętność niedostępna.' };
-      if (def.requiredCorpLevel && player.corporationLevel < def.requiredCorpLevel) {
+      if (!rawDef || cur !== 'available') {
+        return { ok: false, message: en ? 'Skill unavailable.' : 'Umiejętność niedostępna.' };
+      }
+      const def = localizeSkillNode(rawDef, lang);
+      if (rawDef.requiredCorpLevel && player.corporationLevel < rawDef.requiredCorpLevel) {
         return {
           ok: false,
-          message: `Wymaga ${def.requiredCorpLevel}. Poziomu Korporacji (masz Poz. ${player.corporationLevel}).`,
+          message: en
+            ? `Requires Corporation Level ${rawDef.requiredCorpLevel} (current Lvl ${player.corporationLevel}).`
+            : `Wymaga ${rawDef.requiredCorpLevel}. Poziomu Korporacji (masz Poz. ${player.corporationLevel}).`,
         };
       }
-      if (def.requiredInfluenceScore) {
+      if (rawDef.requiredInfluenceScore) {
         const totalInf =
           player.influence.financial + player.influence.military + player.influence.social;
-        if (totalInf < def.requiredInfluenceScore) {
+        if (totalInf < rawDef.requiredInfluenceScore) {
           return {
             ok: false,
-            message: `Wymaga min. ${def.requiredInfluenceScore} pkt łącznych wpływów (masz ${Math.round(totalInf)}).`,
+            message: en
+              ? `Requires at least ${rawDef.requiredInfluenceScore} total influence pts (current ${Math.round(totalInf)}).`
+              : `Wymaga min. ${rawDef.requiredInfluenceScore} pkt łącznych wpływów (masz ${Math.round(totalInf)}).`,
           };
         }
       }
-      if (def.requiredGlobalTechCount) {
+      if (rawDef.requiredGlobalTechCount) {
         const doneTech = Object.values(player.globalTech).filter((t) => t.status === 'done').length;
-        if (doneTech < def.requiredGlobalTechCount) {
+        if (doneTech < rawDef.requiredGlobalTechCount) {
           return {
             ok: false,
-            message: `Wymaga zbadania min. ${def.requiredGlobalTechCount} technologii R&D (masz ${doneTech}).`,
+            message: en
+              ? `Requires at least ${rawDef.requiredGlobalTechCount} researched R&D technologies (current ${doneTech}).`
+              : `Wymaga zbadania min. ${rawDef.requiredGlobalTechCount} technologii R&D (masz ${doneTech}).`,
           };
         }
       }
-      if (player.skillPoints < def.skillPointCost) {
-        return { ok: false, message: `Brak punktów rozwoju (${def.skillPointCost} wymagane).` };
+      if (player.skillPoints < rawDef.skillPointCost) {
+        return {
+          ok: false,
+          message: en
+            ? `Not enough CEO Skill Pts (${rawDef.skillPointCost} required).`
+            : `Brak punktów rozwoju (${rawDef.skillPointCost} wymagane).`,
+        };
       }
-      if (player.cash < def.cashCost) {
-        return { ok: false, message: `Brak środków (${def.cashCost.toLocaleString('pl-PL')} zł).` };
+      if (player.cash < rawDef.cashCost) {
+        return {
+          ok: false,
+          message: en ? `Insufficient funds (${formatMoney(rawDef.cashCost)}).` : `Brak środków (${formatMoney(rawDef.cashCost)}).`,
+        };
       }
-      player.skillPoints -= def.skillPointCost;
-      player.cash -= def.cashCost;
+      player.skillPoints -= rawDef.skillPointCost;
+      player.cash -= rawDef.cashCost;
       player.entrepreneurSkills[action.nodeId] = 'done';
-      if (def.modifiers.socialInfluenceStart) player.influence.social += def.modifiers.socialInfluenceStart;
-      if (def.modifiers.militaryInfluenceBonus) player.militaryPower += def.modifiers.militaryInfluenceBonus;
+      if (rawDef.modifiers.socialInfluenceStart) player.influence.social += rawDef.modifiers.socialInfluenceStart;
+      if (rawDef.modifiers.militaryInfluenceBonus) player.militaryPower += rawDef.modifiers.militaryInfluenceBonus;
 
       for (const other of state.entrepreneurSkillDefs) {
         if (
@@ -1395,15 +1516,15 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
           player.entrepreneurSkills[other.id] = 'available';
         }
       }
-      return { ok: true, message: `Odblokowano umiejętność: ${def.name}` };
+      return { ok: true, message: en ? `Skill unlocked: ${def.name}` : `Odblokowano umiejętność: ${def.name}` };
     }
     case 'takeLoan': {
       const r = takeBankLoan(state, player, action.amount, action.months);
-      return { ok: r.ok, message: r.error ?? 'Kredyt uruchomiony.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Loan activated.' : 'Kredyt uruchomiony.') };
     }
     case 'repayLoan': {
       const r = repayBankLoan(player, action.loanId);
-      return { ok: r.ok, message: r.error ?? 'Kredyt spłacony.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Loan repaid.' : 'Kredyt spłacony.') };
     }
     case 'proposeContract': {
       const r = proposeB2BContract(
@@ -1424,25 +1545,33 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       );
       const statusMsg =
         r.contract?.status === 'pending'
-          ? 'Wysłano ofertę B2B — oczekuje na akceptację drugiej strony.'
+          ? en
+            ? 'B2B offer sent — awaiting counterparty approval.'
+            : 'Wysłano ofertę B2B — oczekuje na akceptację drugiej strony.'
           : r.contract?.status === 'cancelled'
-            ? 'Partner odrzucił złożoną propozycję B2B.'
+            ? en
+              ? 'Partner declined the proposed B2B deal.'
+              : 'Partner odrzucił złożoną propozycję B2B.'
             : r.contract?.status === 'open_listing'
-              ? 'Wystawiono ofertę na Tablicę B2B.'
-              : 'Kontrakt B2B zawarty!';
+              ? en
+                ? 'Offer posted to the B2B Exchange Board.'
+                : 'Wystawiono ofertę na Tablicę B2B.'
+              : en
+                ? 'B2B contract active!'
+                : 'Kontrakt B2B zawarty!';
       return { ok: r.ok, message: r.error ?? statusMsg };
     }
     case 'acceptContract': {
       const r = acceptB2BContract(state, player, action.contractId);
-      return { ok: r.ok, message: r.error ?? 'Kontrakt B2B podpisany!' };
+      return { ok: r.ok, message: r.error ?? (en ? 'B2B contract signed!' : 'Kontrakt B2B podpisany!') };
     }
     case 'rejectContract': {
       const r = rejectB2BContract(state, player, action.contractId);
-      return { ok: r.ok, message: r.error ?? 'Odrzucono ofertę kontraktu B2B.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'B2B offer rejected.' : 'Odrzucono ofertę kontraktu B2B.') };
     }
     case 'cancelContract': {
       const r = cancelB2BContract(state, player, action.contractId);
-      return { ok: r.ok, message: r.error ?? 'Kontrakt anulowany.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Contract cancelled.' : 'Kontrakt anulowany.') };
     }
     case 'transferCashB2B': {
       const r = executeCashTransferB2B(
@@ -1456,7 +1585,9 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         ok: r.ok,
         message:
           r.error ??
-          `Przelano ${r.record?.amount.toLocaleString('pl-PL')} zł do ${r.record?.toCompanyName}.`,
+          (en
+            ? `Transferred ${formatMoney(r.record?.amount ?? 0)} to ${r.record?.toCompanyName}.`
+            : `Przelano ${formatMoney(r.record?.amount ?? 0)} do ${r.record?.toCompanyName}.`),
       };
     }
     case 'executeInfluence': {
@@ -1484,50 +1615,90 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     }
     case 'createCoalition': {
       const r = createCoalitionForPlayer(state, player, action.name, action.tag, action.color);
-      return { ok: r.ok, message: r.error ?? `Założono koalicję [${action.tag.toUpperCase()}]!` };
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          (en
+            ? `Founded coalition [${action.tag.toUpperCase()}]!`
+            : `Założono koalicję [${action.tag.toUpperCase()}]!`),
+      };
     }
     case 'inviteCoalition': {
       const r = inviteToCoalitionForPlayer(state, player, action.targetPlayerId);
-      return { ok: r.ok, message: r.error ?? 'Wysłano zaproszenie do koalicji.' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Coalition invite sent.' : 'Wysłano zaproszenie do koalicji.'),
+      };
     }
     case 'respondCoalitionInvite': {
       const r = respondToCoalitionInvite(state, player, action.coalitionId, action.accept);
       return {
         ok: r.ok,
-        message: r.error ?? (action.accept ? 'Dołączono do koalicji!' : 'Odrzucono zaproszenie.'),
+        message:
+          r.error ??
+          (action.accept
+            ? en
+              ? 'Joined coalition!'
+              : 'Dołączono do koalicji!'
+            : en
+              ? 'Invitation declined.'
+              : 'Odrzucono zaproszenie.'),
       };
     }
     case 'leaveCoalition': {
       const r = leaveCoalitionForPlayer(state, player);
-      return { ok: r.ok, message: r.error ?? 'Opuszczono koalicję.' };
+      return { ok: r.ok, message: r.error ?? (en ? 'Left coalition.' : 'Opuszczono koalicję.') };
     }
     case 'toggleCoalitionGeology': {
       const r = toggleCoalitionGeology(state, player);
-      return { ok: r.ok, message: r.error ?? 'Zaktualizowano współdzielenie map geologicznych.' };
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          (en ? 'Updated shared geology maps.' : 'Zaktualizowano współdzielenie map geologicznych.'),
+      };
     }
     case 'proposeNAP': {
       const r = proposeNAPForPlayer(state, player, action.targetPlayerId);
-      return { ok: r.ok, message: r.error ?? 'Wysłano propozycję Paktu o Nieagresji.' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Non-Aggression Pact proposed.' : 'Wysłano propozycję Paktu o Nieagresji.'),
+      };
     }
     case 'acceptNAP': {
       const r = acceptNAPForPlayer(state, player, action.napId);
-      return { ok: r.ok, message: r.error ?? 'Pakt o Nieagresji wszedł w życie!' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Non-Aggression Pact is now active!' : 'Pakt o Nieagresji wszedł w życie!'),
+      };
     }
     case 'imposeEmbargo': {
       const r = imposeEmbargoForPlayer(state, player, action.targetPlayerId);
-      return { ok: r.ok, message: r.error ?? 'Nałożono embargo handlowe i blokadę dróg.' };
+      return {
+        ok: r.ok,
+        message: r.error ?? (en ? 'Trade embargo & roadblocks imposed.' : 'Nałożono embargo handlowe i blokadę dróg.'),
+      };
     }
     case 'submitTenderDelivery': {
       const r = submitTenderDelivery(state, player, action.tenderId);
       return {
         ok: r.ok,
-        message: r.error ?? (r.completed ? 'Przetarg zrealizowany w 100% — nagroda przyznana!' : 'Dostarczono partię surowców na przetarg.'),
+        message:
+          r.error ??
+          (r.completed
+            ? en
+              ? 'Tender 100% fulfilled — reward granted!'
+              : 'Przetarg zrealizowany w 100% — nagroda przyznana!'
+            : en
+              ? 'Delivered resource batch toward tender.'
+              : 'Dostarczono partię surowców na przetarg.'),
       };
     }
     case 'sendChatMessage': {
       const cleanText = action.text.trim().slice(0, 240);
       if (!cleanText && !action.pingPlot) {
-        return { ok: false, message: 'Pusta wiadomość.' };
+        return { ok: false, message: en ? 'Empty message.' : 'Pusta wiadomość.' };
       }
       state.chatMessages = state.chatMessages ?? [];
       state.chatMessages.push({
@@ -1536,7 +1707,11 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         senderName: player.name,
         companyName: player.companyName,
         color: player.color,
-        text: cleanText || `📍 Ping działki (${action.pingPlot?.gridX}, ${action.pingPlot?.gridY})`,
+        text:
+          cleanText ||
+          (en
+            ? `📍 Plot ping (${action.pingPlot?.gridX}, ${action.pingPlot?.gridY})`
+            : `📍 Ping działki (${action.pingPlot?.gridX}, ${action.pingPlot?.gridY})`),
         tick: state.time.tick,
         timestamp: Date.now(),
         pingPlot: action.pingPlot,
@@ -1561,7 +1736,9 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       };
       return {
         ok: true,
-        message: `Wysłano prośbę o zmianę tempa (${action.speed === 0 ? 'Pauza' : `${action.speed}×`}) do Hosta.`,
+        message: en
+          ? `Speed request (${action.speed === 0 ? 'Pause' : `${action.speed}×`}) sent to Host.`
+          : `Wysłano prośbę o zmianę tempa (${action.speed === 0 ? 'Pauza' : `${action.speed}×`}) do Hosta.`,
       };
     }
     case 'dismissSpeedRequest': {
@@ -1576,7 +1753,11 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       }
       return {
         ok: r.ok,
-        message: r.error ?? `Kupiono hurtem ${r.boughtCount} działek za ${r.totalSpent.toLocaleString('pl-PL')} zł.`,
+        message:
+          r.error ??
+          (en
+            ? `Purchased ${r.boughtCount} plots in bulk for ${formatMoney(r.totalSpent)}.`
+            : `Kupiono hurtem ${r.boughtCount} działek za ${formatMoney(r.totalSpent)}.`),
       };
     }
     case 'batchSurveyPlots': {
@@ -1585,7 +1766,9 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         ok: r.ok,
         message:
           r.error ??
-          `Zbadano ${r.scannedCount} działek (wykryto ${r.foundCount} złóż) za ${r.totalCost.toLocaleString('pl-PL')} zł.`,
+          (en
+            ? `Surveyed ${r.scannedCount} plots (${r.foundCount} deposits found) for ${formatMoney(r.totalCost)}.`
+            : `Zbadano ${r.scannedCount} działek (wykryto ${r.foundCount} złóż) za ${formatMoney(r.totalCost)}.`),
       };
     }
     case 'batchBuildRoad': {
@@ -1599,13 +1782,21 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
         ok: r.ok,
         message:
           r.error ??
-          `Wybudowano ${r.builtCount} odc. ${
-            action.roadClass === 'bridge'
-              ? 'Mostu / Drogi'
-              : action.roadClass === 'highway'
-                ? 'Autostrady'
-                : 'Drogi'
-          } (${r.totalCost.toLocaleString('pl-PL')} zł).`,
+          (en
+            ? `Built ${r.builtCount} ${
+                action.roadClass === 'bridge'
+                  ? 'Bridge / Road'
+                  : action.roadClass === 'highway'
+                    ? 'Highway'
+                    : 'Road'
+              } segments (${formatMoney(r.totalCost)}).`
+            : `Wybudowano ${r.builtCount} odc. ${
+                action.roadClass === 'bridge'
+                  ? 'Mostu / Drogi'
+                  : action.roadClass === 'highway'
+                    ? 'Autostrady'
+                    : 'Drogi'
+              } (${formatMoney(r.totalCost)}).`),
       };
     }
     case 'applyHighwayPolicyToAll': {
@@ -1620,29 +1811,37 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       const targetPlot = state.plots.find((p) => p.id === action.plotId);
       const sourceBuilding = state.plots.find((p) => p.building?.id === action.sourceBuildingId)?.building;
       if (!targetPlot || !sourceBuilding || sourceBuilding.ownerId !== player.id) {
-        return { ok: false, message: 'Nie znaleziono docelowej działki lub wzorca budynku.' };
+        return {
+          ok: false,
+          message: en ? 'Target plot or source blueprint facility not found.' : 'Nie znaleziono docelowej działki lub wzorca budynku.',
+        };
       }
       const r = cloneBuildingOnPlot(state, player, targetPlot, sourceBuilding, action.includeUpgrades);
       if (r.ok) {
         computeEmergencyResponseEtaGrid(state, state.currentPlayerId);
         syncVehiclesForWorld(state);
       }
+      const srcName = en
+        ? BUILDINGS_EN[sourceBuilding.type]?.name ?? sourceBuilding.name
+        : sourceBuilding.name;
       return {
         ok: r.ok,
         message:
           r.error ??
-          `Sklonowano "${sourceBuilding.name}" (${action.includeUpgrades ? '1:1 z ulepszeniami' : 'wersja bazowa'}) za ${r.blueprint?.totalCost.toLocaleString('pl-PL')} zł.`,
+          (en
+            ? `Cloned "${srcName}" (${action.includeUpgrades ? '1:1 with upgrades' : 'base build'}) for ${formatMoney(r.blueprint?.totalCost ?? 0)}.`
+            : `Sklonowano "${srcName}" (${action.includeUpgrades ? '1:1 z ulepszeniami' : 'wersja bazowa'}) za ${formatMoney(r.blueprint?.totalCost ?? 0)}.`),
       };
     }
     case 'toggleInsurance': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono budynku.' };
+      if (!b) return { ok: false, message: en ? 'Facility not found.' : 'Nie znaleziono budynku.' };
       const r = toggleBuildingInsurance(b);
       return { ok: r.ok, message: r.message };
     }
     case 'toggleEmergencyFuelImport': {
       const b = findPlayerBuilding(state, player.id, action.buildingId);
-      if (!b) return { ok: false, message: 'Nie znaleziono elektrowni.' };
+      if (!b) return { ok: false, message: en ? 'Power plant not found.' : 'Nie znaleziono elektrowni.' };
       const r = toggleEmergencyFuelImport(b);
       return { ok: r.ok, message: r.message };
     }
@@ -1654,11 +1853,15 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
     }
     case 'revealFogPlot': {
       const plot = state.plots.find((p) => p.id === action.plotId);
-      if (!plot) return { ok: false, message: 'Nie znaleziono działki.' };
+      if (!plot) return { ok: false, message: en ? 'Plot not found.' : 'Nie znaleziono działki.' };
       const r = revealFogPlotForPlayer(state, player, plot);
       return {
         ok: r.ok,
-        message: r.error ?? `Raport wywiadu ujawnił sektor (${plot.gridX}, ${plot.gridY}) i sąsiednie pola.`,
+        message:
+          r.error ??
+          (en
+            ? `Intelligence report revealed sector (${plot.gridX}, ${plot.gridY}) and surrounding tiles.`
+            : `Raport wywiadu ujawnił sektor (${plot.gridX}, ${plot.gridY}) i sąsiednie pola.`),
       };
     }
   }

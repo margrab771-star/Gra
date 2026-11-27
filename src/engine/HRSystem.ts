@@ -1,4 +1,6 @@
 import { GAME_CONFIG } from '../config/gameConfig';
+import { getCurrentLanguage } from '../i18n';
+import { formatMoney } from '../utils/formatters';
 import type { Building, GameState, Player, ZUSBreakdown } from './types';
 
 export function calculateZUSBreakdown(grossWage: number, zusMultiplier: number): ZUSBreakdown {
@@ -78,11 +80,22 @@ export function hireWorkersForBuilding(
   player: Player,
   count: number
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const actualCount = Math.min(count, building.maxWorkers - building.workers);
-  if (actualCount <= 0) return { ok: false, error: 'Osiągnięto limit etatów w tym obiekcie.' };
+  if (actualCount <= 0) {
+    return {
+      ok: false,
+      error: en ? 'Workforce capacity reached for this facility.' : 'Osiągnięto limit etatów w tym obiekcie.',
+    };
+  }
   const onboardingCost = actualCount * 1_500;
   if (player.cash < onboardingCost) {
-    return { ok: false, error: `Brak środków na rekrutację (${onboardingCost} zł).` };
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient funds for hiring (${formatMoney(onboardingCost)}).`
+        : `Brak środków na rekrutację (${formatMoney(onboardingCost)}).`,
+    };
   }
   player.cash -= onboardingCost;
   building.workers += actualCount;
@@ -94,11 +107,19 @@ export function fireWorkersFromBuilding(
   player: Player,
   count: number
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const actualCount = Math.min(count, building.workers);
-  if (actualCount <= 0) return { ok: false, error: 'Brak pracowników do zwolnienia.' };
+  if (actualCount <= 0) {
+    return { ok: false, error: en ? 'No staff to dismiss.' : 'Brak pracowników do zwolnienia.' };
+  }
   const severance = actualCount * 2_200; // odprawa pracownicza
   if (player.cash < severance) {
-    return { ok: false, error: `Brak środków na odprawy (${severance} zł).` };
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient funds for severance pay (${formatMoney(severance)}).`
+        : `Brak środków na odprawy (${formatMoney(severance)}).`,
+    };
   }
   player.cash -= severance;
   building.workers -= actualCount;
@@ -109,10 +130,25 @@ export function trainBuildingWorkers(
   building: Building,
   player: Player
 ): { ok: boolean; error?: string } {
-  if (building.workers <= 0) return { ok: false, error: 'Zatrudnij najpierw pracowników.' };
-  if (building.workerSkill >= 100) return { ok: false, error: 'Załoga osiągnęła mistrzowski poziom 100%.' };
+  const en = getCurrentLanguage() === 'en';
+  if (building.workers <= 0) {
+    return { ok: false, error: en ? 'Hire staff first.' : 'Zatrudnij najpierw pracowników.' };
+  }
+  if (building.workerSkill >= 100) {
+    return {
+      ok: false,
+      error: en ? 'Crew already reached 100% mastery.' : 'Załoga osiągnęła mistrzowski poziom 100%.',
+    };
+  }
   const cost = getTrainingCost(building);
-  if (player.cash < cost) return { ok: false, error: `Brak środków na kursy (${cost} zł).` };
+  if (player.cash < cost) {
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient funds for training (${formatMoney(cost)}).`
+        : `Brak środków na kursy (${formatMoney(cost)}).`,
+    };
+  }
 
   player.cash -= cost;
   building.workerSkill = Math.min(100, building.workerSkill + 12);

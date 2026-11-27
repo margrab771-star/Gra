@@ -23,6 +23,16 @@ import {
   formatPercent,
   formatTimeRemaining,
 } from '../../utils/formatters';
+import {
+  localizeCorpLevel,
+  localizeGovernment,
+  localizeMarketCycleName,
+  localizeMarketCyclePhase,
+  localizeResourceName,
+  localizeResourceUnit,
+  localizeSecretGoal,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { MiniChart } from './MiniChart';
 
 interface TopTickerProps {
@@ -51,11 +61,11 @@ interface TopTickerProps {
   onOpenMenu: () => void;
 }
 
-const PHASE_BADGE: Record<MarketCyclePhase, { label: string; cls: string }> = {
-  hossa: { label: '🟢 HOSSA', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' },
-  korekta: { label: '🟡 KOREKTA', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40' },
-  banka: { label: '🔥 BAŃKA', cls: 'bg-orange-500/20 text-orange-300 border-orange-500/50 animate-pulse' },
-  krach: { label: '📉 KRACH', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse' },
+const PHASE_BADGE_CLASS: Record<MarketCyclePhase, string> = {
+  hossa: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
+  korekta: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+  banka: 'bg-orange-500/20 text-orange-300 border-orange-500/50 animate-pulse',
+  krach: 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse',
 };
 
 export const TopTicker: React.FC<TopTickerProps> = React.memo(
@@ -84,6 +94,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
     onSaveGame,
     onOpenMenu,
   }) => {
+    const { lang } = useI18n();
     const [showMarketModal, setShowMarketModal] = useState(false);
     const [showGoalsPopover, setShowGoalsPopover] = useState(false);
     const [showAuctionPopover, setShowAuctionPopover] = useState(false);
@@ -106,9 +117,10 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
       return () => window.removeEventListener('keydown', handleKeyDown, true);
     }, [showMarketModal, showGoalsPopover, showAuctionPopover]);
 
-    const secretGoals = currentPlayer.secretGoals ?? [];
+    const secretGoals = (currentPlayer.secretGoals ?? []).map((g) => localizeSecretGoal(g, lang));
     const doneGoalsCount = secretGoals.filter((g) => g.completed).length;
-    const govCfg = GOVERNMENT_CONFIGS[gameState.government?.currentGov ?? 'free_market'];
+    const rawGovCfg = GOVERNMENT_CONFIGS[gameState.government?.currentGov ?? 'free_market'];
+    const govCfg = { ...rawGovCfg, ...localizeGovernment(rawGovCfg, lang) };
     const liveAuction = gameState.liveAuction?.status === 'active' ? gameState.liveAuction : null;
 
     const showCountdown =
@@ -116,7 +128,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
       !gameState.challengeCompleted;
 
     const canControlSpeed = !isMultiplayer || isHost;
-    const corpTier = CORPORATION_LEVELS[currentPlayer.corporationLevel];
+    const corpTier = localizeCorpLevel(CORPORATION_LEVELS[currentPlayer.corporationLevel], lang);
 
     const pendingOffersCount = gameState.plotOffers.filter(
       (o) =>
@@ -177,13 +189,18 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-[10px] font-semibold text-amber-300 hidden lg:inline"
                 title={corpTier.description}
               >
-                Poz.{corpTier.level} {corpTier.name}
+                {lang === 'en' ? `Lvl.${corpTier.level}` : `Poz.${corpTier.level}`} {corpTier.name}
               </span>
             </div>
 
             <div className="flex items-center gap-2.5 md:gap-3.5 text-xs overflow-x-auto no-scrollbar">
-              <div className="flex flex-col leading-tight shrink-0" title="Dostępna gotówka">
-                <span className="text-[10px] text-slate-400 uppercase">Gotówka</span>
+              <div
+                className="flex flex-col leading-tight shrink-0"
+                title={lang === 'en' ? 'Available liquid cash' : 'Dostępna gotówka'}
+              >
+                <span className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Cash' : 'Gotówka'}
+                </span>
                 <span
                   className={`font-mono font-semibold ${
                     currentPlayer.cash < 0 ? 'text-rose-400' : 'text-slate-100'
@@ -193,7 +210,10 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 </span>
               </div>
 
-              <div className="flex flex-col leading-tight shrink-0" title="Przepływ pieniężny netto na minutę">
+              <div
+                className="flex flex-col leading-tight shrink-0"
+                title={lang === 'en' ? 'Net cash flow per minute' : 'Przepływ pieniężny netto na minutę'}
+              >
                 <span className="text-[10px] text-slate-400 uppercase">Cash Flow/min</span>
                 <span
                   className={`font-mono font-semibold ${
@@ -205,8 +225,13 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 </span>
               </div>
 
-              <div className="flex flex-col leading-tight shrink-0" title="Wycena netto imperium">
-                <span className="text-[10px] text-slate-400 uppercase">Wycena Netto</span>
+              <div
+                className="flex flex-col leading-tight shrink-0"
+                title={lang === 'en' ? 'Corporate net worth valuation' : 'Wycena netto imperium'}
+              >
+                <span className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Net Worth' : 'Wycena Netto'}
+                </span>
                 <span className="font-mono font-semibold text-amber-300">
                   {formatCompactMoney(currentPlayer.netWorth)}
                 </span>
@@ -214,9 +239,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
 
               <div
                 className="hidden md:flex flex-col leading-tight shrink-0"
-                title={`Aktualny wskaźnik Dominacji Rynkowej względem ustawionego celu (${domThreshold}%)`}
+                title={
+                  lang === 'en'
+                    ? `Current market domination vs configured target (${domThreshold}%)`
+                    : `Aktualny wskaźnik Dominacji Rynkowej względem ustawionego celu (${domThreshold}%)`
+                }
               >
-                <span className="text-[10px] text-slate-400 uppercase">Dominacja</span>
+                <span className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Domination' : 'Dominacja'}
+                </span>
                 <span className="font-mono font-semibold text-sky-300">
                   👑 {dominancePct}%/{domThreshold}%
                 </span>
@@ -231,7 +262,11 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                     ? 'bg-rose-950/40 border-rose-500/45 text-rose-200 hover:border-rose-400'
                     : 'bg-[#111827] border-[#243044] text-slate-200 hover:border-sky-400/60'
                 }`}
-                title="Kliknij, aby rozwinąć szczegółowy bilans prądu, wody, ścieków i odpadów"
+                title={
+                  lang === 'en'
+                    ? 'Click to expand power, water, sewage, and waste balance'
+                    : 'Kliknij, aby rozwinąć szczegółowy bilans prądu, wody, ścieków i odpadów'
+                }
               >
                 <span className={elecBalance >= 0 ? 'text-amber-300' : 'text-rose-400 font-bold'}>
                   ⚡{elecBalance >= 0 ? `+${elecBalance}` : elecBalance}
@@ -263,7 +298,11 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   type="button"
                   onClick={onOpenOffersModal}
                   className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-400/55 text-emerald-200 text-[11px] font-semibold animate-pulse shrink-0"
-                  title="Masz oczekujące oferty kontraktów B2B wymagające Twojej decyzji"
+                  title={
+                    lang === 'en'
+                      ? 'You have pending B2B contract offers needing your response'
+                      : 'Masz oczekujące oferty kontraktów B2B wymagające Twojej decyzji'
+                  }
                 >
                   🤝 {pendingB2BCount} B2B
                 </button>
@@ -274,9 +313,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   type="button"
                   onClick={onOpenOffersModal}
                   className="px-2 py-1 rounded bg-amber-500/20 border border-amber-400/50 text-amber-200 text-[11px] font-semibold animate-pulse shrink-0"
-                  title="Masz oczekujące oferty wykupu działek"
+                  title={
+                    lang === 'en'
+                      ? 'You have incoming plot buyout offers'
+                      : 'Masz oczekujące oferty wykupu działek'
+                  }
                 >
-                  📩 {pendingOffersCount} Ofert{pendingOffersCount === 1 ? 'a' : 'y'}
+                  {lang === 'en'
+                    ? `📩 ${pendingOffersCount} Offer${pendingOffersCount === 1 ? '' : 's'}`
+                    : `📩 ${pendingOffersCount} Ofert${pendingOffersCount === 1 ? 'a' : 'y'}`}
                 </button>
               )}
 
@@ -292,9 +337,13 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                       ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
                       : 'bg-[#111827] border-[#243044] hover:border-amber-400/60 text-amber-200'
                   }`}
-                  title="Tajne Cele Osobiste (ukryte przed konkurencją)"
+                  title={
+                    lang === 'en'
+                      ? 'Secret Corporate Goals (hidden from rivals)'
+                      : 'Tajne Cele Osobiste (ukryte przed konkurencją)'
+                  }
                 >
-                  🎯 Cele {doneGoalsCount}/{secretGoals.length}
+                  {lang === 'en' ? '🎯 Goals' : '🎯 Cele'} {doneGoalsCount}/{secretGoals.length}
                 </button>
               )}
 
@@ -310,7 +359,11 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                       ? 'bg-amber-500/30 border-amber-300 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.45)]'
                       : 'bg-amber-500/15 border-amber-400/60 hover:bg-amber-500/25 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.3)] animate-pulse'
                   }`}
-                  title={`Licytacja na żywo: ${liveAuction.title} — kliknij, aby licytować lub zobaczyć działkę na mapie`}
+                  title={
+                    lang === 'en'
+                      ? `Live Bailiff Auction: ${liveAuction.title} — click to bid or locate on map`
+                      : `Licytacja na żywo: ${liveAuction.title} — kliknij, aby licytować lub zobaczyć działkę na mapie`
+                  }
                 >
                   <span>🔨</span>
                   <span>{liveAuction.secondsRemaining}s</span>
@@ -324,13 +377,19 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 title={`${govCfg.name}: ${govCfg.summary}`}
               >
                 <span>{govCfg.badge}</span>
-                <span className="max-w-[115px] truncate">{govCfg.name.replace('Rząd ', '')}</span>
+                <span className="max-w-[115px] truncate">
+                  {govCfg.name.replace('Rząd ', '').replace(' Cabinet', '')}
+                </span>
               </button>
 
               {gameState.settings.weeklyChallengeId && (
                 <span
                   className="hidden xl:inline px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[10px] shrink-0"
-                  title={`Wyzwanie Tygodnia ${gameState.settings.weeklyChallengeId} — cel: ${formatCompactMoney(gameState.settings.weeklyTargetNetWorth ?? 0)} do roku ${gameState.settings.weeklyMaxYear ?? 2035}`}
+                  title={
+                    lang === 'en'
+                      ? `Weekly Challenge ${gameState.settings.weeklyChallengeId} — target: ${formatCompactMoney(gameState.settings.weeklyTargetNetWorth ?? 0)} by year ${gameState.settings.weeklyMaxYear ?? 2035}`
+                      : `Wyzwanie Tygodnia ${gameState.settings.weeklyChallengeId} — cel: ${formatCompactMoney(gameState.settings.weeklyTargetNetWorth ?? 0)} do roku ${gameState.settings.weeklyMaxYear ?? 2035}`
+                  }
                 >
                   🏆 {gameState.settings.weeklyChallengeId}
                 </span>
@@ -338,9 +397,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
 
               <div
                 className="hidden xl:flex flex-col leading-tight shrink-0"
-                title="Nastroje wyborców oraz podaż wykwalifikowanych kadr"
+                title={
+                  lang === 'en'
+                    ? 'Voter approval & skilled labor availability'
+                    : 'Nastroje wyborców oraz podaż wykwalifikowanych kadr'
+                }
               >
-                <span className="text-[10px] text-slate-400 uppercase">Poparcie / Kadry</span>
+                <span className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Approval / Labor' : 'Poparcie / Kadry'}
+                </span>
                 <span className="font-mono text-slate-200">
                   {Math.round(currentPlayer.influence.voterApproval)}% · {100 - gameState.laborShortageIndex}%
                 </span>
@@ -354,7 +419,11 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               <>
                 <div
                   className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/35 text-[10px] font-mono text-emerald-300"
-                  title={`Zegar zsynchronizowany z Hostem · Tura #${gameState.time.tick}`}
+                  title={
+                    lang === 'en'
+                      ? `Clock synchronized with Host · Tick #${gameState.time.tick}`
+                      : `Zegar zsynchronizowany z Hostem · Tura #${gameState.time.tick}`
+                  }
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                   <span>SYNC LIVE</span>
@@ -393,7 +462,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                     ? 'bg-rose-500/15 border-rose-500/40 text-rose-300 animate-pulse'
                     : 'bg-[#111827] border-[#243044] text-amber-300'
                 }`}
-                title="Pozostały czas wyzwania"
+                title={lang === 'en' ? 'Remaining challenge time' : 'Pozostały czas wyzwania'}
               >
                 ⏱ {formatTimeRemaining(gameState.challengeTimeRemaining)}
               </div>
@@ -408,8 +477,12 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               className="flex items-center bg-[#111827] border border-[#243044] rounded-md p-0.5"
               title={
                 canControlSpeed
-                  ? 'Prędkość symulacji'
-                  : 'Zegar kontrolowany przez Hosta — kliknięcie wysyła prośbę o zmianę tempa'
+                  ? lang === 'en'
+                    ? 'Simulation speed'
+                    : 'Prędkość symulacji'
+                  : lang === 'en'
+                    ? 'Clock controlled by Host — click to request a speed change'
+                    : 'Zegar kontrolowany przez Hosta — kliknięcie wysyła prośbę o zmianę tempa'
               }
             >
               {SPEED_OPTIONS.map((opt) => (
@@ -440,7 +513,11 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   ? 'bg-sky-500/20 border-sky-400/60 text-sky-300'
                   : 'bg-[#111827] border-[#243044] text-slate-400 hover:text-slate-200'
               }`}
-              title="Pokaż / ukryj trasy morskie, lotnicze i drogowe na mapie"
+              title={
+                lang === 'en'
+                  ? 'Toggle sea, air, and road supply routes on the map'
+                  : 'Pokaż / ukryj trasy morskie, lotnicze i drogowe na mapie'
+              }
             >
               🛣️
             </button>
@@ -450,7 +527,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 type="button"
                 onClick={onOpenTutorial}
                 className="px-2 py-1 rounded bg-[#111827] border border-[#243044] hover:border-amber-400 text-xs text-amber-300"
-                title="Kompendium Zasad i Samouczek"
+                title={lang === 'en' ? 'Strategy Guide & Handbook' : 'Kompendium Zasad i Samouczek'}
               >
                 🎓
               </button>
@@ -460,7 +537,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               type="button"
               onClick={onSaveGame}
               className="px-2 py-1 rounded bg-[#111827] border border-[#243044] hover:border-sky-400 text-xs text-slate-300"
-              title="Zapisz / Wczytaj grę (Sloty zapisu)"
+              title={lang === 'en' ? 'Save / Load match (Save slots)' : 'Zapisz / Wczytaj grę (Sloty zapisu)'}
             >
               💾
             </button>
@@ -469,7 +546,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               type="button"
               onClick={onOpenMenu}
               className="px-2 py-1 rounded bg-[#111827] border border-[#243044] hover:border-slate-400 text-xs text-slate-300"
-              title="Menu główne"
+              title={lang === 'en' ? 'Main menu' : 'Menu główne'}
             >
               ☰
             </button>
@@ -480,9 +557,18 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
         {(currentPlayer.insolvencyGraceTicks ?? 0) > 0 && (
           <div className="px-3 py-1 bg-rose-950/70 border-b border-rose-500/50 text-rose-200 text-xs flex items-center justify-between gap-2 animate-pulse">
             <span>
-              🔨 <strong>OSTATECZNE WEZWANIE KOMORNICZE!</strong> Za{' '}
-              <strong className="font-mono">{currentPlayer.insolvencyGraceTicks} cykli</strong> komornik
-              zlicytuje Twój najcenniejszy majątek! Spłać ujemne saldo lub sprzedaj aktywa.
+              {lang === 'en' ? (
+                <>
+                  🔨 <strong>FINAL BAILIFF NOTICE!</strong> In{' '}
+                  <strong className="font-mono">{currentPlayer.insolvencyGraceTicks} ticks</strong> bailiffs will auction your top assets! Cover negative balance or sell holdings.
+                </>
+              ) : (
+                <>
+                  🔨 <strong>OSTATECZNE WEZWANIE KOMORNICZE!</strong> Za{' '}
+                  <strong className="font-mono">{currentPlayer.insolvencyGraceTicks} cykli</strong> komornik
+                  zlicytuje Twój najcenniejszy majątek! Spłać ujemne saldo lub sprzedaj aktywa.
+                </>
+              )}
             </span>
           </div>
         )}
@@ -494,7 +580,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-mono text-[10px] font-extrabold uppercase">
-                    🔨 LICYTACJA · {liveAuction.secondsRemaining}s
+                    🔨 {lang === 'en' ? 'AUCTION' : 'LICYTACJA'} · {liveAuction.secondsRemaining}s
                   </span>
                   <span className="text-[11px] font-mono text-slate-400">
                     ({liveAuction.gridX}, {liveAuction.gridY})
@@ -517,15 +603,19 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
 
             <div className="p-2.5 rounded-lg bg-[#131b2b] border border-[#243044] flex items-center justify-between gap-2 text-xs">
               <div>
-                <div className="text-[10px] text-slate-400 uppercase">Aktualna oferta</div>
+                <div className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Current bid' : 'Aktualna oferta'}
+                </div>
                 <div className="font-mono font-bold text-emerald-300 text-sm">
                   {formatMoney(liveAuction.currentBid)}
                 </div>
               </div>
               <div className="text-right min-w-0">
-                <div className="text-[10px] text-slate-400 uppercase">Prowadzi</div>
+                <div className="text-[10px] text-slate-400 uppercase">
+                  {lang === 'en' ? 'Leading' : 'Prowadzi'}
+                </div>
                 <div className="font-semibold text-amber-200 truncate max-w-[140px]">
-                  {liveAuction.highestBidderName ?? 'Cena wywoławcza'}
+                  {liveAuction.highestBidderName ?? (lang === 'en' ? 'Starting bid' : 'Cena wywoławcza')}
                 </div>
               </div>
             </div>
@@ -534,7 +624,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               <div className="grid grid-cols-3 gap-1.5">
                 {[25_000, 100_000, 250_000].map((inc) => {
                   const bidAmt = liveAuction.currentBid + inc;
-                  const label = inc === 25_000 ? '+25 tys.' : inc === 100_000 ? '+100 tys.' : '+250 tys.';
+                  const label = `+${formatCompactMoney(inc)}`;
                   return (
                     <button
                       key={inc}
@@ -559,7 +649,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 }}
                 className="w-full py-1.5 px-3 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-sky-500/45 text-sky-200 text-xs font-semibold transition-colors"
               >
-                📍 Pokaż na mapie
+                {lang === 'en' ? '📍 Show on map' : '📍 Pokaż na mapie'}
               </button>
             )}
           </div>
@@ -570,7 +660,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
           <div className="absolute left-3 md:left-72 top-12 z-40 w-[340px] max-w-[calc(100vw-24px)] rounded-xl bg-[#0e1522] border border-amber-500/50 shadow-2xl p-3.5 space-y-2.5 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#243044] pb-2">
               <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                🎯 Twoje Tajne Cele Osobiste
+                {lang === 'en' ? '🎯 Your Secret Personal Goals' : '🎯 Twoje Tajne Cele Osobiste'}
               </span>
               <button
                 type="button"
@@ -607,7 +697,9 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                       <span>
                         {goal.currentValue}/{goal.targetValue} {goal.unitLabel} ({pct}%)
                       </span>
-                      {goal.completed && <span className="text-emerald-300">UKOŃCZONO!</span>}
+                      {goal.completed && (
+                        <span className="text-emerald-300">{lang === 'en' ? 'COMPLETED!' : 'UKOŃCZONO!'}</span>
+                      )}
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-[#090d14] overflow-hidden mt-1">
                       <div
@@ -620,7 +712,9 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
               })}
             </div>
             <div className="text-[10px] text-slate-400">
-              Rywale nie znają Twoich celów aż do momentu ich zrealizowania w Gazecie!
+              {lang === 'en'
+                ? 'Rivals cannot see your secret goals until you complete them in the Capital Herald!'
+                : 'Rywale nie znają Twoich celów aż do momentu ich zrealizowania w Gazecie!'}
             </div>
           </div>
         )}
@@ -630,7 +724,9 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
           <div className="mx-2 md:mx-4 my-1.5 p-3 rounded-xl bg-[#0e1522] border border-sky-500/40 shadow-2xl text-xs space-y-2 z-40">
             <div className="flex items-center justify-between gap-2 border-b border-[#1e293b] pb-1.5">
               <div className="font-semibold text-slate-100">
-                Bilans Mediów Sieciowych i Komunalnych (Czas Rzeczywisty)
+                {lang === 'en'
+                  ? 'Real-Time Network & Municipal Utilities Balance'
+                  : 'Bilans Mediów Sieciowych i Komunalnych (Czas Rzeczywisty)'}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -641,7 +737,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   }}
                   className="px-2 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/40 border border-sky-400/40 text-sky-200 font-medium"
                 >
-                  Pełny Bilans Zasobów →
+                  {lang === 'en' ? 'Full Resource Balance →' : 'Pełny Bilans Zasobów →'}
                 </button>
                 <button
                   type="button"
@@ -655,14 +751,17 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
               <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1">
                 <div className="flex justify-between font-semibold">
-                  <span className="text-amber-300">⚡ Prąd (Pokrycie {Math.round(utilityReport.electricityCoverageRatio * 100)}%)</span>
+                  <span className="text-amber-300">
+                    ⚡ {lang === 'en' ? 'Power' : 'Prąd'} ({lang === 'en' ? 'Coverage' : 'Pokrycie'}{' '}
+                    {Math.round(utilityReport.electricityCoverageRatio * 100)}%)
+                  </span>
                   <span className={`font-mono ${utilityReport.electricityNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {utilityReport.electricityNet >= 0 ? '+' : ''}
                     {utilityReport.electricityNet} MW
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Podaż / Pobór:</span>
+                  <span>{lang === 'en' ? 'Supply / Draw:' : 'Podaż / Pobór:'}</span>
                   <span className="font-mono text-slate-200">
                     +{utilityReport.electricityProduced} / -{utilityReport.electricityConsumed} MW
                   </span>
@@ -670,22 +769,29 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 {utilityReport.electricityCoverageRatio < 0.99 && (
                   <div className="text-[10px] text-rose-300">
                     {utilityReport.electricityCoverageRatio < 0.2
-                      ? '⛔ PARALIŻ <20%: zakłady stoją na 0%!'
-                      : '⚠️ Deficyt ostro tnie wydajność zakładów.'}
+                      ? lang === 'en'
+                        ? '⛔ BLACKOUT <20%: plants halted at 0%!'
+                        : '⛔ PARALIŻ <20%: zakłady stoją na 0%!'
+                      : lang === 'en'
+                        ? '⚠️ Power deficit sharply cuts factory output.'
+                        : '⚠️ Deficyt ostro tnie wydajność zakładów.'}
                   </div>
                 )}
               </div>
 
               <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1">
                 <div className="flex justify-between font-semibold">
-                  <span className="text-sky-300">💧 Woda (Pokrycie {Math.round(utilityReport.waterCoverageRatio * 100)}%)</span>
+                  <span className="text-sky-300">
+                    💧 {lang === 'en' ? 'Water' : 'Woda'} ({lang === 'en' ? 'Coverage' : 'Pokrycie'}{' '}
+                    {Math.round(utilityReport.waterCoverageRatio * 100)}%)
+                  </span>
                   <span className={`font-mono ${utilityReport.waterNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {utilityReport.waterNet >= 0 ? '+' : ''}
                     {utilityReport.waterNet} m³
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Ujęcia / Zużycie:</span>
+                  <span>{lang === 'en' ? 'Intakes / Draw:' : 'Ujęcia / Zużycie:'}</span>
                   <span className="font-mono text-slate-200">
                     +{utilityReport.waterProduced} / -{utilityReport.waterConsumed} m³
                   </span>
@@ -693,50 +799,58 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 {utilityReport.waterCoverageRatio < 0.99 && (
                   <div className="text-[10px] text-rose-300">
                     {utilityReport.waterCoverageRatio < 0.2
-                      ? '⛔ PARALIŻ WODNY <20%: produkcja stoi!'
-                      : '⚠️ Braki wody obniżają wydajność.'}
+                      ? lang === 'en'
+                        ? '⛔ WATER OUTAGE <20%: production halted!'
+                        : '⛔ PARALIŻ WODNY <20%: produkcja stoi!'
+                      : lang === 'en'
+                        ? '⚠️ Water shortages lower efficiency.'
+                        : '⚠️ Braki wody obniżają wydajność.'}
                   </div>
                 )}
               </div>
 
               <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1">
                 <div className="flex justify-between font-semibold">
-                  <span className="text-teal-300">🚰 Ścieki</span>
+                  <span className="text-teal-300">🚰 {lang === 'en' ? 'Sewage' : 'Ścieki'}</span>
                   <span className={`font-mono ${utilityReport.sewageNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {utilityReport.sewageNet >= 0 ? '+' : ''}
                     {utilityReport.sewageNet} m³
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Oczyszczalnie / Emisja:</span>
+                  <span>{lang === 'en' ? 'Treatment / Output:' : 'Oczyszczalnie / Emisja:'}</span>
                   <span className="font-mono text-slate-200">
                     +{utilityReport.sewageTreated} / -{utilityReport.sewageProduced} m³
                   </span>
                 </div>
                 {utilityReport.sewageNet < 0 && (
                   <div className="text-[10px] text-rose-300">
-                    ⚠️ Przeciążenie kanalizacji: kary sanitarne i spadek poparcia!
+                    {lang === 'en'
+                      ? '⚠️ Sewage overload: sanitation fines & approval drop!'
+                      : '⚠️ Przeciążenie kanalizacji: kary sanitarne i spadek poparcia!'}
                   </div>
                 )}
               </div>
 
               <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1">
                 <div className="flex justify-between font-semibold">
-                  <span className="text-lime-300">🗑️ Odpady i Śmieci</span>
+                  <span className="text-lime-300">🗑️ {lang === 'en' ? 'Waste & Trash' : 'Odpady i Śmieci'}</span>
                   <span className={`font-mono ${utilityReport.wasteNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {utilityReport.wasteNet >= 0 ? '+' : ''}
                     {utilityReport.wasteNet} t
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Przerób / Produkcja:</span>
+                  <span>{lang === 'en' ? 'Processed / Generated:' : 'Przerób / Produkcja:'}</span>
                   <span className="font-mono text-slate-200">
                     +{utilityReport.wasteProcessed} / -{utilityReport.wasteProduced} t
                   </span>
                 </div>
                 {utilityReport.wasteNet < 0 && (
                   <div className="text-[10px] text-rose-300">
-                    ⚠️ Zalegające odpady: postaw Spalarnię lub Zakład Recyklingu.
+                    {lang === 'en'
+                      ? '⚠️ Accumulating trash: build an Incinerator or Recycling Plant.'
+                      : '⚠️ Zalegające odpady: postaw Spalarnię lub Zakład Recyklingu.'}
                   </div>
                 )}
               </div>
@@ -745,9 +859,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
             {(utilityReport.clusters?.length ?? 0) > 1 && (
               <div className="mt-2 pt-2 border-t border-[#243044] space-y-1.5">
                 <div className="text-[11px] font-semibold text-amber-300 flex items-center justify-between gap-2">
-                  <span>🕸️ Klastry Sieciowe ({utilityReport.clusters?.length} oddzielnych wysp/brzegów)</span>
+                  <span>
+                    {lang === 'en'
+                      ? `🕸️ Grid Clusters (${utilityReport.clusters?.length} separate islands/shores)`
+                      : `🕸️ Klastry Sieciowe (${utilityReport.clusters?.length} oddzielnych wysp/brzegów)`}
+                  </span>
                   <span className="text-[10px] text-slate-400">
-                    Prąd i woda nie przechodzą przez wodę — wybuduj Most Drogowy!
+                    {lang === 'en'
+                      ? 'Power & water cannot cross open water — build a Road Bridge!'
+                      : 'Prąd i woda nie przechodzą przez wodę — wybuduj Most Drogowy!'}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
@@ -757,7 +877,12 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                       className="px-2 py-1.5 rounded bg-[#0b0f17] border border-[#243044] text-[10px] flex items-center justify-between gap-2"
                     >
                       <span className="font-semibold text-slate-200">
-                        {cl.label} ({cl.buildingCount} ob.)
+                        {lang === 'en'
+                          ? cl.label === 'Odizolowane działki'
+                            ? 'Isolated Plots'
+                            : cl.label.replace('Sieć #', 'Grid #')
+                          : cl.label}{' '}
+                        ({cl.buildingCount} {lang === 'en' ? 'bldg.' : 'ob.'})
                       </span>
                       <span className="font-mono">
                         <span className={cl.electricityNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
@@ -782,12 +907,25 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
         {isMultiplayer && isHost && gameState.speedRequest && (
           <div className="px-3 py-1 bg-amber-950/50 border-b border-amber-500/35 flex items-center justify-between gap-2 text-xs">
             <span className="text-amber-200">
-              ⏱ Gracz <strong>{gameState.speedRequest.playerName}</strong> prosi o zmianę tempa na{' '}
-              <strong>
-                {gameState.speedRequest.requestedSpeed === 0
-                  ? 'Pauza'
-                  : `${gameState.speedRequest.requestedSpeed}×`}
-              </strong>
+              {lang === 'en' ? (
+                <>
+                  ⏱ Player <strong>{gameState.speedRequest.playerName}</strong> requests speed{' '}
+                  <strong>
+                    {gameState.speedRequest.requestedSpeed === 0
+                      ? 'Pause'
+                      : `${gameState.speedRequest.requestedSpeed}×`}
+                  </strong>
+                </>
+              ) : (
+                <>
+                  ⏱ Gracz <strong>{gameState.speedRequest.playerName}</strong> prosi o zmianę tempa na{' '}
+                  <strong>
+                    {gameState.speedRequest.requestedSpeed === 0
+                      ? 'Pauza'
+                      : `${gameState.speedRequest.requestedSpeed}×`}
+                  </strong>
+                </>
+              )}
             </span>
             <div className="flex gap-1.5 shrink-0">
               <button
@@ -795,14 +933,14 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 onClick={() => onAcceptSpeedRequest(gameState.speedRequest!.requestedSpeed)}
                 className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
               >
-                Akceptuj
+                {lang === 'en' ? 'Accept' : 'Akceptuj'}
               </button>
               <button
                 type="button"
                 onClick={onDismissSpeedRequest}
                 className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
               >
-                Odrzuć
+                {lang === 'en' ? 'Dismiss' : 'Odrzuć'}
               </button>
             </div>
           </div>
@@ -818,26 +956,35 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 ? 'bg-sky-600/35 border-sky-400 text-white'
                 : 'bg-sky-950/60 hover:bg-sky-900/70 border-sky-500/45 text-sky-200'
             }`}
-            title="Otwórz lub zamknij pełną tabelę wszystkich surowców, cykle koniunkturalne i przypnij ulubione"
+            title={
+              lang === 'en'
+                ? 'Open/close full commodities table, market cycles, and pinned ticker quotes'
+                : 'Otwórz lub zamknij pełną tabelę wszystkich surowców, cykle koniunkturalne i przypnij ulubione'
+            }
           >
-            📈 Pełny Rynek & Indeksy
+            {lang === 'en' ? '📈 Full Market & Indexes' : '📈 Pełny Rynek & Indeksy'}
           </button>
 
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1">
             {tickerItems.map((rp) => {
               const isUp = rp.changePercent >= 0;
+              const rName = localizeResourceName(rp.type, rp.name, lang);
               return (
                 <button
                   key={rp.type}
                   type="button"
                   onClick={() => onInspectResource(rp)}
                   className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#131b2b] hover:bg-[#1a2438] border border-[#212d42] transition-colors shrink-0 text-left"
-                  title={`Kliknij, aby otworzyć wykres świecowy: ${rp.name}`}
+                  title={
+                    lang === 'en'
+                      ? `Click to open candlestick chart: ${rName}`
+                      : `Kliknij, aby otworzyć wykres świecowy: ${rName}`
+                  }
                 >
                   <span className="text-xs">{rp.emoji}</span>
-                  <span className="text-[11px] font-medium text-slate-300">{rp.name}</span>
+                  <span className="text-[11px] font-medium text-slate-300">{rName}</span>
                   <span className="font-mono text-[11px] font-semibold text-slate-100">
-                    {rp.price} zł
+                    {formatMoney(rp.price)}
                   </span>
                   <span
                     className={`font-mono text-[10px] ${
@@ -870,10 +1017,12 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 <div className="sticky top-0 z-10 shrink-0 px-4 py-3 bg-[#0b0f17] border-b border-[#243044] flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-base md:text-lg font-extrabold text-white">
-                      📈 Pełny Rynek & Indeksy
+                      {lang === 'en' ? '📈 Full Market & Indexes' : '📈 Pełny Rynek & Indeksy'}
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      Śledź fazy Hossa / Korekta / Bańka / Krach i przypinaj wybrane towary (★) na górny pasek
+                      {lang === 'en'
+                        ? 'Track Boom / Correction / Bubble / Crash phases and pin favorite quotes (★) to the top bar'
+                        : 'Śledź fazy Hossa / Korekta / Bańka / Krach i przypinaj wybrane towary (★) na górny pasek'}
                     </p>
                   </div>
                   <button
@@ -881,7 +1030,7 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                     onClick={() => setShowMarketModal(false)}
                     className="px-3 py-1.5 rounded-lg bg-[#1a2438] hover:bg-[#25334f] border border-[#2d3b52] text-xs font-semibold text-slate-200 hover:text-white shrink-0"
                   >
-                    ✕ Zamknij
+                    ✕ {lang === 'en' ? 'Close' : 'Zamknij'}
                   </button>
                 </div>
 
@@ -890,26 +1039,30 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 {gameState.marketCycles && gameState.marketCycles.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-xs font-bold uppercase text-slate-400">
-                      Indeksy Sektorowe i Fazy Koniunktury
+                      {lang === 'en'
+                        ? 'Sector Benchmarks & Business Cycle Phases'
+                        : 'Indeksy Sektorowe i Fazy Koniunktury'}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
                       {gameState.marketCycles.map((cyc) => {
-                        const badge = PHASE_BADGE[cyc.phase];
+                        const cls = PHASE_BADGE_CLASS[cyc.phase];
+                        const phaseLabel = localizeMarketCyclePhase(cyc.phase, lang);
+                        const cycName = localizeMarketCycleName(cyc, lang);
                         const pos = cyc.changePercent >= 0;
                         return (
                           <div
                             key={cyc.sector}
                             className="p-2.5 rounded-xl bg-[#111827] border border-[#243044] space-y-1.5 text-xs"
                           >
-                            <div className="font-semibold text-slate-200 line-clamp-1" title={cyc.name}>
-                              {cyc.name}
+                            <div className="font-semibold text-slate-200 line-clamp-1" title={cycName}>
+                              {cycName}
                             </div>
                             <div className="flex items-center justify-between gap-1">
-                              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badge.cls}`}>
-                                {badge.label}
+                              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${cls}`}>
+                                {phaseLabel}
                               </span>
                               <span className="font-mono text-[11px] text-slate-300">
-                                {cyc.indexValue} pkt
+                                {cyc.indexValue} {lang === 'en' ? 'pts' : 'pkt'}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
@@ -937,13 +1090,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                 {/* Pełna lista wszystkich surowców */}
                 <div className="space-y-2">
                   <div className="text-xs font-bold uppercase text-slate-400">
-                    Wszystkie Towary i Surowce ({gameState.resourcePrices.length})
+                    {lang === 'en' ? 'All Goods & Commodities' : 'Wszystkie Towary i Surowce'} ({gameState.resourcePrices.length})
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     {gameState.resourcePrices.map((rp) => {
                       const isPinned = pinnedResources.includes(rp.type);
                       const isUp = rp.changePercent >= 0;
                       const stockOwned = currentPlayer.warehouseStockpile[rp.type] ?? 0;
+                      const rName = localizeResourceName(rp.type, rp.name, lang);
+                      const rUnit = localizeResourceUnit(rp.unit, lang);
                       return (
                         <div
                           key={rp.type}
@@ -959,15 +1114,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                           >
                             <span className="text-lg shrink-0">{rp.emoji}</span>
                             <div className="min-w-0">
-                              <div className="font-semibold text-slate-100 truncate">{rp.name}</div>
+                              <div className="font-semibold text-slate-100 truncate">{rName}</div>
                               <div className="text-[10px] text-slate-400 font-mono">
-                                Magazyn: {stockOwned.toFixed(1)} {rp.unit}
+                                {lang === 'en' ? 'Stock:' : 'Magazyn:'} {stockOwned.toFixed(1)} {rUnit}
                               </div>
                             </div>
                           </button>
 
                           <div className="text-right shrink-0">
-                            <div className="font-mono font-bold text-slate-100">{rp.price} zł</div>
+                            <div className="font-mono font-bold text-slate-100">{formatMoney(rp.price)}</div>
                             <div
                               className={`font-mono text-[10px] ${
                                 isUp ? 'text-emerald-400' : 'text-rose-400'
@@ -985,7 +1140,15 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                                 ? 'bg-amber-500/20 border-amber-400/60 text-amber-300'
                                 : 'bg-[#0b0f17] border-[#243044] text-slate-500 hover:text-slate-200'
                             }`}
-                            title={isPinned ? 'Odepnij z paska' : 'Przypnij do paska Live Ticker'}
+                            title={
+                              isPinned
+                                ? lang === 'en'
+                                  ? 'Unpin from ticker'
+                                  : 'Odepnij z paska'
+                                : lang === 'en'
+                                  ? 'Pin to Live Ticker'
+                                  : 'Przypnij do paska Live Ticker'
+                            }
                           >
                             {isPinned ? '★' : '☆'}
                           </button>

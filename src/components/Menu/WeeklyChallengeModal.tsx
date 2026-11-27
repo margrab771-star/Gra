@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { getWeeklyChallengeSpec } from '../../data/weeklyChallenge';
 import type { UserAccountProfile } from '../../engine/types';
+import { localizeWeeklyChallenge } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatCompactMoney, formatMoney } from '../../utils/formatters';
 
 interface WeeklyChallengeModalProps {
@@ -14,7 +16,8 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
   onStartChallenge,
   onClose,
 }) => {
-  const spec = getWeeklyChallengeSpec();
+  const { lang, t } = useI18n();
+  const spec = localizeWeeklyChallenge(getWeeklyChallengeSpec(), lang);
   const best =
     profile.records.weeklyBestScore?.weekKey === spec.weekKey
       ? profile.records.weeklyBestScore
@@ -39,7 +42,7 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
         <div className="flex items-start justify-between border-b border-[#243044] pb-3 gap-2">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[10px] uppercase">
-              🏆 Oficjalne Wyzwanie Tygodnia · {spec.weekKey}
+              {t('wk.header', { week: spec.weekKey })}
             </div>
             <h2 className="text-xl font-extrabold text-white mt-1.5">{spec.title}</h2>
           </div>
@@ -56,8 +59,13 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
 
         <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2 text-xs">
           <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-[#1b2434]">
-            <span>Deterministyczny Seed Mapy: <strong className="font-mono text-sky-300">#{spec.seed}</strong></span>
-            <span>Cel wyceny: <strong className="font-mono text-emerald-300">{formatMoney(spec.targetNetWorth)}</strong></span>
+            <span>
+              {t('wk.seedLabel')}: <strong className="font-mono text-sky-300">#{spec.seed}</strong>
+            </span>
+            <span>
+              {t('wk.targetLabel')}:{' '}
+              <strong className="font-mono text-emerald-300">{formatMoney(spec.targetNetWorth)}</strong>
+            </span>
           </div>
           <ul className="space-y-1.5 text-slate-200">
             {spec.rulesBulletList.map((rule, i) => (
@@ -71,18 +79,24 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
 
         <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/35 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div>
-            <div className="text-amber-300 font-semibold">🎁 Nagroda za ukończenie wyzwania</div>
+            <div className="text-amber-300 font-semibold">🎁 {t('wk.bonusReward')}</div>
             <div className="text-[11px] text-slate-300">
-              Odznaka „{spec.badgeName}” + {spec.xpBonus} XP Profilu + wpis do Księgi Rekordów
+              {lang === 'en'
+                ? `Badge "${spec.badgeName}" + ${spec.xpBonus} Profile XP + Leaderboard Record`
+                : `Odznaka „${spec.badgeName}” + ${spec.xpBonus} XP Profilu + wpis do Księgi Rekordów`}
             </div>
           </div>
           {best ? (
             <div className="text-right font-mono">
-              <div className="text-emerald-300 font-bold">Twój rekord: {formatCompactMoney(best.netWorth)}</div>
-              <div className="text-[11px] text-slate-400">{best.ticks} dni gry</div>
+              <div className="text-emerald-300 font-bold">
+                {t('wk.bestScore')} {formatCompactMoney(best.netWorth)}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {t('wk.ticksCount', { ticks: best.ticks })}
+              </div>
             </div>
           ) : (
-            <span className="text-[11px] text-slate-400 font-mono">Brak podejścia w tym tyg.</span>
+            <span className="text-[11px] text-slate-400 font-mono">{t('wk.noRecord')}</span>
           )}
         </div>
 
@@ -92,14 +106,14 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
             onClick={onStartChallenge}
             className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm shadow-lg"
           >
-            🚀 Rozpocznij Wyzwanie Tygodnia
+            {t('wk.startChallenge')}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-3 rounded-xl bg-[#1a2438] border border-[#243044] text-slate-300 text-xs font-semibold"
           >
-            Zamknij
+            {t('common.close')}
           </button>
         </div>
       </div>

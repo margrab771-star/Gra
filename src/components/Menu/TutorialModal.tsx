@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useI18n } from '../../i18n/useI18n';
 
 interface TutorialModalProps {
   onClose: () => void;
@@ -15,7 +16,7 @@ interface TutorialChapter {
   tip: string;
 }
 
-const CHAPTERS: TutorialChapter[] = [
+const CHAPTERS_PL: TutorialChapter[] = [
   {
     id: 'geo',
     icon: '🪨',
@@ -33,7 +34,7 @@ const CHAPTERS: TutorialChapter[] = [
       {
         heading: 'Dobór działki pod inwestycję',
         points: [
-          'Góry kryją głównie węgiel, żelazo, miedź, złoto, uran, metale rzadkie i rzadkie diamenty; pustynie bogatą ropę, miedź i lit; lasy oraz równiny lasów także mogą ukrywać cenne złoża.',
+          'Góry kryją głównie węgiel, żelazo, miedź, złoto, uran, metale rzadkie i rzadkie diamenty; pustynie bogatą ropę, miedź i lit; lasy oraz równiny także mogą ukrywać cenne złoża.',
           'Oczyszczalnie ścieków, spalarnie oraz sortownie recyklingu można stawiać także na terenach leśnych poza centrum miasta.',
         ],
       },
@@ -96,7 +97,7 @@ const CHAPTERS: TutorialChapter[] = [
       {
         heading: 'Zasada gospodarki zamkniętej (Multiplayer)',
         points: [
-          'Budowa obiektów wymaga już tylko gotówki, technologii, odpowiedniego terenu i poparcia (zero surowców na samo postawienie budynku!).',
+          'Budowa obiektów wymaga tylko gotówki, technologii, odpowiedniego terenu i poparcia (zero surowców na samo postawienie budynku!).',
           'Do bieżącej pracy fabryk (wsadu) w Multiplayerze NIE MOŻNA dokupywać brakujących surowców od NPC za gotówkę — musisz wydobywać je sam (z włączonym "Magazynuj") albo kupić je na rynku B2B od innych graczy.',
         ],
       },
@@ -136,8 +137,8 @@ const CHAPTERS: TutorialChapter[] = [
   {
     id: 'tech_trees',
     icon: '🌳',
-    title: '6. Drzewko Prezesa, Patenty i Poziom EKSTRA',
-    subtitle: 'Nowe interaktywne drzewko do przesuwania (Pan & Zoom) i elitarne Projekty Flagowe.',
+    title: '6. Drzewko Prezesa, Patenty i Projekty Flagowe',
+    subtitle: 'Interaktywne drzewko do przesuwania (Pan & Zoom) oraz elitarne Projekty Flagowe.',
     sections: [
       {
         heading: 'Drzewko Prezesa (40 umiejętności, 5 gałęzi)',
@@ -147,10 +148,10 @@ const CHAPTERS: TutorialChapter[] = [
         ],
       },
       {
-        heading: 'Wyłączne Patenty i Projekty Flagowe / EKSTRA (Tier 4)',
+        heading: 'Wyłączne Patenty i Projekty Flagowe (Tier 4)',
         points: [
           'Kto pierwszy ukończy przełomową technologię globalną (np. Litografia EUV, Recykling, Reaktor Fuzyjny), zdobywa wyłączny Patent generujący stałe tantiemy przez 140 tur.',
-          'Każdy kluczowy budynek posiada końcowy moduł "Projekt Flagowy / EKSTRA" (Tier 4) oznaczony złotą aurą na mapie.',
+          'Każdy budynek posiada końcowy moduł „Projekt Flagowy” oznaczony złotą aurą na mapie.',
         ],
       },
     ],
@@ -166,7 +167,7 @@ const CHAPTERS: TutorialChapter[] = [
         heading: 'Koalicje, Pakty NAP i Embarga',
         points: [
           'W panelu Wpływy możesz utworzyć Koalicję (z limitem miejsc zależnym od liczby graczy), wysyłać zaproszenia, zawierać Pakty o Nieagresji (80 tur ochrony przed sabotażem/wykupem) oraz nakładać Embarga handlowe (blokada B2B i dróg).',
-          'Przymusowy wykup wymaga teraz min. 4. Poziomu Korporacji, dużych wpływów oraz kapitału i może zostać zablokowany przez dział prawny lub kontrwywiad ofiary!',
+          'Przymusowy wykup wymaga min. 4. Poziomu Korporacji, dużych wpływów oraz kapitału i może zostać zablokowany przez dział prawny lub kontrwywiad ofiary!',
         ],
       },
       {
@@ -204,13 +205,204 @@ const CHAPTERS: TutorialChapter[] = [
   },
 ];
 
+const CHAPTERS_EN: TutorialChapter[] = [
+  {
+    id: 'geo',
+    icon: '🪨',
+    title: '1. Launch & Geological Surveys',
+    subtitle: 'All underground resource seams start 100% hidden beneath the map.',
+    sections: [
+      {
+        heading: 'Uncovering Hidden Deposits',
+        points: [
+          'Before building a Coal, Iron, Copper, Gold, Oil, Uranium, Lithium, or Diamond Mine, survey the tile first (🔎 Geological Survey).',
+          'Researching "Deposit Geophysics & GPR" unlocks 3×3 Area Surveys that cut scanning cost and time.',
+          'Inside a Coalition, share geological maps so discoveries made by allies immediately reveal deposits to you too.',
+        ],
+      },
+      {
+        heading: 'Site Selection',
+        points: [
+          'Mountains harbor coal, iron, copper, gold, uranium, rare earths & rare diamonds; deserts hide deep oil, copper & lithium; forests and plains may conceal valuable seams too.',
+          'Sewage Plants, Incinerators, and Recycling Facilities can also operate on forest plots outside the city core.',
+        ],
+      },
+    ],
+    tip: 'Open with 1–2 affordable mines or power stations close to roads before pushing deep into mountain ridges.',
+  },
+  {
+    id: 'roads',
+    icon: '🛣️',
+    title: '2. Logistics, Roads & Toll Highways',
+    subtitle: 'Network connectivity governs shipping costs, utility reach, and emergency speed.',
+    sections: [
+      {
+        heading: 'Building Roads & Tolls',
+        points: [
+          'Buy neighboring plots and lay Standard Roads or fast Toll Highways (higher throughput, zero congestion, plus passive toll cash).',
+          'Road owners control toll tariffs (Free → Prohibitive) and can selectively deny passage or enforce full transit blockades.',
+          'Coalition members drive across allied toll highways completely FREE (0% toll).',
+        ],
+      },
+      {
+        heading: 'Maritime & Air Freight',
+        points: [
+          'Across oceans or rival roadblocks, construct coastal Cargo Ports or Cargo Airports to bypass land choke points.',
+        ],
+      },
+    ],
+    tip: 'A well-placed toll highway through a narrow chokepoint can subsidize half an empire.',
+  },
+  {
+    id: 'utilities',
+    icon: '⚡',
+    title: '3. Utilities: Power, Water, Sewage & Waste',
+    subtitle: 'Non-linear power or water deficit curves rapidly throttle factory output.',
+    sections: [
+      {
+        heading: 'Critical Power (MW) & Water (m³) Grids',
+        points: [
+          'Deficits compound steeply: 50% grid coverage drops output down to ~26%!',
+          'Below 20% coverage halts industrial plants completely (0% revenue) while wages and fixed upkeep still drain cash.',
+          'Mix Renewables (Wind, Solar), Gas, Geothermal (weather-proof!), Nuclear, and Fusion Reactors — keeping physical coal/oil/uranium fuel supplied by trucks.',
+        ],
+      },
+      {
+        heading: 'Sewage & Waste Disposal',
+        points: [
+          'Factories produce sewage (m³) and solid waste (t). Leaving them untreated hurts output, adds sanitary fines, and angers voters.',
+          'Choose between budget Waste Incinerators (bonus power at smog/approval cost) or University-backed Recycling Plants reclaiming Steel, Copper, Lithium & Rare Earths into your warehouse.',
+        ],
+      },
+    ],
+    tip: 'Click the ⚡ 💧 🚰 🗑️ utility pill in the top bar anytime to inspect live network balances.',
+  },
+  {
+    id: 'economy_mp',
+    icon: '🤝',
+    title: '4. Closed MP Economy & B2B Contracts',
+    subtitle: 'In Multiplayer, NPC input supply is disabled — goods come strictly from players.',
+    sections: [
+      {
+        heading: 'Closed Player-Driven Supply (Multiplayer)',
+        points: [
+          'Construction costs only cash, research, terrain & voter approval (zero commodity materials needed to place buildings).',
+          'Ongoing factory inputs in Multiplayer CANNOT be bought off-map from NPCs — mine them yourself ("Store %" slider) or secure B2B contracts with rivals and allies.',
+        ],
+      },
+      {
+        heading: 'Contracts, Barter & State Tenders',
+        points: [
+          'The B2B Contracts panel handles recurring deliveries, instant Spot lots, Barter swaps, and public Open Order Boards.',
+          'Fulfill State Tenders out of warehouse stock for lump-sum cash, political influence & voter approval.',
+        ],
+      },
+    ],
+    tip: 'Short on factory inputs in PvP? Post an open buy order or barter deal on the B2B Exchange immediately.',
+  },
+  {
+    id: 'hazards',
+    icon: '🚒',
+    title: '5. Hazards, Ruins, Responders & Bailiff',
+    subtitle: 'Unchecked fires turn plants into ruins, and chronic deficits trigger asset auctions.',
+    sections: [
+      {
+        heading: 'Emergency Services & Wreckage',
+        points: [
+          'Fires and HAZMAT leaks strike high-risk plants (power stations, refineries, smelters, chemicals, nuclear).',
+          'Without free Fire or HAZMAT units, damage climbs to 100% and turns facilities into Ruins requiring paid demolition.',
+          'Use "Eyedropper (Clone)" inside Building Panels or enable global Auto-Repair.',
+        ],
+      },
+      {
+        heading: 'Insolvency & Bailiff Seizure',
+        points: [
+          'Deep negative balances start a 12-tick Final Payment Warning countdown in the top bar. If unpaid, bailiffs auction your prized assets until debt clears or bankruptcy hits!',
+        ],
+      },
+    ],
+    tip: 'Rescue helicopters at upgraded Fire Stations, Hospitals & HAZMAT Bases fly straight over blocked roads.',
+  },
+  {
+    id: 'tech_trees',
+    icon: '🌳',
+    title: '6. CEO Skill Tree, Patents & Flagship Projects',
+    subtitle: 'Interactive Pan & Zoom skill graph, exclusive Patents, and Flagship upgrades.',
+    sections: [
+      {
+        heading: 'CEO Tree (40 Skills across 5 Branches)',
+        points: [
+          'Drag the canvas to pan and use the mouse wheel or +/− controls to zoom.',
+          'Late-game Tiers 5–8 deliver massive empire bonuses gated by Corporate Level, cash, influence & tech unlocks.',
+        ],
+      },
+      {
+        heading: 'Exclusive Patents & Flagship Nodes',
+        points: [
+          'Being first to research breakthrough global techs (e.g. EUV Lithography, Recycling, Fusion) grants an exclusive Patent paying passive royalties for 140 ticks.',
+          'Every building concludes its upgrade path in an elite "Flagship Project" marked by a golden aura on the map.',
+        ],
+      },
+    ],
+    tip: 'Racing for an early R&D Patent funds your mid-game research budget almost effortlessly.',
+  },
+  {
+    id: 'diplomacy_nuke',
+    icon: '☢️',
+    title: '7. Coalitions, Politics & Secret Nuclear Program',
+    subtitle: 'Diplomacy, trade embargoes, 3×3 tactical missiles, and covert nuclear arsenals.',
+    sections: [
+      {
+        heading: 'Coalitions, Non-Aggression Pacts & Embargoes',
+        points: [
+          'Open Influence to form Coalitions, send invitations, sign 80-tick Non-Aggression Pacts, or slap rivals with trade & road embargoes.',
+          'Hostile buyouts require Corporate Level 4+, heavy influence & capital — and can be blocked by corporate counsel or counterintelligence!',
+        ],
+      },
+      {
+        heading: 'PMC Base, 3×3 Strikes & 5×5 Nuclear Warheads',
+        points: [
+          'PMC Military Bases require ≥ 75% voter approval; their Flagship unlocks 3×3 tactical rocket strikes turning target blocks into rubble.',
+          'Controlling Uranium Mine + Uranium Enrichment + University + R&D + PMC Base unlocks the Secret Nuclear Program. Warhead assembly may be detected by enemy Intelligence Centers, and a 5×5 detonation irradiates land for 180 ticks!',
+        ],
+      },
+    ],
+    tip: 'Raise voter approval above 75% via Parks, Hospitals & Media Campaigns before constructing military bases.',
+  },
+  {
+    id: 'finance_win',
+    icon: '👑',
+    title: '8. Banking, Market Cycles & Victory Conditions',
+    subtitle: 'Watch out for speculative bubbles, crashes, and the 3-loan cap in Multiplayer.',
+    sections: [
+      {
+        heading: 'Sector Cycles (Boom → Bubble → Crash)',
+        points: [
+          'Click the top quote strip or open Full Market & Indexes to track 5 sector benchmarks. Post-bubble crashes slash commodity prices by 45–55%!',
+          'Pin favorite commodities with ★ to keep them on your Live Ticker.',
+        ],
+      },
+      {
+        heading: 'Finance & Winning the Match',
+        points: [
+          'Multiplayer limits debt to 3 active loans at once (pay one off in full to borrow again).',
+          'Win via Solo Domination (crossing the configured 65–85% threshold, default 75%), leading Net Worth at Challenge timeout, eliminating all rivals, or winning together in Coalition Domination!',
+        ],
+      },
+    ],
+    tip: 'Build cash reserves and pay down debt during Booms so you can snap up cheap land and shares during Crashes.',
+  },
+];
+
 export const TutorialModal: React.FC<TutorialModalProps> = ({
   onClose,
   onStartTrainingMap,
   inLobby = false,
 }) => {
+  const { lang } = useI18n();
+  const chapters = lang === 'en' ? CHAPTERS_EN : CHAPTERS_PL;
   const [activeIdx, setActiveIdx] = useState(0);
-  const chapter = CHAPTERS[activeIdx];
+  const chapter = chapters[activeIdx];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -232,10 +424,14 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
         <div className="px-4 md:px-6 py-3.5 bg-[#0b0f17] border-b border-[#243044] flex items-center justify-between gap-3">
           <div>
             <div className="text-[11px] font-mono text-sky-400 uppercase tracking-wider">
-              KOMPENDIUM STRATEGICZNE · MARKET DOMINION v4.5
+              {lang === 'en'
+                ? 'STRATEGY COMPENDIUM · MARKET DOMINION'
+                : 'KOMPENDIUM STRATEGICZNE · MARKET DOMINION'}
             </div>
             <h2 className="text-lg md:text-xl font-extrabold text-white">
-              🎓 Kompletny Przewodnik i Samouczek Rozgrywki
+              {lang === 'en'
+                ? '🎓 Complete Gameplay Guide & Handbook'
+                : '🎓 Kompletny Przewodnik i Samouczek Rozgrywki'}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -245,7 +441,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                 onClick={onStartTrainingMap}
                 className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow"
               >
-                ▶ Uruchom Mapę Treningową
+                {lang === 'en' ? '▶ Launch Training Map' : '▶ Uruchom Mapę Treningową'}
               </button>
             )}
             <button
@@ -253,7 +449,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
               onClick={onClose}
               className="px-3 py-1.5 rounded-lg bg-[#1a2438] hover:bg-[#24314a] border border-[#2d3b52] text-slate-200 text-xs font-semibold"
             >
-              ✕ Zamknij
+              {lang === 'en' ? '✕ Close' : '✕ Zamknij'}
             </button>
           </div>
         </div>
@@ -262,7 +458,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
           {/* Spis rozdziałów */}
           <aside className="md:w-64 shrink-0 bg-[#0b0f17] border-b md:border-b-0 md:border-r border-[#243044] p-2.5 flex md:flex-col gap-1.5 overflow-x-auto md:overflow-y-auto">
-            {CHAPTERS.map((ch, idx) => (
+            {chapters.map((ch, idx) => (
               <button
                 key={ch.id}
                 type="button"
@@ -290,7 +486,9 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                 <p className="text-xs md:text-sm text-sky-300 mt-1">{chapter.subtitle}</p>
               </div>
               <span className="px-2 py-0.5 rounded bg-[#161f30] border border-[#243044] font-mono text-[11px] text-slate-300 shrink-0">
-                Rozdział {activeIdx + 1} / {CHAPTERS.length}
+                {lang === 'en'
+                  ? `Chapter ${activeIdx + 1} / ${chapters.length}`
+                  : `Rozdział ${activeIdx + 1} / ${chapters.length}`}
               </span>
             </div>
 
@@ -316,7 +514,8 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2">
               <span className="text-base leading-none">💡</span>
               <div>
-                <strong>Wskazówka taktyczna:</strong> {chapter.tip}
+                <strong>{lang === 'en' ? 'Tactical tip:' : 'Wskazówka taktyczna:'}</strong>{' '}
+                {chapter.tip}
               </div>
             </div>
           </main>
@@ -330,20 +529,24 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
             className="px-3.5 py-2 rounded-lg bg-[#161f30] border border-[#243044] text-slate-200 disabled:opacity-40"
           >
-            ← Poprzedni rozdział
+            {lang === 'en' ? '← Previous chapter' : '← Poprzedni rozdział'}
           </button>
           <div className="text-[11px] text-slate-400 hidden sm:block">
             {inLobby
-              ? 'Przeglądasz przewodnik bez opuszczania pokoju Multiplayer'
-              : 'Dostępny w każdej chwili z Menu, Lobby i paska gry'}
+              ? lang === 'en'
+                ? 'Reading handbook without leaving your Multiplayer room'
+                : 'Przeglądasz przewodnik bez opuszczania pokoju Multiplayer'
+              : lang === 'en'
+                ? 'Available anytime from Main Menu, Lobby, and Top Bar'
+                : 'Dostępny w każdej chwili z Menu, Lobby i paska gry'}
           </div>
-          {activeIdx < CHAPTERS.length - 1 ? (
+          {activeIdx < chapters.length - 1 ? (
             <button
               type="button"
-              onClick={() => setActiveIdx((i) => Math.min(CHAPTERS.length - 1, i + 1))}
+              onClick={() => setActiveIdx((i) => Math.min(chapters.length - 1, i + 1))}
               className="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold"
             >
-              Następny rozdział →
+              {lang === 'en' ? 'Next chapter →' : 'Następny rozdział →'}
             </button>
           ) : (
             <button
@@ -351,7 +554,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
             >
-              Zrozumiałem — Powrót
+              {lang === 'en' ? 'Got It — Close' : 'Zrozumiałem — Powrót'}
             </button>
           )}
         </div>

@@ -3,6 +3,12 @@ import type { AchievementDefinition } from '../../data/achievements';
 import { getArchetypeDefinition } from '../../data/archetypes';
 import { computeMatchFunAwards } from '../../engine/MatchStatsTracker';
 import type { GameState, Player, PlayerQuestProgress } from '../../engine/types';
+import {
+  localizeAiStrategy,
+  localizeArchetype,
+  localizeMatchFunAward,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatCompactMoney, formatMoney } from '../../utils/formatters';
 import { MCoinIcon } from '../HUD/MCoinIcon';
 
@@ -26,20 +32,6 @@ interface VictoryModalProps {
 
 type ChartMetric = 'netWorth' | 'cash' | 'incomePerTick' | 'influence' | 'approval';
 
-const METRIC_OPTIONS: { key: ChartMetric; label: string; unit: 'money' | 'pts' | 'pct' }[] = [
-  { key: 'netWorth', label: '📈 Wycena Netto', unit: 'money' },
-  { key: 'cash', label: '💵 Gotówka', unit: 'money' },
-  { key: 'incomePerTick', label: '⚡ Przychód / cykl', unit: 'money' },
-  { key: 'influence', label: '🏛️ Wpływy', unit: 'pts' },
-  { key: 'approval', label: '❤️ Poparcie %', unit: 'pct' },
-];
-
-function formatMetricVal(val: number, unit: 'money' | 'pts' | 'pct'): string {
-  if (unit === 'money') return formatCompactMoney(val);
-  if (unit === 'pct') return `${Math.round(val)}%`;
-  return `${Math.round(val)} pkt`;
-}
-
 export const VictoryModal: React.FC<VictoryModalProps> = ({
   gameState,
   currentPlayer,
@@ -49,8 +41,23 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
   onOpenProfile,
   onExitToMenu,
 }) => {
+  const { lang, t } = useI18n();
   const [metric, setMetric] = useState<ChartMetric>('netWorth');
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const metricOptions: { key: ChartMetric; label: string; unit: 'money' | 'pts' | 'pct' }[] = [
+    { key: 'netWorth', label: `📈 ${t('vic.metricNetWorth')}`, unit: 'money' },
+    { key: 'cash', label: `💵 ${t('vic.metricCash')}`, unit: 'money' },
+    { key: 'incomePerTick', label: `⚡ ${t('vic.metricIncome')}`, unit: 'money' },
+    { key: 'influence', label: `🏛️ ${t('vic.metricInfluence')}`, unit: 'pts' },
+    { key: 'approval', label: `❤️ ${t('vic.metricApproval')}`, unit: 'pct' },
+  ];
+
+  const formatMetricVal = (val: number, unit: 'money' | 'pts' | 'pct'): string => {
+    if (unit === 'money') return formatCompactMoney(val);
+    if (unit === 'pct') return `${Math.round(val)}%`;
+    return `${Math.round(val)} ${lang === 'en' ? 'pts' : 'pkt'}`;
+  };
 
   const winner = gameState.winnerId
     ? gameState.players.find((p) => p.id === gameState.winnerId)
@@ -65,9 +72,12 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
   const domThreshold =
     gameState.settings.dominationThreshold ?? gameState.monopolyThreshold ?? 75;
 
-  const funAwards = useMemo(() => computeMatchFunAwards(gameState), [gameState]);
+  const funAwards = useMemo(
+    () => computeMatchFunAwards(gameState).map((aw) => localizeMatchFunAward(aw, lang)),
+    [gameState, lang]
+  );
   const samples = useMemo(() => gameState.matchStatsHistory ?? [], [gameState.matchStatsHistory]);
-  const activeMetricDef = METRIC_OPTIONS.find((m) => m.key === metric) ?? METRIC_OPTIONS[0];
+  const activeMetricDef = metricOptions.find((m) => m.key === metric) ?? metricOptions[0];
 
   const chartGeometry = useMemo(() => {
     const width = 620;
@@ -114,7 +124,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
         ? samples.length - 1
         : null;
   const inspectedSample = inspectSampleIdx !== null ? samples[inspectSampleIdx] : null;
-  const myArch = getArchetypeDefinition(currentPlayer.archetype);
+  const myArch = localizeArchetype(getArchetypeDefinition(currentPlayer.archetype), lang);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 overflow-y-auto">
@@ -124,22 +134,44 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
           <h2 className="text-xl md:text-2xl font-extrabold text-white">
             {winningCoalition
               ? isLocalCoalitionWin
-                ? `ZWYCIĘSTWO KOALICJI [${winningCoalition.tag}]!`
-                : `Koniec Partii — Zwycięska Koalicja: [${winningCoalition.tag}] ${winningCoalition.name}`
+                ? lang === 'en'
+                  ? `COALITION VICTORY [${winningCoalition.tag}]!`
+                  : `ZWYCIĘSTWO KOALICJI [${winningCoalition.tag}]!`
+                : lang === 'en'
+                  ? `Match Over — Winning Coalition: [${winningCoalition.tag}] ${winningCoalition.name}`
+                  : `Koniec Partii — Zwycięska Koalicja: [${winningCoalition.tag}] ${winningCoalition.name}`
               : winner
                 ? winner.id === currentPlayer.id
-                  ? 'DOMINACJA RYNKOWA OSIĄGNIĘTA!'
-                  : `Koniec Partii — Zwycięzca: ${winner.companyName}`
-                : 'Wyzwanie Zakończone!'}
+                  ? lang === 'en'
+                    ? 'MARKET DOMINATION ACHIEVED!'
+                    : 'DOMINACJA RYNKOWA OSIĄGNIĘTA!'
+                  : lang === 'en'
+                    ? `Match Over — Winner: ${winner.companyName}`
+                    : `Koniec Partii — Zwycięzca: ${winner.companyName}`
+                : lang === 'en'
+                  ? 'Challenge Completed!'
+                  : 'Wyzwanie Zakończone!'}
           </h2>
           <p className="text-xs md:text-sm text-slate-300 leading-relaxed max-w-2xl mx-auto">
             {gameState.victoryReason ??
-              'Twój wynik wyceny netto oraz wypracowana strategia zostały zapisane w Twoim Profilu i Tabeli Wyników!'}
+              (lang === 'en'
+                ? 'Your net worth score and dominant strategy have been recorded in your Profile and Leaderboards!'
+                : 'Twój wynik wyceny netto oraz wypracowana strategia zostały zapisane w Twoim Profilu i Tabeli Wyników!')}
           </p>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#0b0f17] border border-amber-500/35 text-[11px] font-mono text-amber-300">
-            <span>🎯 Próg dominacji w tym meczu: {domThreshold}%</span>
+            <span>
+              🎯 {lang === 'en' ? 'Domination threshold this match:' : 'Próg dominacji w tym meczu:'} {domThreshold}%
+            </span>
             <span>·</span>
-            <span>{gameState.settings.victoryMode === 'coalition' ? '🤝 Dominacja Koalicji' : '👑 Dominacja Solowa'}</span>
+            <span>
+              {gameState.settings.victoryMode === 'coalition'
+                ? lang === 'en'
+                  ? '🤝 Coalition Domination'
+                  : '🤝 Dominacja Koalicji'
+                : lang === 'en'
+                  ? '👑 Solo Domination'
+                  : '👑 Dominacja Solowa'}
+            </span>
           </div>
         </div>
 
@@ -160,17 +192,19 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
                   )}
                   {rewardSummary.tooShortForCoins && (
                     <span className="px-2 py-0.5 rounded bg-slate-800 border border-[#2d3b52] text-slate-300 text-[10px]">
-                      ⏱️ Zbyt krótki mecz (&lt; 12 tur) — brak premii M
+                      {lang === 'en'
+                        ? '⏱️ Match too short (< 12 ticks) — no M-Coin bonus'
+                        : '⏱️ Zbyt krótki mecz (< 12 tur) — brak premii M'}
                     </span>
                   )}
                   {(rewardSummary.bpXpEarned ?? 0) > 0 && (
                     <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/45 text-sky-200 font-mono">
-                      🎖️ +{rewardSummary.bpXpEarned} Karnet XP
+                      🎖️ +{rewardSummary.bpXpEarned} {lang === 'en' ? 'Pass XP' : 'Karnet XP'}
                     </span>
                   )}
                   {(rewardSummary.rewardMultiplier ?? 1) !== 1 && (
                     <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/45 text-emerald-300 font-mono">
-                      ×{rewardSummary.rewardMultiplier?.toFixed(2)} Mnożnik
+                      ×{rewardSummary.rewardMultiplier?.toFixed(2)} {lang === 'en' ? 'Multiplier' : 'Mnożnik'}
                     </span>
                   )}
                 </div>
@@ -217,7 +251,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
         {winningCoalition && (
           <div className="p-3 rounded-xl bg-[#0b0f17] border border-sky-500/30 text-left space-y-1.5 text-xs">
             <div className="text-[11px] font-bold text-sky-300 uppercase">
-              Członkowie zwycięskiej koalicji:
+              {lang === 'en' ? 'Winning coalition members:' : 'Członkowie zwycięskiej koalicji:'}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {winningCoalition.memberIds.map((mId) => {
@@ -240,26 +274,30 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
         {/* Podsumowanie gracza */}
         <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] grid grid-cols-2 sm:grid-cols-4 gap-3 text-left text-xs">
           <div>
-            <div className="text-slate-400">Wycena Netto</div>
+            <div className="text-slate-400">{t('vic.metricNetWorth')}</div>
             <div className="font-mono text-sm md:text-base font-bold text-emerald-400">
               {formatMoney(currentPlayer.netWorth)}
             </div>
           </div>
           <div>
-            <div className="text-slate-400">Strategia</div>
-            <div className="font-semibold text-amber-300 truncate">{currentPlayer.dominantStrategy}</div>
+            <div className="text-slate-400">{t('vic.strategyLabel').replace(':', '')}</div>
+            <div className="font-semibold text-amber-300 truncate">
+              {localizeAiStrategy(currentPlayer.dominantStrategy, currentPlayer.dominantStrategy, lang)}
+            </div>
           </div>
           <div>
-            <div className="text-slate-400">Archetyp Firmy</div>
+            <div className="text-slate-400">{t('vic.archetypeLabel').replace(':', '')}</div>
             <div className="font-semibold text-sky-300 truncate">
               {myArch.icon} {myArch.shortName}
             </div>
           </div>
           <div>
-            <div className="text-slate-400">Tajne Cele</div>
+            <div className="text-slate-400">{t('vic.goalsLabel')}</div>
             <div className="font-mono font-bold text-slate-100">
-              {(currentPlayer.secretGoals ?? []).filter((g) => g.completed).length} /{' '}
-              {(currentPlayer.secretGoals ?? []).length || 0} ukończonych
+              {t('vic.goalsDone', {
+                done: (currentPlayer.secretGoals ?? []).filter((g) => g.completed).length,
+                total: (currentPlayer.secretGoals ?? []).length || 0,
+              })}
             </div>
           </div>
         </div>
@@ -268,10 +306,10 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
         <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2.5 text-left">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              📊 Analiza Historyczna Rynku ({samples.length} punktów)
+              {t('vic.chartHeader', { count: samples.length })}
             </div>
             <div className="flex flex-wrap gap-1">
-              {METRIC_OPTIONS.map((m) => (
+              {metricOptions.map((m) => (
                 <button
                   key={m.key}
                   type="button"
@@ -290,7 +328,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
 
           {samples.length < 2 ? (
             <div className="py-6 text-center text-xs text-slate-400">
-              Za mało próbek czasowych do wyrysowania wykresu przebiegu partii.
+              {t('vic.chartNotEnough')}
             </div>
           ) : (
             <div className="space-y-2">
@@ -412,7 +450,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
                     fontSize="9"
                     fontFamily="monospace"
                   >
-                    {inspectedSample ? `Punkt: ${inspectedSample.label}` : samples[samples.length - 1]?.label}
+                    {inspectedSample ? t('vic.chartSamplePoint', { label: inspectedSample.label }) : samples[samples.length - 1]?.label}
                   </text>
                 </svg>
               </div>
@@ -455,7 +493,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
         {funAwards.length > 0 && (
           <div className="space-y-2 text-left">
             <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              🏅 Wyróżnienia Specjalne Sesji
+              {t('vic.awardsHeader')}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {funAwards.map((aw) => (
@@ -489,8 +527,10 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
             className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm"
           >
             {isChallengeDone
-              ? '♾️ Kontynuuj Grę Bez Limitu (Endless)'
-              : '♾️ Graj Dalej w Trybie Wolnym'}
+              ? t('vic.continueEndless')
+              : lang === 'en'
+                ? '♾️ Keep Playing in Free Mode'
+                : '♾️ Graj Dalej w Trybie Wolnym'}
           </button>
           <div className="grid grid-cols-2 gap-2.5">
             <button
@@ -498,14 +538,14 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
               onClick={onOpenLeaderboard}
               className="py-2.5 rounded-xl bg-[#1a2438] border border-amber-500/40 text-amber-300 text-xs font-semibold"
             >
-              🏆 Tabela Wyników
+              {t('vic.leaderboard')}
             </button>
             <button
               type="button"
               onClick={onExitToMenu}
               className="py-2.5 rounded-xl bg-[#1a2438] border border-[#243044] text-slate-300 text-xs font-semibold"
             >
-              Menu Główne
+              {t('vic.exitMenu')}
             </button>
           </div>
         </div>

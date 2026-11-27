@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { RESOURCE_DEFINITIONS, TRADEABLE_RESOURCE_LIST } from '../../data/resources';
 import type { GameState, Player, ResourceType } from '../../engine/types';
-import { formatMoney } from '../../utils/formatters';
+import {
+  localizeResourceName,
+  localizeResourceUnit,
+  localizeTender,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
+import { formatCompactMoney, formatMoney } from '../../utils/formatters';
 import { DarkNumberInput } from '../HUD/DarkControls';
 
 interface ContractsMarketPanelProps {
@@ -104,6 +110,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
     .slice(-10)
     .reverse();
 
+  const { lang } = useI18n();
   const isMpClosed = gameState.settings.mode === 'mp_fast' || gameState.settings.mode === 'mp_long';
 
   return (
@@ -112,12 +119,18 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex items-center justify-between gap-2">
           <div>
             <h2 className="text-base md:text-lg font-bold text-slate-100">
-              🤝 Giełda B2B, Przetargi Rządowe & Wykupy Działek
+              {lang === 'en'
+                ? '🤝 B2B Exchange, State Tenders & Plot Buyouts'
+                : '🤝 Giełda B2B, Przetargi Rządowe & Wykupy Działek'}
             </h2>
             <p className="text-xs text-slate-400">
               {isMpClosed
-                ? 'Gospodarka zamknięta MP — surowce i półprodukty pozyskujesz wyłącznie z własnych zakładów lub kontraktów B2B'
-                : 'Negocjuj stałe dostawy, szybki handel spot, barter, przetargi publiczne i wykupy gruntów'}
+                ? lang === 'en'
+                  ? 'Closed MP economy — obtain resources strictly from your own mines or B2B contracts'
+                  : 'Gospodarka zamknięta MP — surowce i półprodukty pozyskujesz wyłącznie z własnych zakładów lub kontraktów B2B'
+                : lang === 'en'
+                  ? 'Negotiate recurring supply deals, instant spot trades, barter, state tenders & land buyouts'
+                  : 'Negocjuj stałe dostawy, szybki handel spot, barter, przetargi publiczne i wykupy gruntów'}
             </p>
           </div>
           <button
@@ -139,7 +152,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🤝 Rynek B2B ({activeContracts.length + openListings.length})
+            {lang === 'en' ? '🤝 B2B Market' : '🤝 Rynek B2B'} ({activeContracts.length + openListings.length})
           </button>
           <button
             type="button"
@@ -152,7 +165,11 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                   : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            ⏳ Oczekujące Oferty B2B ({incomingPending.length}{outgoingPending.length > 0 ? ` / ${outgoingPending.length} wysł.` : ''})
+            {lang === 'en' ? '⏳ Pending B2B Offers' : '⏳ Oczekujące Oferty B2B'} ({incomingPending.length}
+            {outgoingPending.length > 0
+              ? ` / ${outgoingPending.length} ${lang === 'en' ? 'sent' : 'wysł.'}`
+              : ''}
+            )
           </button>
           <button
             type="button"
@@ -163,7 +180,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🏛️ Przetargi Rządowe ({openTenders.length})
+            {lang === 'en' ? '🏛️ State Tenders' : '🏛️ Przetargi Rządowe'} ({openTenders.length})
           </button>
           <button
             type="button"
@@ -174,7 +191,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🏷️ Wykupy Działek ({incomingPlotOffers.length})
+            {lang === 'en' ? '🏷️ Plot Buyouts' : '🏷️ Wykupy Działek'} ({incomingPlotOffers.length})
           </button>
         </div>
 
@@ -183,64 +200,74 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
           {activeTab === 'tenders' && (
             <div className="space-y-3">
               <div className="p-3 rounded-lg bg-[#0b0f17] border border-emerald-500/35 text-slate-300">
-                Realizuj zamówienia państwowe z zapasów w swoim magazynie głównym lub buduj największe
-                moce czystej energii OZE, aby zdobyć gotówkę, wpływy i poparcie wyborców.
+                {lang === 'en'
+                  ? 'Fulfill state procurement orders from your main warehouse reserves or deploy clean renewable capacity to earn cash, influence, and voter approval.'
+                  : 'Realizuj zamówienia państwowe z zapasów w swoim magazynie głównym lub buduj największe moce czystej energii OZE, aby zdobyć gotówkę, wpływy i poparcie wyborców.'}
               </div>
               {(gameState.tenders ?? []).length === 0 ? (
                 <div className="p-8 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
-                  Obecnie brak ogłoszonych przetargów rządowych. Pierwszy przetarg pojawi się wkrótce!
+                  {lang === 'en'
+                    ? 'No active government tenders yet. The first contract will open shortly!'
+                    : 'Obecnie brak ogłoszonych przetargów rządowych. Pierwszy przetarg pojawi się wkrótce!'}
                 </div>
               ) : (
-                (gameState.tenders ?? []).map((t) => {
-                  const myProg = t.deliveredByPlayer[currentPlayer.id] ?? {};
+                (gameState.tenders ?? []).map((rawTender) => {
+                  const ten = localizeTender(rawTender, lang);
+                  const myProg = ten.deliveredByPlayer[currentPlayer.id] ?? {};
                   return (
                     <div
-                      key={t.id}
+                      key={ten.id}
                       className={`p-3.5 rounded-xl border space-y-2.5 ${
-                        t.status === 'open'
+                        ten.status === 'open'
                           ? 'bg-[#0b0f17] border-emerald-500/40'
                           : 'bg-[#0b0f17]/60 border-[#243044] opacity-75'
                       }`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <div className="text-sm font-bold text-slate-100">{t.title}</div>
-                          <div className="text-slate-400 mt-0.5">{t.description}</div>
+                          <div className="text-sm font-bold text-slate-100">{ten.title}</div>
+                          <div className="text-slate-400 mt-0.5">{ten.description}</div>
                         </div>
                         <span
                           className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
-                            t.status === 'open'
+                            ten.status === 'open'
                               ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                              : t.status === 'awarded'
+                              : ten.status === 'awarded'
                                 ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
                                 : 'bg-slate-800 text-slate-400 border-slate-700'
                           }`}
                         >
-                          {t.status === 'open'
-                            ? `OTWARTY · termin #${t.deadlineTick} (pozostało ${Math.max(0, t.deadlineTick - gameState.time.tick)}T)`
-                            : t.status === 'awarded'
-                              ? `WYGRAŁ: ${t.winnerName}`
-                              : 'WYGASŁ'}
+                          {ten.status === 'open'
+                            ? lang === 'en'
+                              ? `OPEN · due #${ten.deadlineTick} (${Math.max(0, ten.deadlineTick - gameState.time.tick)}T left)`
+                              : `OTWARTY · termin #${ten.deadlineTick} (pozostało ${Math.max(0, ten.deadlineTick - gameState.time.tick)}T)`
+                            : ten.status === 'awarded'
+                              ? `${lang === 'en' ? 'AWARDED:' : 'WYGRAŁ:'} ${ten.winnerName}`
+                              : lang === 'en'
+                                ? 'EXPIRED'
+                                : 'WYGASŁ'}
                         </span>
                       </div>
 
                       <div className="flex flex-wrap gap-2 text-[11px]">
                         <span className="px-2 py-1 rounded bg-emerald-950/50 border border-emerald-500/30 text-emerald-300 font-mono">
-                          Nagroda: +{formatMoney(t.cashReward)}
+                          {lang === 'en' ? 'Reward:' : 'Nagroda:'} +{formatMoney(ten.cashReward)}
                         </span>
                         <span className="px-2 py-1 rounded bg-purple-950/50 border border-purple-500/30 text-purple-300">
-                          +{t.influenceReward} pkt wpływów
+                          +{ten.influenceReward} {lang === 'en' ? 'influence pts' : 'pkt wpływów'}
                         </span>
                         <span className="px-2 py-1 rounded bg-sky-950/50 border border-sky-500/30 text-sky-300">
-                          +{t.voterMoodReward}% poparcia
+                          +{ten.voterMoodReward}% {lang === 'en' ? 'approval' : 'poparcia'}
                         </span>
                       </div>
 
-                      {t.kind === 'resource_delivery' && (
+                      {ten.kind === 'resource_delivery' && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                          {Object.entries(t.requirements).map(([rKey, reqQty]) => {
+                          {Object.entries(ten.requirements).map(([rKey, reqQty]) => {
                             const r = rKey as ResourceType;
                             const rd = RESOURCE_DEFINITIONS[r];
+                            const rName = localizeResourceName(r, rd.name, lang);
+                            const rUnit = localizeResourceUnit(rd.unit, lang);
                             const deliv = myProg[r] ?? 0;
                             const stock = currentPlayer.warehouseStockpile[r] ?? 0;
                             const pct = Math.min(100, Math.round((deliv / Math.max(1, reqQty ?? 1)) * 100));
@@ -248,10 +275,10 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               <div key={r} className="p-2 rounded bg-[#141c2b] border border-[#243044] space-y-1">
                                 <div className="flex justify-between">
                                   <span className="text-slate-200 font-medium">
-                                    {rd.emoji} {rd.name}
+                                    {rd.emoji} {rName}
                                   </span>
                                   <span className="font-mono text-amber-300">
-                                    {deliv.toFixed(0)} / {reqQty} {rd.unit} (w magazynie: {stock.toFixed(1)})
+                                    {deliv.toFixed(0)} / {reqQty} {rUnit} ({lang === 'en' ? 'in stock:' : 'w magazynie:'} {stock.toFixed(1)})
                                   </span>
                                 </div>
                                 <div className="h-1.5 w-full bg-[#090d14] rounded-full overflow-hidden">
@@ -263,13 +290,15 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         </div>
                       )}
 
-                      {t.status === 'open' && t.kind === 'resource_delivery' && onSubmitTender && (
+                      {ten.status === 'open' && ten.kind === 'resource_delivery' && onSubmitTender && (
                         <button
                           type="button"
-                          onClick={() => onSubmitTender(t.id)}
+                          onClick={() => onSubmitTender(ten.id)}
                           className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
                         >
-                          📦 Dostarcz Zapas z Magazynu Głównego
+                          {lang === 'en'
+                            ? '📦 Deliver Stock from Main Warehouse'
+                            : '📦 Dostarcz Zapas z Magazynu Głównego'}
                         </button>
                       )}
                     </div>
@@ -285,7 +314,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {incomingPlotOffers.length > 0 && (
                 <div className="space-y-2">
                   <div className="font-semibold text-amber-300 uppercase tracking-wide">
-                    Oczekujące Propozycje Wykupu ({incomingPlotOffers.length})
+                    {lang === 'en' ? 'Incoming Buyout Proposals' : 'Oczekujące Propozycje Wykupu'} ({incomingPlotOffers.length})
                   </div>
                   {incomingPlotOffers.map((offer) => {
                     const currentVal = offer.counterPrice ?? offer.offeredPrice;
@@ -298,11 +327,18 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="font-semibold text-slate-100 text-sm">
-                              Działka ({offer.gridX}, {offer.gridY}) ·{' '}
-                              {offer.includeBuilding ? 'Z budynkiem' : 'Sam grunt'}
+                              {lang === 'en' ? 'Plot' : 'Działka'} ({offer.gridX}, {offer.gridY}) ·{' '}
+                              {offer.includeBuilding
+                                ? lang === 'en'
+                                  ? 'With building'
+                                  : 'Z budynkiem'
+                                : lang === 'en'
+                                  ? 'Land only'
+                                  : 'Sam grunt'}
                             </div>
                             <div className="text-slate-300">
-                              Od: <strong>{offer.fromName}</strong> → Proponowana cena:{' '}
+                              {lang === 'en' ? 'From:' : 'Od:'} <strong>{offer.fromName}</strong> →{' '}
+                              {lang === 'en' ? 'Offered price:' : 'Proponowana cena:'}{' '}
                               <strong className="font-mono text-amber-300">
                                 {formatMoney(currentVal)}
                               </strong>
@@ -331,7 +367,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               }
                               className="px-3 py-1.5 rounded bg-sky-600/30 hover:bg-sky-600/50 border border-sky-400/40 text-sky-200 font-semibold"
                             >
-                              🔄 Kontroferta
+                              {lang === 'en' ? '🔄 Counter-offer' : '🔄 Kontroferta'}
                             </button>
                           </div>
                           <div className="flex gap-2">
@@ -340,14 +376,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               onClick={() => onRespondPlotOffer(offer.id, 'accept')}
                               className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                             >
-                              ✅ Akceptuj
+                              {lang === 'en' ? '✅ Accept' : '✅ Akceptuj'}
                             </button>
                             <button
                               type="button"
                               onClick={() => onRespondPlotOffer(offer.id, 'reject')}
                               className="px-3 py-1.5 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200"
                             >
-                              ❌ Odrzuć
+                              {lang === 'en' ? '❌ Reject' : '❌ Odrzuć'}
                             </button>
                           </div>
                         </div>
@@ -359,11 +395,13 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
 
               <div className="space-y-2">
                 <div className="font-semibold text-slate-300 uppercase tracking-wide">
-                  Wszystkie Negocjacje Nieruchomości ({relatedPlotOffers.length})
+                  {lang === 'en' ? 'All Real Estate Negotiations' : 'Wszystkie Negocjacje Nieruchomości'} ({relatedPlotOffers.length})
                 </div>
                 {relatedPlotOffers.length === 0 ? (
                   <div className="p-6 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
-                    Brak aktywnych ofert wykupu działek. Kliknij działkę rywala na mapie, aby złożyć propozycję wykupu!
+                    {lang === 'en'
+                      ? 'No active plot buyout offers. Click a rival plot on the map to propose a purchase!'
+                      : 'Brak aktywnych ofert wykupu działek. Kliknij działkę rywala na mapie, aby złożyć propozycję wykupu!'}
                   </div>
                 ) : (
                   relatedPlotOffers.map((o) => (
@@ -373,7 +411,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                     >
                       <div>
                         <div className="font-semibold text-slate-100">
-                          Sektor ({o.gridX}, {o.gridY}) · {o.includeBuilding ? 'Grunt + Budynek' : 'Sam Grunt'}
+                          {lang === 'en' ? 'Sector' : 'Sektor'} ({o.gridX}, {o.gridY}) ·{' '}
+                          {o.includeBuilding
+                            ? lang === 'en'
+                              ? 'Land + Building'
+                              : 'Grunt + Budynek'
+                            : lang === 'en'
+                              ? 'Land Only'
+                              : 'Sam Grunt'}
                         </div>
                         <div className="text-slate-400">
                           {o.fromName} → {o.toName}
@@ -385,12 +430,20 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         </div>
                         <div className="text-[11px] text-slate-400">
                           {o.status === 'accepted'
-                            ? '✅ Zaakceptowano'
+                            ? lang === 'en'
+                              ? '✅ Accepted'
+                              : '✅ Zaakceptowano'
                             : o.status === 'rejected'
-                              ? '❌ Odrzucono'
+                              ? lang === 'en'
+                                ? '❌ Rejected'
+                                : '❌ Odrzucono'
                               : o.status === 'countered'
-                                ? '🔄 Kontroferta'
-                                : '⏳ Oczekuje'}
+                                ? lang === 'en'
+                                  ? '🔄 Countered'
+                                  : '🔄 Kontroferta'
+                                : lang === 'en'
+                                  ? '⏳ Pending'
+                                  : '⏳ Oczekuje'}
                         </div>
                       </div>
                     </div>
@@ -405,19 +458,35 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="font-semibold text-amber-300 uppercase tracking-wide">
-                  Odebrane Oferty Kontraktów do Zatwierdzenia ({incomingPending.length})
+                  {lang === 'en'
+                    ? 'Received Contract Offers Awaiting Approval'
+                    : 'Odebrane Oferty Kontraktów do Zatwierdzenia'}{' '}
+                  ({incomingPending.length})
                 </div>
                 {incomingPending.length === 0 ? (
                   <div className="p-5 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
-                    Brak przychodzących ofert B2B oczekujących na Twoją decyzję.
+                    {lang === 'en'
+                      ? 'No incoming B2B offers awaiting your decision.'
+                      : 'Brak przychodzących ofert B2B oczekujących na Twoją decyzję.'}
                   </div>
                 ) : (
                   incomingPending.map((c) => {
                     const rd = RESOURCE_DEFINITIONS[c.resource];
+                    const rName = localizeResourceName(c.resource, rd.name, lang);
+                    const rUnit = localizeResourceUnit(rd.unit, lang);
                     const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                    const brName =
+                      c.barterResource && brd ? localizeResourceName(c.barterResource, brd.name, lang) : '';
+                    const brUnit = brd ? localizeResourceUnit(brd.unit, lang) : '';
                     const senderName = c.proposerId === c.sellerId ? c.sellerName : c.buyerName;
                     const roleText =
-                      c.buyerId === currentPlayer.id ? '📥 Kupujesz surowiec' : '📤 Sprzedajesz surowiec';
+                      c.buyerId === currentPlayer.id
+                        ? lang === 'en'
+                          ? '📥 Buying commodity'
+                          : '📥 Kupujesz surowiec'
+                        : lang === 'en'
+                          ? '📤 Selling commodity'
+                          : '📤 Sprzedajesz surowiec';
                     const estTotal =
                       c.kind === 'barter'
                         ? null
@@ -429,27 +498,35 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       >
                         <div className="space-y-1">
                           <div className="font-semibold text-slate-100 text-sm">
-                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}
+                            {rd.emoji} {rName} · {c.quantityPerTick} {rUnit}
                             {c.kind === 'spot' ? ' (Spot 1×)' : '/T'} ·{' '}
                             {c.kind === 'barter' && brd
-                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name} (Barter)`
-                              : `${formatMoney(c.pricePerUnit)}/j`}
+                              ? `↔ ${c.barterQtyPerTick} ${brUnit} ${brName} (Barter)`
+                              : `${formatMoney(c.pricePerUnit)}/${lang === 'en' ? 'u' : 'j'}`}
                           </div>
                           <div className="text-slate-300 flex flex-wrap items-center gap-2">
                             <span>
-                              Od: <strong className="text-amber-200">{senderName}</strong>
+                              {lang === 'en' ? 'From:' : 'Od:'}{' '}
+                              <strong className="text-amber-200">{senderName}</strong>
                             </span>
                             <span>·</span>
                             <span>{roleText}</span>
                             <span>·</span>
                             <span>
-                              Czas: <strong>{c.kind === 'spot' ? 'Jednorazowo (Spot)' : `${c.durationTicks} cykli`}</strong>
+                              {lang === 'en' ? 'Term:' : 'Czas:'}{' '}
+                              <strong>
+                                {c.kind === 'spot'
+                                  ? lang === 'en'
+                                    ? 'One-off (Spot)'
+                                    : 'Jednorazowo (Spot)'
+                                  : `${c.durationTicks} ${lang === 'en' ? 'ticks' : 'cykli'}`}
+                              </strong>
                             </span>
                             {estTotal !== null && (
                               <>
                                 <span>·</span>
                                 <span className="font-mono text-emerald-300">
-                                  Łącznie: {formatMoney(estTotal)}
+                                  {lang === 'en' ? 'Total:' : 'Łącznie:'} {formatMoney(estTotal)}
                                 </span>
                               </>
                             )}
@@ -461,14 +538,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                             onClick={() => onAccept(c.id)}
                             className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
                           >
-                            ✓ Zatwierdź Umowę
+                            {lang === 'en' ? '✓ Approve Deal' : '✓ Zatwierdź Umowę'}
                           </button>
                           <button
                             type="button"
                             onClick={() => onReject(c.id)}
                             className="px-3.5 py-2 rounded-lg bg-rose-600/35 hover:bg-rose-600/55 border border-rose-500/45 text-rose-200 font-semibold"
                           >
-                            ✕ Odrzuć
+                            {lang === 'en' ? '✕ Reject' : '✕ Odrzuć'}
                           </button>
                         </div>
                       </div>
@@ -479,16 +556,23 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
 
               <div className="space-y-2">
                 <div className="font-semibold text-sky-300 uppercase tracking-wide">
-                  Wysłane Oferty Oczekujące na Partnera ({outgoingPending.length})
+                  {lang === 'en' ? 'Sent Offers Awaiting Partner' : 'Wysłane Oferty Oczekujące na Partnera'} ({outgoingPending.length})
                 </div>
                 {outgoingPending.length === 0 ? (
                   <div className="p-4 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
-                    Nie masz aktualnie wysłanych ofert czekających na odpowiedź.
+                    {lang === 'en'
+                      ? 'You have no outbound offers waiting for a reply.'
+                      : 'Nie masz aktualnie wysłanych ofert czekających na odpowiedź.'}
                   </div>
                 ) : (
                   outgoingPending.map((c) => {
                     const rd = RESOURCE_DEFINITIONS[c.resource];
+                    const rName = localizeResourceName(c.resource, rd.name, lang);
+                    const rUnit = localizeResourceUnit(rd.unit, lang);
                     const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                    const brName =
+                      c.barterResource && brd ? localizeResourceName(c.barterResource, brd.name, lang) : '';
+                    const brUnit = brd ? localizeResourceUnit(brd.unit, lang) : '';
                     const recipientName = c.proposerId === c.sellerId ? c.buyerName : c.sellerName;
                     return (
                       <div
@@ -497,15 +581,21 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       >
                         <div>
                           <div className="font-semibold text-slate-100">
-                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}{' '}
+                            {rd.emoji} {rName} · {c.quantityPerTick} {rUnit}{' '}
                             {c.kind === 'barter' && brd
-                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name}`
-                              : `po ${formatMoney(c.pricePerUnit)}/j`}
+                              ? `↔ ${c.barterQtyPerTick} ${brUnit} ${brName}`
+                              : `@ ${formatMoney(c.pricePerUnit)}/${lang === 'en' ? 'u' : 'j'}`}
                           </div>
                           <div className="text-slate-400">
-                            Odbiorca: <strong className="text-slate-200">{recipientName}</strong> ·{' '}
-                            {c.kind === 'spot' ? 'Spot 1×' : `${c.durationTicks} cykli`} ·{' '}
-                            <span className="text-amber-300">⏳ Oczekuje na akceptację</span>
+                            {lang === 'en' ? 'Recipient:' : 'Odbiorca:'}{' '}
+                            <strong className="text-slate-200">{recipientName}</strong> ·{' '}
+                            {c.kind === 'spot'
+                              ? 'Spot 1×'
+                              : `${c.durationTicks} ${lang === 'en' ? 'ticks' : 'cykli'}`}{' '}
+                            ·{' '}
+                            <span className="text-amber-300">
+                              {lang === 'en' ? '⏳ Waiting for acceptance' : '⏳ Oczekuje na akceptację'}
+                            </span>
                           </div>
                         </div>
                         <button
@@ -513,7 +603,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                           onClick={() => onCancel(c.id)}
                           className="px-3 py-1.5 rounded bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/40 text-rose-200 font-semibold"
                         >
-                          Anuluj Ofertę
+                          {lang === 'en' ? 'Cancel Offer' : 'Anuluj Ofertę'}
                         </button>
                       </div>
                     );
@@ -524,7 +614,10 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {recentClosedContracts.length > 0 && (
                 <div className="space-y-1.5">
                   <div className="font-semibold text-slate-400 uppercase tracking-wide">
-                    Historia Odrzuconych i Zakończonych ({recentClosedContracts.length})
+                    {lang === 'en'
+                      ? 'Rejected & Completed History'
+                      : 'Historia Odrzuconych i Zakończonych'}{' '}
+                    ({recentClosedContracts.length})
                   </div>
                   {recentClosedContracts.map((c) => {
                     const rd = RESOURCE_DEFINITIONS[c.resource];
@@ -534,7 +627,8 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         className="px-3 py-2 rounded bg-[#0b0f17]/70 border border-[#243044] flex items-center justify-between gap-2 text-[11px]"
                       >
                         <span className="text-slate-300">
-                          {rd.emoji} {rd.name} · {c.sellerName} → {c.buyerName} ({c.quantityPerTick}/T)
+                          {rd.emoji} {localizeResourceName(c.resource, rd.name, lang)} · {c.sellerName} →{' '}
+                          {c.buyerName} ({c.quantityPerTick}/T)
                         </span>
                         <span
                           className={`font-semibold ${
@@ -546,10 +640,16 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                           }`}
                         >
                           {c.status === 'completed'
-                            ? '✓ Zrealizowany'
+                            ? lang === 'en'
+                              ? '✓ Fulfilled'
+                              : '✓ Zrealizowany'
                             : c.status === 'rejected'
-                              ? '✕ Odrzucony'
-                              : 'Anulowany'}
+                              ? lang === 'en'
+                                ? '✕ Rejected'
+                                : '✕ Odrzucony'
+                              : lang === 'en'
+                                ? 'Cancelled'
+                                : 'Anulowany'}
                         </span>
                       </div>
                     );
@@ -568,8 +668,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                   onClick={() => setActiveTab('pending_b2b')}
                   className="w-full p-2.5 rounded-lg bg-amber-950/35 hover:bg-amber-950/55 border border-amber-400/60 text-amber-200 font-semibold flex items-center justify-between"
                 >
-                  <span>⏳ Masz {incomingPending.length} oczekujące oferty B2B do zatwierdzenia lub odrzucenia</span>
-                  <span className="text-amber-300 underline">Otwórz Oczekujące Oferty →</span>
+                  <span>
+                    {lang === 'en'
+                      ? `⏳ You have ${incomingPending.length} pending B2B offers to approve or reject`
+                      : `⏳ Masz ${incomingPending.length} oczekujące oferty B2B do zatwierdzenia lub odrzucenia`}
+                  </span>
+                  <span className="text-amber-300 underline">
+                    {lang === 'en' ? 'Open Pending Offers →' : 'Otwórz Oczekujące Oferty →'}
+                  </span>
                 </button>
               )}
 
@@ -577,14 +683,22 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {openListings.length > 0 && (
                 <div className="space-y-2">
                   <div className="font-semibold text-sky-300 uppercase tracking-wide">
-                    📋 Tablica Otwartych Ofert Giełdowych ({openListings.length})
+                    {lang === 'en'
+                      ? '📋 Public Open Exchange Board'
+                      : '📋 Tablica Otwartych Ofert Giełdowych'}{' '}
+                    ({openListings.length})
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {openListings.map((c) => {
                       const rd = RESOURCE_DEFINITIONS[c.resource];
+                      const rName = localizeResourceName(c.resource, rd.name, lang);
+                      const rUnit = localizeResourceUnit(rd.unit, lang);
                       const ownerId = c.listingSide === 'sell' ? c.sellerId : c.buyerId;
                       const isMine = ownerId === currentPlayer.id;
                       const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                      const brName =
+                        c.barterResource && brd ? localizeResourceName(c.barterResource, brd.name, lang) : '';
+                      const brUnit = brd ? localizeResourceUnit(brd.unit, lang) : '';
                       return (
                         <div
                           key={c.id}
@@ -592,13 +706,25 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         >
                           <div>
                             <div className="font-semibold text-slate-100">
-                              {c.listingSide === 'sell' ? '📤 Sprzeda:' : '📥 Kupi:'} {rd.emoji} {rd.name} ({c.quantityPerTick} {rd.unit})
+                              {c.listingSide === 'sell'
+                                ? lang === 'en'
+                                  ? '📤 Selling:'
+                                  : '📤 Sprzeda:'
+                                : lang === 'en'
+                                  ? '📥 Buying:'
+                                  : '📥 Kupi:'}{' '}
+                              {rd.emoji} {rName} ({c.quantityPerTick} {rUnit})
                             </div>
                             <div className="text-[11px] text-slate-400">
-                              Wystawca: {c.listingSide === 'sell' ? c.sellerName : c.buyerName} ·{' '}
+                              {lang === 'en' ? 'Listed by:' : 'Wystawca:'}{' '}
+                              {c.listingSide === 'sell' ? c.sellerName : c.buyerName} ·{' '}
                               {c.kind === 'barter' && brd
-                                ? `Za ${c.barterQtyPerTick} ${brd.unit} ${brd.genitiveName}`
-                                : `${formatMoney(c.pricePerUnit)}/j · ${c.kind === 'spot' ? 'Spot (1×)' : `${c.durationTicks}T`}`}
+                                ? lang === 'en'
+                                  ? `For ${c.barterQtyPerTick} ${brUnit} ${brName}`
+                                  : `Za ${c.barterQtyPerTick} ${brd.unit} ${brd.genitiveName}`
+                                : `${formatMoney(c.pricePerUnit)}/${lang === 'en' ? 'u' : 'j'} · ${
+                                    c.kind === 'spot' ? 'Spot (1×)' : `${c.durationTicks}T`
+                                  }`}
                             </div>
                           </div>
                           {isMine ? (
@@ -607,7 +733,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               onClick={() => onCancel(c.id)}
                               className="px-2.5 py-1 rounded bg-rose-950/50 border border-rose-500/40 text-rose-300"
                             >
-                              Wycofaj
+                              {lang === 'en' ? 'Withdraw' : 'Wycofaj'}
                             </button>
                           ) : (
                             <button
@@ -615,7 +741,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               onClick={() => onAccept(c.id)}
                               className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                             >
-                              Zawrzyj
+                              {lang === 'en' ? 'Accept Deal' : 'Zawrzyj'}
                             </button>
                           )}
                         </div>
@@ -628,24 +754,28 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {/* Kreator nowego kontraktu */}
               <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-semibold text-slate-100 text-sm">Kreator Kontraktu B2B</div>
+                  <div className="font-semibold text-slate-100 text-sm">
+                    {lang === 'en' ? 'B2B Contract Builder' : 'Kreator Kontraktu B2B'}
+                  </div>
                   <div className="flex gap-1.5">
-                    {([
-                      { k: 'recurring', l: '🔄 Stała Dostawa' },
-                      { k: 'spot', l: '⚡ Spot (Jednorazowy)' },
-                      { k: 'barter', l: '⚖️ Barter (Surowiec↔Surowiec)' },
-                    ] as const).map((t) => (
+                    {(
+                      [
+                        { k: 'recurring', l: lang === 'en' ? '🔄 Recurring Supply' : '🔄 Stała Dostawa' },
+                        { k: 'spot', l: lang === 'en' ? '⚡ Spot (One-off)' : '⚡ Spot (Jednorazowy)' },
+                        { k: 'barter', l: lang === 'en' ? '⚖️ Barter (Good↔Good)' : '⚖️ Barter (Surowiec↔Surowiec)' },
+                      ] as const
+                    ).map((tabKind) => (
                       <button
-                        key={t.k}
+                        key={tabKind.k}
                         type="button"
-                        onClick={() => setKind(t.k)}
+                        onClick={() => setKind(tabKind.k)}
                         className={`px-2.5 py-1 rounded border text-[11px] font-semibold ${
-                          kind === t.k
+                          kind === tabKind.k
                             ? 'bg-sky-500/20 border-sky-400 text-sky-200'
                             : 'bg-[#151c28] border-[#243044] text-slate-400'
                         }`}
                       >
-                        {t.l}
+                        {tabKind.l}
                       </button>
                     ))}
                   </div>
@@ -657,7 +787,9 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                     onChange={(e) => setPartnerId(e.target.value)}
                     className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-2 text-slate-100"
                   >
-                    <option value="OPEN">📋 Tablica Otwarta (Wszyscy)</option>
+                    <option value="OPEN">
+                      {lang === 'en' ? '📋 Open Board (Everyone)' : '📋 Tablica Otwarta (Wszyscy)'}
+                    </option>
                     {rivals.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.companyName}
@@ -669,8 +801,12 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                     onChange={(e) => setIsSelling(e.target.value === 'sell')}
                     className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-2 text-slate-100"
                   >
-                    <option value="sell">Dostarczam (Sprzedaż)</option>
-                    <option value="buy">Zamawiam (Zakup)</option>
+                    <option value="sell">
+                      {lang === 'en' ? 'Delivering (Sell)' : 'Dostarczam (Sprzedaż)'}
+                    </option>
+                    <option value="buy">
+                      {lang === 'en' ? 'Ordering (Buy)' : 'Zamawiam (Zakup)'}
+                    </option>
                   </select>
                   <select
                     value={resource}
@@ -685,7 +821,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       const rd = RESOURCE_DEFINITIONS[rk];
                       return (
                         <option key={rd.type} value={rd.type}>
-                          {rd.emoji} {rd.name}
+                          {rd.emoji} {localizeResourceName(rd.type, rd.name, lang)}
                         </option>
                       );
                     })}
@@ -701,7 +837,8 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         const rd = RESOURCE_DEFINITIONS[rk];
                         return (
                           <option key={rd.type} value={rd.type}>
-                            Za: {rd.emoji} {rd.name}
+                            {lang === 'en' ? 'For:' : 'Za:'} {rd.emoji}{' '}
+                            {localizeResourceName(rd.type, rd.name, lang)}
                           </option>
                         );
                       })}
@@ -714,7 +851,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   {kind === 'barter' ? (
                     <div className="flex items-center gap-2 text-slate-400">
-                      <span>Ilość wzajemna:</span>
+                      <span>{lang === 'en' ? 'Barter quantity:' : 'Ilość wzajemna:'}</span>
                       <DarkNumberInput
                         value={barterQty}
                         onChange={setBarterQty}
@@ -724,10 +861,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       />
                     </div>
                   ) : kind === 'spot' ? (
-                    <span className="text-slate-400">Natychmiastowa jednorazowa wymiana magazynowa</span>
+                    <span className="text-slate-400">
+                      {lang === 'en'
+                        ? 'Instant one-off warehouse settlement'
+                        : 'Natychmiastowa jednorazowa wymiana magazynowa'}
+                    </span>
                   ) : (
                     <div className="flex items-center gap-2 text-slate-400">
-                      <span>Czas trwania:</span>
+                      <span>{lang === 'en' ? 'Duration:' : 'Czas trwania:'}</span>
                       <DarkNumberInput
                         value={duration}
                         onChange={setDuration}
@@ -736,7 +877,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                         step={5}
                         className="w-28"
                       />
-                      <span>cykli</span>
+                      <span>{lang === 'en' ? 'ticks' : 'cykli'}</span>
                     </div>
                   )}
 
@@ -752,7 +893,13 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                     }
                     className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                   >
-                    {partnerId === 'OPEN' ? '📢 Wystaw na Tablicę B2B' : '📤 Wyślij Ofertę do Akceptacji'}
+                    {partnerId === 'OPEN'
+                      ? lang === 'en'
+                        ? '📢 Post on B2B Board'
+                        : '📢 Wystaw na Tablicę B2B'
+                      : lang === 'en'
+                        ? '📤 Send Offer for Approval'
+                        : '📤 Wyślij Ofertę do Akceptacji'}
                   </button>
                 </div>
               </div>
@@ -761,9 +908,11 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {rivals.length > 0 && (
                 <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-emerald-500/35 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-semibold text-emerald-300 text-sm">💸 Przelew Gotówki B2B</div>
+                    <div className="font-semibold text-emerald-300 text-sm">
+                      {lang === 'en' ? '💸 B2B Wire Transfer' : '💸 Przelew Gotówki B2B'}
+                    </div>
                     <span className="text-[11px] text-slate-400 font-mono">
-                      Dostępne środki: {formatMoney(currentPlayer.cash)}
+                      {lang === 'en' ? 'Available funds:' : 'Dostępne środki:'} {formatMoney(currentPlayer.cash)}
                     </span>
                   </div>
 
@@ -790,29 +939,25 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       value={transferNote}
                       onChange={(e) => setTransferNote(e.target.value)}
                       maxLength={64}
-                      placeholder="Tytuł przelewu (opcjonalny)"
+                      placeholder={lang === 'en' ? 'Wire reference note (optional)' : 'Tytuł przelewu (opcjonalny)'}
                       className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 placeholder:text-slate-500"
                     />
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { label: '+50 tys.', add: 50_000 },
-                        { label: '+250 tys.', add: 250_000 },
-                        { label: '+1 mln', add: 1_000_000 },
-                      ].map((btn) => (
+                      {[50_000, 250_000, 1_000_000].map((addAmt) => (
                         <button
-                          key={btn.add}
+                          key={addAmt}
                           type="button"
                           onClick={() =>
                             setTransferAmount((prev) =>
-                              Math.min(Math.max(0, Math.floor(currentPlayer.cash)), Math.max(0, prev) + btn.add)
+                              Math.min(Math.max(0, Math.floor(currentPlayer.cash)), Math.max(0, prev) + addAmt)
                             )
                           }
                           className="px-2.5 py-1 rounded bg-[#151c28] hover:bg-[#1e293d] border border-[#2d3b52] text-slate-200 font-mono text-[11px]"
                         >
-                          {btn.label}
+                          +{formatCompactMoney(addAmt)}
                         </button>
                       ))}
                     </div>
@@ -830,14 +975,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       }}
                       className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
                     >
-                      💸 Wyślij Przelew ({formatMoney(Math.max(0, transferAmount))})
+                      {lang === 'en' ? '💸 Send Wire' : '💸 Wyślij Przelew'} ({formatMoney(Math.max(0, transferAmount))})
                     </button>
                   </div>
 
                   {myTransfers.length > 0 && (
                     <div className="pt-2 border-t border-[#1e293b] space-y-1">
                       <div className="text-[10px] text-slate-400 uppercase font-semibold">
-                        Ostatnie Przelewy B2B
+                        {lang === 'en' ? 'Recent B2B Transfers' : 'Ostatnie Przelewy B2B'}
                       </div>
                       <div className="space-y-1 max-h-28 overflow-y-auto">
                         {myTransfers.map((tr) => {
@@ -848,7 +993,7 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                               className="px-2.5 py-1.5 rounded bg-[#131b2b] flex items-center justify-between gap-2 text-[11px]"
                             >
                               <span className="text-slate-300 truncate">
-                                {isOut ? `→ ${tr.toCompanyName}` : `← Od ${tr.fromCompanyName}`}
+                                {isOut ? `→ ${tr.toCompanyName}` : `← ${lang === 'en' ? 'From' : 'Od'} ${tr.fromCompanyName}`}
                                 {tr.note ? ` · "${tr.note}"` : ''} · {tr.dateLabel}
                               </span>
                               <span
@@ -871,16 +1016,21 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
               {/* Aktywne kontrakty */}
               <div className="space-y-2">
                 <div className="font-semibold text-slate-300 uppercase tracking-wide">
-                  Aktywne Umowy B2B ({activeContracts.length})
+                  {lang === 'en' ? 'Active B2B Contracts' : 'Aktywne Umowy B2B'} ({activeContracts.length})
                 </div>
                 {activeContracts.length === 0 ? (
                   <div className="p-4 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
-                    Brak aktywnych kontraktów.
+                    {lang === 'en' ? 'No active contracts.' : 'Brak aktywnych kontraktów.'}
                   </div>
                 ) : (
                   activeContracts.map((c) => {
                     const rd = RESOURCE_DEFINITIONS[c.resource];
+                    const rName = localizeResourceName(c.resource, rd.name, lang);
+                    const rUnit = localizeResourceUnit(rd.unit, lang);
                     const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                    const brName =
+                      c.barterResource && brd ? localizeResourceName(c.barterResource, brd.name, lang) : '';
+                    const brUnit = brd ? localizeResourceUnit(brd.unit, lang) : '';
                     return (
                       <div
                         key={c.id}
@@ -888,14 +1038,15 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       >
                         <div>
                           <div className="font-semibold text-slate-100">
-                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}/T{' '}
+                            {rd.emoji} {rName} · {c.quantityPerTick} {rUnit}/T{' '}
                             {c.kind === 'barter' && brd
-                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name}`
+                              ? `↔ ${c.barterQtyPerTick} ${brUnit} ${brName}`
                               : `× ${formatMoney(c.pricePerUnit)}`}
                           </div>
                           <div className="text-slate-400 flex flex-wrap items-center gap-2">
                             <span>
-                              {c.sellerName} → {c.buyerName} · Wolumen: {formatMoney(c.totalValueDelivered)}
+                              {c.sellerName} → {c.buyerName} · {lang === 'en' ? 'Volume:' : 'Wolumen:'}{' '}
+                              {formatMoney(c.totalValueDelivered)}
                             </span>
                             {c.transportMode && (
                               <span
@@ -907,12 +1058,20 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                                 title={c.blockedReason}
                               >
                                 {c.transportMode === 'blocked'
-                                  ? '⛔ Brak trasy przez wodę'
+                                  ? lang === 'en'
+                                    ? '⛔ No water route'
+                                    : '⛔ Brak trasy przez wodę'
                                   : c.transportMode === 'sea'
-                                    ? '🚢 Port Morski'
+                                    ? lang === 'en'
+                                      ? '🚢 Sea Port'
+                                      : '🚢 Port Morski'
                                     : c.transportMode === 'air'
-                                      ? '✈️ Lotnisko Cargo'
-                                      : '🚛 Droga / Most'}
+                                      ? lang === 'en'
+                                        ? '✈️ Cargo Airport'
+                                        : '✈️ Lotnisko Cargo'
+                                      : lang === 'en'
+                                        ? '🚛 Road / Bridge'
+                                        : '🚛 Droga / Most'}
                               </span>
                             )}
                           </div>
@@ -921,13 +1080,15 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                           )}
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="font-mono text-sky-300">{c.remainingTicks} cykli</span>
+                          <span className="font-mono text-sky-300">
+                            {c.remainingTicks} {lang === 'en' ? 'ticks' : 'cykli'}
+                          </span>
                           <button
                             type="button"
                             onClick={() => onCancel(c.id)}
                             className="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300"
                           >
-                            Zerwij
+                            {lang === 'en' ? 'Break Deal' : 'Zerwij'}
                           </button>
                         </div>
                       </div>

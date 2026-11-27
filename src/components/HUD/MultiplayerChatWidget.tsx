@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, Plot } from '../../engine/types';
+import { BUILDINGS_EN } from '../../i18n/buildingsEn';
+import { useI18n } from '../../i18n/useI18n';
 
 interface MultiplayerChatWidgetProps {
   messages: ChatMessage[];
@@ -23,6 +25,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
   onOpenChange,
   hideCollapsedToggle = false,
 }) => {
+  const { lang, t } = useI18n();
   const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [seenCount, setSeenCount] = useState(messages.length);
@@ -52,15 +55,26 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
 
   const handlePingSelected = () => {
     if (!selectedPlot) return;
-    const label = selectedPlot.building
-      ? `${selectedPlot.building.name} (${selectedPlot.gridX},${selectedPlot.gridY})`
-      : `Działka (${selectedPlot.gridX},${selectedPlot.gridY})`;
-    onSendMessage(draft.trim() || `Sprawdź ten punkt na mapie: ${label}`, {
-      plotId: selectedPlot.id,
-      gridX: selectedPlot.gridX,
-      gridY: selectedPlot.gridY,
-      label,
-    });
+    const bName = selectedPlot.building
+      ? lang === 'en'
+        ? BUILDINGS_EN[selectedPlot.building.type]?.name ?? selectedPlot.building.name
+        : selectedPlot.building.name
+      : null;
+    const label = bName
+      ? `${bName} (${selectedPlot.gridX},${selectedPlot.gridY})`
+      : `${t('chat.plotLabel')} (${selectedPlot.gridX},${selectedPlot.gridY})`;
+    onSendMessage(
+      draft.trim() ||
+        (lang === 'en'
+          ? `Check this point on the map: ${label}`
+          : `Sprawdź ten punkt na mapie: ${label}`),
+      {
+        plotId: selectedPlot.id,
+        gridX: selectedPlot.gridX,
+        gridY: selectedPlot.gridY,
+        label,
+      }
+    );
     setDraft('');
   };
 
@@ -75,7 +89,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
           onClick={() => setOpen(true)}
           className="relative px-3 py-2 rounded-xl bg-[#0e1522]/95 border border-[#2d3b52] hover:border-sky-400 text-xs font-semibold text-slate-200 shadow-2xl flex items-center gap-2 backdrop-blur-md"
         >
-          <span>💬 Czat & Pingi</span>
+          <span>{t('chat.toggleBtn')}</span>
           {unreadCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
               {unreadCount}
@@ -89,7 +103,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
   return (
     <div className="fixed bottom-20 left-3 z-30 w-80 max-w-[calc(100vw-24px)] rounded-2xl bg-[#0b0f17]/95 border border-[#2d3b52] shadow-2xl backdrop-blur-md flex flex-col overflow-hidden">
       <div className="px-3 py-2 bg-[#111827] border-b border-[#243044] flex items-center justify-between text-xs">
-        <span className="font-bold text-slate-100">💬 Czat Korporacji & Pingi Mapy</span>
+        <span className="font-bold text-slate-100">{t('chat.title')}</span>
         <button
           type="button"
           onClick={() => {
@@ -108,7 +122,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
       >
         {messages.length === 0 ? (
           <div className="text-[11px] text-slate-500 text-center py-6">
-            Brak wiadomości. Wyślij komunikat lub oznacz działkę na mapie!
+            {t('chat.empty')}
           </div>
         ) : (
           messages.map((m) => (
@@ -129,7 +143,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
                   onClick={() => onFocusPlot(m.pingPlot!.plotId)}
                   className="px-2 py-0.5 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300 text-[10px] hover:bg-sky-900/60"
                 >
-                  📍 Przejdź do: {m.pingPlot.label}
+                  {t('chat.goToPlot', { x: m.pingPlot.gridX, y: m.pingPlot.gridY })}
                 </button>
               )}
             </div>
@@ -144,7 +158,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
             onClick={handlePingSelected}
             className="w-full py-1 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 text-amber-200 text-[11px] font-semibold"
           >
-            📍 Pinguj wybraną działkę ({selectedPlot.gridX}, {selectedPlot.gridY})
+            {t('chat.pingPlotBtn', { x: selectedPlot.gridX, y: selectedPlot.gridY })}
           </button>
         )}
         <div className="flex gap-1.5">
@@ -155,7 +169,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSend();
             }}
-            placeholder="Napisz wiadomość (Enter)..."
+            placeholder={t('chat.placeholder')}
             className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#111827] border border-[#243044] text-xs text-slate-100"
           />
           <button
@@ -163,7 +177,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
             onClick={handleSend}
             className="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shrink-0"
           >
-            Wyślij
+            {t('chat.sendBtn')}
           </button>
         </div>
       </div>

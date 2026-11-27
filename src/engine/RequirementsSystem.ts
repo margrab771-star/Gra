@@ -1,5 +1,13 @@
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
+import { getCurrentLanguage } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
+import {
+  localizeResourceName,
+  localizeResourceUnit,
+  localizeSkillNode,
+  localizeTechNode,
+} from '../i18n/dataTranslations';
 import { getResourcePrice } from './EconomyEngine';
 import type {
   Building,
@@ -39,40 +47,67 @@ export function evaluateNonFinancialRequirements(
   plot?: Plot
 ): { allMet: boolean; items: RequirementCheckItem[] } {
   if (!req) return { allMet: true, items: [] };
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const items: RequirementCheckItem[] = [];
 
   if (req.requiredGlobalTech) {
-    const techDef = state.globalTechDefs.find((t) => t.id === req.requiredGlobalTech);
+    const rawTechDef = state.globalTechDefs.find((t) => t.id === req.requiredGlobalTech);
+    const techDef = rawTechDef ? localizeTechNode(rawTechDef, lang) : undefined;
     const met = player.globalTech[req.requiredGlobalTech]?.status === 'done';
     items.push({
       id: `tech_${req.requiredGlobalTech}`,
-      label: `Technologia: ${techDef?.name ?? req.requiredGlobalTech}`,
+      label: en
+        ? `Tech: ${techDef?.name ?? req.requiredGlobalTech}`
+        : `Technologia: ${techDef?.name ?? req.requiredGlobalTech}`,
       met,
-      hint: met ? 'Warunek spełniony' : 'Zbadaj tę technologię w oknie 🔬 Technologie (wymaga Szkoły/Uniwersytetu).',
+      hint: met
+        ? en
+          ? 'Requirement met'
+          : 'Warunek spełniony'
+        : en
+          ? 'Research this technology in the 🔬 Tech Tree panel (requires School/University).'
+          : 'Zbadaj tę technologię w oknie 🔬 Technologie (wymaga Szkoły/Uniwersytetu).',
     });
   }
 
   if (req.requiredBuildings && req.requiredBuildings.length > 0) {
     for (const bType of req.requiredBuildings) {
       const def = BUILDING_DEFINITIONS[bType];
+      const bName = en ? BUILDINGS_EN[bType]?.name ?? def.name : def.name;
       const met = state.plots.some((p) => p.ownerId === player.id && p.building?.type === bType);
       items.push({
         id: `bld_${bType}`,
-        label: `Posiadany obiekt: ${def.name}`,
+        label: en ? `Required facility: ${bName}` : `Posiadany obiekt: ${bName}`,
         met,
-        hint: met ? 'Obiekt działa w Twoim imperium' : `Zbuduj obiekt "${def.name}" na jednej ze swoich działek.`,
+        hint: met
+          ? en
+            ? 'Facility active in your empire'
+            : 'Obiekt działa w Twoim imperium'
+          : en
+            ? `Construct "${bName}" on one of your plots.`
+            : `Zbuduj obiekt "${bName}" na jednej ze swoich działek.`,
       });
     }
   }
 
   if (req.requiredEntrepreneurSkill) {
-    const skDef = state.entrepreneurSkillDefs.find((s) => s.id === req.requiredEntrepreneurSkill);
+    const rawSkDef = state.entrepreneurSkillDefs.find((s) => s.id === req.requiredEntrepreneurSkill);
+    const skDef = rawSkDef ? localizeSkillNode(rawSkDef, lang) : undefined;
     const met = player.entrepreneurSkills[req.requiredEntrepreneurSkill] === 'done';
     items.push({
       id: `ent_${req.requiredEntrepreneurSkill}`,
-      label: `Perk Prezesa: ${skDef?.name ?? req.requiredEntrepreneurSkill}`,
+      label: en
+        ? `CEO Perk: ${skDef?.name ?? req.requiredEntrepreneurSkill}`
+        : `Perk Prezesa: ${skDef?.name ?? req.requiredEntrepreneurSkill}`,
       met,
-      hint: met ? 'Odblokowany' : 'Odblokuj tę umiejętność w oknie 👤 Prezes.',
+      hint: met
+        ? en
+          ? 'Unlocked'
+          : 'Odblokowany'
+        : en
+          ? 'Unlock this skill in the 👤 CEO Skills panel.'
+          : 'Odblokuj tę umiejętność w oknie 👤 Prezes.',
     });
   }
 
@@ -81,9 +116,17 @@ export function evaluateNonFinancialRequirements(
     const met = currentSkill >= req.minWorkerSkill;
     items.push({
       id: `skill_${req.minWorkerSkill}`,
-      label: `Wyszkolenie załogi: min. ${req.minWorkerSkill}% (masz ${currentSkill}%)`,
+      label: en
+        ? `Crew training: min. ${req.minWorkerSkill}% (current ${currentSkill}%)`
+        : `Wyszkolenie załogi: min. ${req.minWorkerSkill}% (masz ${currentSkill}%)`,
       met,
-      hint: met ? 'Kadra wykwalifikowana' : 'Wyślij pracowników na kurs w zakładce Kadry HR.',
+      hint: met
+        ? en
+          ? 'Crew qualified'
+          : 'Kadra wykwalifikowana'
+        : en
+          ? 'Train staff in the HR & Payroll tab.'
+          : 'Wyślij pracowników na kurs w zakładce Kadry HR.',
     });
   }
 
@@ -92,9 +135,15 @@ export function evaluateNonFinancialRequirements(
     const met = balance >= 0 || Boolean(plot?.hasElectricity);
     items.push({
       id: 'power_surplus',
-      label: 'Dostęp do nadwyżki energii elektrycznej',
+      label: en ? 'Access to surplus electric power' : 'Dostęp do nadwyżki energii elektrycznej',
       met,
-      hint: met ? 'Sieć zasilona' : 'Zbuduj elektrownię (OZE, Węglową lub Atomową) albo działkę z dostępem do sieci.',
+      hint: met
+        ? en
+          ? 'Power grid connected'
+          : 'Sieć zasilona'
+        : en
+          ? 'Build a power plant (Renewables, Coal, or Nuclear) or use a grid-connected plot.'
+          : 'Zbuduj elektrownię (OZE, Węglową lub Atomową) albo działkę z dostępem do sieci.',
     });
   }
 
@@ -103,9 +152,15 @@ export function evaluateNonFinancialRequirements(
     const met = Boolean(plot?.hasWater) || hasPlant;
     items.push({
       id: 'water_access',
-      label: 'Dostęp do sieci wody przemysłowej',
+      label: en ? 'Access to industrial water grid' : 'Dostęp do sieci wody przemysłowej',
       met,
-      hint: met ? 'Dostęp do wody zapewniony' : 'Wybierz działkę nad wodą/w mieście lub postaw Stację Wody.',
+      hint: met
+        ? en
+          ? 'Water supply secured'
+          : 'Dostęp do wody zapewniony'
+        : en
+          ? 'Pick a river/city tile or build a Water Pumping Station.'
+          : 'Wybierz działkę nad wodą/w mieście lub postaw Stację Wody.',
     });
   }
 
@@ -113,11 +168,17 @@ export function evaluateNonFinancialRequirements(
     const met = player.corporationLevel >= req.requiredCorpLevel;
     items.push({
       id: `corp_${req.requiredCorpLevel}`,
-      label: `Poziom Korporacji: min. Poz. ${req.requiredCorpLevel} (masz Poz. ${player.corporationLevel})`,
+      label: en
+        ? `Corporation Level: min. Lvl ${req.requiredCorpLevel} (current Lvl ${player.corporationLevel})`
+        : `Poziom Korporacji: min. Poz. ${req.requiredCorpLevel} (masz Poz. ${player.corporationLevel})`,
       met,
       hint: met
-        ? 'Wymagana skala korporacji osiągnięta'
-        : `Zwiększ wartość netto i przychody, aby osiągnąć ${req.requiredCorpLevel}. poziom korporacji.`,
+        ? en
+          ? 'Required corporate scale reached'
+          : 'Wymagana skala korporacji osiągnięta'
+        : en
+          ? `Grow net worth and revenue to reach Corporation Level ${req.requiredCorpLevel}.`
+          : `Zwiększ wartość netto i przychody, aby osiągnąć ${req.requiredCorpLevel}. poziom korporacji.`,
     });
   }
 
@@ -126,11 +187,17 @@ export function evaluateNonFinancialRequirements(
     const met = approval >= req.minVoterApproval;
     items.push({
       id: `voter_${req.minVoterApproval}`,
-      label: `Poparcie społeczne: min. ${req.minVoterApproval}% (masz ${approval}%)`,
+      label: en
+        ? `Public approval: min. ${req.minVoterApproval}% (current ${approval}%)`
+        : `Poparcie społeczne: min. ${req.minVoterApproval}% (masz ${approval}%)`,
       met,
       hint: met
-        ? 'Mandat społeczny zabezpieczony'
-        : 'Buduj parki, szpitale, centra kultury lub prowadź kampanie PR w panelu Wpływy.',
+        ? en
+          ? 'Public mandate secured'
+          : 'Mandat społeczny zabezpieczony'
+        : en
+          ? 'Build parks, hospitals, cultural venues, or run PR campaigns in the Influence panel.'
+          : 'Buduj parki, szpitale, centra kultury lub prowadź kampanie PR w panelu Wpływy.',
     });
   }
 
@@ -143,11 +210,17 @@ export function evaluateNonFinancialRequirements(
     const met = score >= req.requiredInfluenceScore;
     items.push({
       id: `inf_${req.requiredInfluenceScore}`,
-      label: `Siła Wpływów Politycznych: min. ${req.requiredInfluenceScore} pkt (masz ${score} pkt)`,
+      label: en
+        ? `Political Influence Power: min. ${req.requiredInfluenceScore} pts (current ${score} pts)`
+        : `Siła Wpływów Politycznych: min. ${req.requiredInfluenceScore} pkt (masz ${score} pkt)`,
       met,
       hint: met
-        ? 'Pozycja polityczna wystarczająca'
-        : 'Rozwijaj Lobby, Centrum Wywiadu lub podejmuj akcje w panelu 🏛️ Wpływy.',
+        ? en
+          ? 'Sufficient political leverage'
+          : 'Pozycja polityczna wystarczająca'
+        : en
+          ? 'Grow Lobbying HQs, Intelligence Centers, or take actions in the 🏛️ Influence panel.'
+          : 'Rozwijaj Lobby, Centrum Wywiadu lub podejmuj akcje w panelu 🏛️ Wpływy.',
     });
   }
 
@@ -156,11 +229,17 @@ export function evaluateNonFinancialRequirements(
     const met = doneCount >= req.requiredTechCount;
     items.push({
       id: `techcount_${req.requiredTechCount}`,
-      label: `Zbadane technologie R&D: min. ${req.requiredTechCount} (masz ${doneCount})`,
+      label: en
+        ? `Researched R&D technologies: min. ${req.requiredTechCount} (current ${doneCount})`
+        : `Zbadane technologie R&D: min. ${req.requiredTechCount} (masz ${doneCount})`,
       met,
       hint: met
-        ? 'Zaplecze naukowe gotowe'
-        : 'Zbadaj kolejne technologie w drzewku 🔬 Technologie.',
+        ? en
+          ? 'R&D backbone ready'
+          : 'Zaplecze naukowe gotowe'
+        : en
+          ? 'Research more technologies in the 🔬 Tech Tree.'
+          : 'Zbadaj kolejne technologie w drzewku 🔬 Technologie.',
     });
   }
 
@@ -172,6 +251,8 @@ export function evaluateNonFinancialRequirements(
       const needed = neededRaw ?? 0;
       if (needed <= 0) continue;
       const def = RESOURCE_DEFINITIONS[res];
+      const unit = localizeResourceUnit(def.unit, lang);
+      const resName = localizeResourceName(res, def.name, lang);
       const have = getPlayerAvailableResource(player, res, building);
       const met = have >= needed;
       const missingAmount = Math.max(0, Math.ceil((needed - have) * 10) / 10);
@@ -179,13 +260,21 @@ export function evaluateNonFinancialRequirements(
 
       items.push({
         id: `res_${res}`,
-        label: `Zapas: ${needed} ${def.unit} ${def.genitiveName} (masz ${have.toFixed(1)} ${def.unit})`,
+        label: en
+          ? `Stockpile: ${needed} ${unit} ${resName} (have ${have.toFixed(1)} ${unit})`
+          : `Zapas: ${needed} ${unit} ${def.genitiveName} (masz ${have.toFixed(1)} ${unit})`,
         met,
         hint: met
-          ? 'Surowiec zabezpieczony w magazynie'
+          ? en
+            ? 'Resource secured in warehouse'
+            : 'Surowiec zabezpieczony w magazynie'
           : isMpClosedEconomy
-            ? `Gospodarka zamknięta MP: wydobywaj/produkuj we własnych zakładach albo kup od innego gracza na rynku B2B (brakuje ${missingAmount} ${def.unit}).`
-            : `Produkuj w trybie magazynowania, zawrzyj kontrakt B2B lub dokup brakujące ${missingAmount} ${def.unit}.`,
+            ? en
+              ? `Closed MP Economy: mine/produce in your own facilities or buy from another player on the B2B market (need ${missingAmount} ${unit}).`
+              : `Gospodarka zamknięta MP: wydobywaj/produkuj we własnych zakładach albo kup od innego gracza na rynku B2B (brakuje ${missingAmount} ${unit}).`
+            : en
+              ? `Produce in storage mode, sign a B2B contract, or spot-buy ${missingAmount} ${unit}.`
+              : `Produkuj w trybie magazynowania, zawrzyj kontrakt B2B lub dokup brakujące ${missingAmount} ${unit}.`,
         missingResource: met || isMpClosedEconomy ? undefined : { resource: res, missingAmount, spotCost },
       });
     }

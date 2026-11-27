@@ -10,7 +10,10 @@ import {
 } from '../../engine/CoalitionSystem';
 import { isPlotBuildingVisibleToViewer } from '../../engine/PlotSystem';
 import type { GameState, GovernmentKind, InfluencePillar, Player } from '../../engine/types';
-import { formatMoney } from '../../utils/formatters';
+import { BUILDINGS_EN } from '../../i18n/buildingsEn';
+import { localizeGovernment, localizeInfluenceAction } from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
+import { formatCompactMoney, formatMoney } from '../../utils/formatters';
 
 interface InfluencePanelProps {
   gameState: GameState;
@@ -38,7 +41,7 @@ interface InfluencePanelProps {
 
 type InfluenceTab = InfluencePillar | 'diplomacy';
 
-const PILLAR_TABS: { key: InfluenceTab; label: string; desc: string }[] = [
+const PILLAR_TABS_PL: { key: InfluenceTab; label: string; desc: string }[] = [
   {
     key: 'financial',
     label: '💰 Filar Finansowy',
@@ -61,6 +64,29 @@ const PILLAR_TABS: { key: InfluenceTab; label: string; desc: string }[] = [
   },
 ];
 
+const PILLAR_TABS_EN: { key: InfluenceTab; label: string; desc: string }[] = [
+  {
+    key: 'financial',
+    label: '💰 Financial Pillar',
+    desc: 'Bribes, tax lobbying, buying legislation, and hostile buyouts of rival assets.',
+  },
+  {
+    key: 'military',
+    label: '⚔️ Military & Arsenal',
+    desc: 'Espionage, sabotage, boarding ops, 3×3 tactical missiles & covert 5×5 nuclear weapons.',
+  },
+  {
+    key: 'social',
+    label: '⛪ Social & Media Pillar',
+    desc: 'Manage voter approval (e.g. 75% needed for PMC Base), Church backing & boycotts.',
+  },
+  {
+    key: 'diplomacy',
+    label: '🤝 Coalitions & Diplomacy',
+    desc: 'Form alliances (0% highway tolls, shared geology maps), NAP treaties & trade embargoes.',
+  },
+];
+
 export const InfluencePanel: React.FC<InfluencePanelProps> = ({
   gameState,
   currentPlayer,
@@ -79,12 +105,14 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
   onImposeEmbargo,
   onClose,
 }) => {
+  const { lang } = useI18n();
+  const pillarTabs = lang === 'en' ? PILLAR_TABS_EN : PILLAR_TABS_PL;
   const [pillar, setPillar] = useState<InfluenceTab>('financial');
   const rivals = gameState.players.filter((p) => p.id !== currentPlayer.id && !p.isEliminated);
   const [targetPlayerId, setTargetPlayerId] = useState<string>(rivals[0]?.id ?? '');
 
-  const [coalName, setCoalName] = useState('Pakt Północny');
-  const [coalTag, setCoalTag] = useState('PAKT');
+  const [coalName, setCoalName] = useState(lang === 'en' ? 'Northern Pact' : 'Pakt Północny');
+  const [coalTag, setCoalTag] = useState(lang === 'en' ? 'PACT' : 'PAKT');
   const [coalColor, setCoalColor] = useState(currentPlayer.color || PLAYER_COLORS[0]);
 
   const targetPlots = gameState.plots.filter((p) => p.ownerId === targetPlayerId);
@@ -94,7 +122,9 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
     targetBuildings[0]?.building?.id ?? ''
   );
 
-  const actions = INFLUENCE_ACTIONS.filter((a) => a.pillar === pillar);
+  const actions = INFLUENCE_ACTIONS.filter((a) => a.pillar === pillar).map((a) =>
+    localizeInfluenceAction(a, lang)
+  );
   const pillarScore =
     pillar === 'financial'
       ? currentPlayer.influence.financial
@@ -134,13 +164,19 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex items-center justify-between">
           <div>
             <h2 className="text-base md:text-lg font-bold text-slate-100">
-              🏛️ Wpływy Polityczne, Dyplomacja & Arsenał
+              {lang === 'en'
+                ? '🏛️ Political Influence, Diplomacy & Arsenal'
+                : '🏛️ Wpływy Polityczne, Dyplomacja & Arsenał'}
             </h2>
             <p className="text-xs text-slate-400">
-              Poparcie wyborców: <span className="font-mono text-emerald-300">{Math.round(currentPlayer.influence.voterApproval)}%</span> ·
-              Kościół: <span className="font-mono text-purple-300">{Math.round(currentPlayer.influence.churchSupport)}</span> ·
-              Media: <span className="font-mono text-sky-300">{Math.round(currentPlayer.influence.mediaControl)}</span> ·
-              Siła Militar.: <span className="font-mono text-rose-300">{Math.round(currentPlayer.militaryPower)}</span>
+              {lang === 'en' ? 'Voter Approval:' : 'Poparcie wyborców:'}{' '}
+              <span className="font-mono text-emerald-300">{Math.round(currentPlayer.influence.voterApproval)}%</span> ·{' '}
+              {lang === 'en' ? 'Church:' : 'Kościół:'}{' '}
+              <span className="font-mono text-purple-300">{Math.round(currentPlayer.influence.churchSupport)}</span> ·{' '}
+              {lang === 'en' ? 'Media:' : 'Media:'}{' '}
+              <span className="font-mono text-sky-300">{Math.round(currentPlayer.influence.mediaControl)}</span> ·{' '}
+              {lang === 'en' ? 'Military Power:' : 'Siła Militar.:'}{' '}
+              <span className="font-mono text-rose-300">{Math.round(currentPlayer.militaryPower)}</span>
             </p>
           </div>
           <button
@@ -155,67 +191,72 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
         {/* Paski wyników filarów */}
         <div className="px-4 py-2 grid grid-cols-3 gap-2 bg-[#0e1420] border-b border-[#243044]">
           <div className="p-2 rounded bg-[#151c28] border border-[#243044] text-xs">
-            <div className="text-slate-400">Wpływy Finansowe</div>
+            <div className="text-slate-400">
+              {lang === 'en' ? 'Financial Influence' : 'Wpływy Finansowe'}
+            </div>
             <div className="font-mono text-base font-bold text-amber-300">
-              {Math.round(currentPlayer.influence.financial)} pkt
+              {Math.round(currentPlayer.influence.financial)} {lang === 'en' ? 'pts' : 'pkt'}
             </div>
           </div>
           <div className="p-2 rounded bg-[#151c28] border border-[#243044] text-xs">
-            <div className="text-slate-400">Wpływy Militarne</div>
+            <div className="text-slate-400">
+              {lang === 'en' ? 'Military Influence' : 'Wpływy Militarne'}
+            </div>
             <div className="font-mono text-base font-bold text-rose-400">
-              {Math.round(currentPlayer.influence.military)} pkt
+              {Math.round(currentPlayer.influence.military)} {lang === 'en' ? 'pts' : 'pkt'}
             </div>
           </div>
           <div className="p-2 rounded bg-[#151c28] border border-[#243044] text-xs">
-            <div className="text-slate-400">Wpływy Społeczne</div>
+            <div className="text-slate-400">
+              {lang === 'en' ? 'Social Influence' : 'Wpływy Społeczne'}
+            </div>
             <div className="font-mono text-base font-bold text-purple-300">
-              {Math.round(currentPlayer.influence.social)} pkt
+              {Math.round(currentPlayer.influence.social)} {lang === 'en' ? 'pts' : 'pkt'}
             </div>
           </div>
         </div>
 
         {/* Zakładki filarów */}
         <div className="px-4 py-2 border-b border-[#243044] flex gap-2 overflow-x-auto no-scrollbar">
-          {PILLAR_TABS.map((t) => (
+          {pillarTabs.map((tTab) => (
             <button
-              key={t.key}
+              key={tTab.key}
               type="button"
-              onClick={() => setPillar(t.key)}
+              onClick={() => setPillar(tTab.key)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 border ${
-                pillar === t.key
+                pillar === tTab.key
                   ? 'bg-amber-500/20 border-amber-400 text-amber-300'
                   : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t.label}
+              {tTab.label}
             </button>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="text-xs text-slate-300">
-            {PILLAR_TABS.find((t) => t.key === pillar)?.desc}
+            {pillarTabs.find((tTab) => tTab.key === pillar)?.desc}
           </div>
 
           {/* Karta Rządu i Wyborów */}
           {pillar === 'financial' && (() => {
             const currentGov = gameState.government?.currentGov ?? 'free_market';
+            const locCurrGov = localizeGovernment(GOVERNMENT_CONFIGS[currentGov], lang);
 
             return (
               <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-amber-500/35 space-y-2.5 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="font-bold text-amber-300 text-sm">
-                      {GOVERNMENT_CONFIGS[currentGov].badge} Aktualny Rząd:{' '}
-                      {GOVERNMENT_CONFIGS[currentGov].name}
+                      {GOVERNMENT_CONFIGS[currentGov].badge}{' '}
+                      {lang === 'en' ? 'Active Cabinet:' : 'Aktualny Rząd:'} {locCurrGov.name}
                     </div>
-                    <div className="text-[11px] text-slate-400">
-                      {GOVERNMENT_CONFIGS[currentGov].summary}
-                    </div>
+                    <div className="text-[11px] text-slate-400">{locCurrGov.summary}</div>
                   </div>
                   <div className="text-right font-mono text-[11px] text-slate-300 shrink-0">
                     <div>
-                      Wybory za:{' '}
+                      {lang === 'en' ? 'Election in:' : 'Wybory za:'}{' '}
                       <span className="text-sky-300 font-bold">
                         {Math.max(0, (gameState.government?.nextElectionTick ?? 90) - gameState.time.tick)}T
                       </span>
@@ -226,7 +267,8 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                 {onLobbyElection && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                     {(['free_market', 'ecological', 'interventionist'] as GovernmentKind[]).map((gk) => {
-                      const gcfg = GOVERNMENT_CONFIGS[gk];
+                      const rawGcfg = GOVERNMENT_CONFIGS[gk];
+                      const gcfg = localizeGovernment(rawGcfg, lang);
                       const isCurrent = currentGov === gk;
                       return (
                         <div
@@ -239,10 +281,10 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         >
                           <div className="font-semibold text-slate-100 flex items-center justify-between gap-1">
                             <span>
-                              {gcfg.badge} {gcfg.name}
+                              {rawGcfg.badge} {gcfg.name}
                             </span>
                             <span className="font-mono text-[10px] text-amber-300">
-                              Głosy: {gameState.government?.lobbyVotes?.[gk] ?? 1}
+                              {lang === 'en' ? 'Votes:' : 'Głosy:'} {gameState.government?.lobbyVotes?.[gk] ?? 1}
                             </span>
                           </div>
                           <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">{gcfg.summary}</div>
@@ -253,7 +295,13 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                               onClick={() => onLobbyElection(gk, false)}
                               className="flex-1 py-1 px-1.5 rounded bg-amber-500/20 hover:bg-amber-500/35 disabled:opacity-40 border border-amber-400/40 text-amber-200 text-[10px] font-semibold"
                             >
-                              {isCurrent ? 'Umocnij (220k)' : 'Lobbuj (220k)'}
+                              {isCurrent
+                                ? lang === 'en'
+                                  ? `Bolster (${formatCompactMoney(220_000)})`
+                                  : `Umocnij (${formatCompactMoney(220_000)})`
+                                : lang === 'en'
+                                  ? `Lobby (${formatCompactMoney(220_000)})`
+                                  : `Lobbuj (${formatCompactMoney(220_000)})`}
                             </button>
                             <button
                               type="button"
@@ -261,7 +309,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                               onClick={() => onLobbyElection(gk, true)}
                               className="flex-1 py-1 px-1.5 rounded bg-sky-500/20 hover:bg-sky-500/35 disabled:opacity-40 border border-sky-400/40 text-sky-200 text-[10px] font-semibold"
                             >
-                              Wpływ (18 pkt)
+                              {lang === 'en' ? 'Influence (18 pts)' : 'Wpływ (18 pkt)'}
                             </button>
                           </div>
                         </div>
@@ -285,7 +333,9 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                       className="p-3 rounded-lg bg-sky-950/35 border border-sky-400/50 flex items-center justify-between gap-2"
                     >
                       <span>
-                        🤝 Zaproszenie do koalicji <strong>[{inv.tag}] {inv.name}</strong> ({inv.memberIds.length}/{maxCoalMembers} członków)
+                        {lang === 'en' ? '🤝 Coalition invite:' : '🤝 Zaproszenie do koalicji'}{' '}
+                        <strong>[{inv.tag}] {inv.name}</strong> ({inv.memberIds.length}/{maxCoalMembers}{' '}
+                        {lang === 'en' ? 'members' : 'członków'})
                       </span>
                       <div className="flex gap-1.5">
                         <button
@@ -293,14 +343,14 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                           onClick={() => onRespondCoalitionInvite?.(inv.id, true)}
                           className="px-2.5 py-1 rounded bg-emerald-600 text-white font-semibold"
                         >
-                          Akceptuj
+                          {lang === 'en' ? 'Accept' : 'Akceptuj'}
                         </button>
                         <button
                           type="button"
                           onClick={() => onRespondCoalitionInvite?.(inv.id, false)}
                           className="px-2.5 py-1 rounded bg-slate-700 text-slate-200"
                         >
-                          Odrzuć
+                          {lang === 'en' ? 'Decline' : 'Odrzuć'}
                         </button>
                       </div>
                     </div>
@@ -313,14 +363,17 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         className="p-3 rounded-lg bg-emerald-950/35 border border-emerald-400/50 flex items-center justify-between gap-2"
                       >
                         <span>
-                          🕊️ <strong>{sender?.companyName}</strong> proponuje 80-turowy Pakt o Nieagresji (NAP)
+                          🕊️ <strong>{sender?.companyName}</strong>{' '}
+                          {lang === 'en'
+                            ? 'proposes an 80-tick Non-Aggression Pact (NAP)'
+                            : 'proponuje 80-turowy Pakt o Nieagresji (NAP)'}
                         </span>
                         <button
                           type="button"
                           onClick={() => onAcceptNAP?.(nap.id)}
                           className="px-3 py-1 rounded bg-emerald-600 text-white font-semibold"
                         >
-                          Podpisz Pakt
+                          {lang === 'en' ? 'Sign Pact' : 'Podpisz Pakt'}
                         </button>
                       </div>
                     );
@@ -338,7 +391,8 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         [{myCoalition.tag}] {myCoalition.name}
                       </div>
                       <div className="text-slate-400">
-                        Członkowie: {myCoalition.memberIds.length} / {maxCoalMembers} · 0% myta na autostradach sojuszu
+                        {lang === 'en' ? 'Members:' : 'Członkowie:'} {myCoalition.memberIds.length} / {maxCoalMembers} ·{' '}
+                        {lang === 'en' ? '0% toll on allied highways' : '0% myta na autostradach sojuszu'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -352,7 +406,13 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                               : 'bg-slate-800 border-slate-600 text-slate-300'
                           }`}
                         >
-                          {myCoalition.shareGeology ? '🔎 Mapy Złóż: Wspólne' : '🔎 Mapy Złóż: Prywatne'}
+                          {myCoalition.shareGeology
+                            ? lang === 'en'
+                              ? '🔎 Geology Maps: Shared'
+                              : '🔎 Mapy Złóż: Wspólne'
+                            : lang === 'en'
+                              ? '🔎 Geology Maps: Private'
+                              : '🔎 Mapy Złóż: Prywatne'}
                         </button>
                       )}
                       <button
@@ -360,7 +420,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         onClick={() => onLeaveCoalition?.()}
                         className="px-2.5 py-1.5 rounded bg-rose-950/50 border border-rose-500/40 text-rose-300"
                       >
-                        Wystąp z koalicji
+                        {lang === 'en' ? 'Leave coalition' : 'Wystąp z koalicji'}
                       </button>
                     </div>
                   </div>
@@ -377,7 +437,9 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                           <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: mem.color }} />
                           <span className="font-semibold text-slate-100">{mem.companyName}</span>
                           {mId === myCoalition.leaderId && (
-                            <span className="text-[10px] text-amber-300 font-bold">LIDER</span>
+                            <span className="text-[10px] text-amber-300 font-bold">
+                              {lang === 'en' ? 'LEADER' : 'LIDER'}
+                            </span>
                           )}
                         </div>
                       );
@@ -387,14 +449,16 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
               ) : (
                 <div className="p-4 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-3">
                   <div className="font-bold text-slate-100 text-sm">
-                    Załóż Nową Koalicję Strategiczną (Maks. {maxCoalMembers} firmy)
+                    {lang === 'en'
+                      ? `Found a Strategic Coalition (Max ${maxCoalMembers} corps)`
+                      : `Załóż Nową Koalicję Strategiczną (Maks. ${maxCoalMembers} firmy)`}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                     <input
                       type="text"
                       value={coalName}
                       onChange={(e) => setCoalName(e.target.value)}
-                      placeholder="Nazwa koalicji"
+                      placeholder={lang === 'en' ? 'Coalition name' : 'Nazwa koalicji'}
                       className="sm:col-span-2 px-3 py-2 rounded-lg bg-[#151c28] border border-[#2d3b52] text-slate-100"
                     />
                     <input
@@ -402,7 +466,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                       maxLength={5}
                       value={coalTag}
                       onChange={(e) => setCoalTag(e.target.value.toUpperCase())}
-                      placeholder="TAG (np. PAKT)"
+                      placeholder={lang === 'en' ? 'TAG (e.g. PACT)' : 'TAG (np. PAKT)'}
                       className="px-3 py-2 rounded-lg bg-[#151c28] border border-[#2d3b52] text-slate-100 font-mono uppercase"
                     />
                     <button
@@ -410,11 +474,13 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                       onClick={() => onCreateCoalition?.(coalName, coalTag, coalColor)}
                       className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold"
                     >
-                      🤝 Utwórz
+                      {lang === 'en' ? '🤝 Create' : '🤝 Utwórz'}
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-slate-400">Barwa sojuszu:</span>
+                    <span className="text-slate-400">
+                      {lang === 'en' ? 'Alliance color:' : 'Barwa sojuszu:'}
+                    </span>
                     {PLAYER_COLORS.map((c) => (
                       <button
                         key={c}
@@ -432,7 +498,9 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
 
               {/* Relacje z każdym konkurentem */}
               <div className="space-y-2">
-                <div className="font-semibold text-slate-300 uppercase">Relacje Dwustronne z Konkurentami</div>
+                <div className="font-semibold text-slate-300 uppercase">
+                  {lang === 'en' ? 'Bilateral Relations with Competitors' : 'Relacje Dwustronne z Konkurentami'}
+                </div>
                 {rivals.map((r) => {
                   const allied = arePlayersAllied(gameState, currentPlayer.id, r.id);
                   const nap = hasActiveNAP(gameState, currentPlayer.id, r.id);
@@ -450,12 +518,20 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                           </div>
                           <div className="text-[11px] text-slate-400">
                             {allied
-                              ? '🤝 Sojusznik w koalicji'
+                              ? lang === 'en'
+                                ? '🤝 Coalition Ally'
+                                : '🤝 Sojusznik w koalicji'
                               : embargo
-                                ? '🚫 Aktywne Embargo (brak handlu i tranzytu)'
+                                ? lang === 'en'
+                                  ? '🚫 Active Embargo (trade & transit blocked)'
+                                  : '🚫 Aktywne Embargo (brak handlu i tranzytu)'
                                 : nap
-                                  ? '🕊️ Pakt o Nieagresji (NAP)'
-                                  : 'Neutralne stosunki'}
+                                  ? lang === 'en'
+                                    ? '🕊️ Non-Aggression Pact (NAP)'
+                                    : '🕊️ Pakt o Nieagresji (NAP)'
+                                  : lang === 'en'
+                                    ? 'Neutral relations'
+                                    : 'Neutralne stosunki'}
                           </div>
                         </div>
                       </div>
@@ -466,7 +542,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                             onClick={() => onInviteCoalition?.(r.id)}
                             className="px-2.5 py-1 rounded bg-sky-600/25 hover:bg-sky-600/45 border border-sky-400/50 text-sky-200 font-semibold"
                           >
-                            + Zaproś do Koalicji
+                            {lang === 'en' ? '+ Invite to Coalition' : '+ Zaproś do Koalicji'}
                           </button>
                         )}
                         {!allied && !nap && !embargo && (
@@ -475,7 +551,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                             onClick={() => onProposeNAP?.(r.id)}
                             className="px-2.5 py-1 rounded bg-emerald-600/25 hover:bg-emerald-600/45 border border-emerald-400/50 text-emerald-200 font-semibold"
                           >
-                            🕊️ Pakt NAP
+                            {lang === 'en' ? '🕊️ NAP Treaty' : '🕊️ Pakt NAP'}
                           </button>
                         )}
                         {!allied && !embargo && (
@@ -484,7 +560,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                             onClick={() => onImposeEmbargo?.(r.id)}
                             className="px-2.5 py-1 rounded bg-rose-600/25 hover:bg-rose-600/45 border border-rose-400/50 text-rose-200 font-semibold"
                           >
-                            🚫 Embargo (120k zł)
+                            🚫 {lang === 'en' ? 'Embargo' : 'Embargo'} ({formatCompactMoney(120_000)})
                           </button>
                         )}
                       </div>
@@ -500,7 +576,10 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
             <div className="space-y-3">
               {detectedNuclearRivals.length > 0 && (
                 <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/60 text-xs text-rose-100">
-                  🕵️ <strong>ALERT WYWIADOWCZY:</strong> Twoje Centra Wywiadu wykryły tajne zbrojenia jądrowe u:{' '}
+                  🕵️ <strong>{lang === 'en' ? 'INTEL ALERT:' : 'ALERT WYWIADOWCZY:'}</strong>{' '}
+                  {lang === 'en'
+                    ? 'Your Intelligence Centers detected covert nuclear buildup at:'
+                    : 'Twoje Centra Wywiadu wykryły tajne zbrojenia jądrowe u:'}{' '}
                   <strong>{detectedNuclearRivals.map((d) => d.companyName).join(', ')}</strong>!
                 </div>
               )}
@@ -509,11 +588,15 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                 {/* Taktyczna Bateria Rakietowa 3x3 */}
                 <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-rose-500/35 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-rose-200 text-sm">🚀 Bateria Rakiet Taktycznych (3×3)</h4>
-                    <span className="font-mono text-amber-300 font-bold">1,80 mln zł</span>
+                    <h4 className="font-bold text-rose-200 text-sm">
+                      {lang === 'en' ? '🚀 Tactical Missile Battery (3×3)' : '🚀 Bateria Rakiet Taktycznych (3×3)'}
+                    </h4>
+                    <span className="font-mono text-amber-300 font-bold">{formatCompactMoney(1_800_000)}</span>
                   </div>
                   <p className="text-slate-400">
-                    Niszczy obiekty i drogi w obszarze 3×3 zamieniając zakłady w ruiny. Wymaga Bazy PMC z ulepszeniem EKSTRA.
+                    {lang === 'en'
+                      ? 'Destroys structures and roads in a 3×3 radius, leaving plants in ruins. Requires a PMC Base with Flagship upgrade.'
+                      : 'Niszczy obiekty i drogi w obszarze 3×3 zamieniając zakłady w ruiny. Wymaga Bazy PMC z ulepszeniem Flagowym.'}
                   </p>
                   <button
                     type="button"
@@ -525,10 +608,16 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                     className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold"
                   >
                     {!hasMissileBase
-                      ? '🔒 Wymaga Bazy PMC + moduł EKSTRA'
+                      ? lang === 'en'
+                        ? '🔒 Requires PMC Base + Flagship module'
+                        : '🔒 Wymaga Bazy PMC + moduł Flagowy'
                       : missileCooldown > 0
-                        ? `Ładowanie wyrzutni (${missileCooldown}T)`
-                        : '🎯 Wybierz Cel 3×3 na Mapie'}
+                        ? lang === 'en'
+                          ? `Reloading launcher (${missileCooldown}T)`
+                          : `Ładowanie wyrzutni (${missileCooldown}T)`
+                        : lang === 'en'
+                          ? '🎯 Pick 3×3 Target on Map'
+                          : '🎯 Wybierz Cel 3×3 na Mapie'}
                   </button>
                 </div>
 
@@ -536,18 +625,24 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                 {currentPlayer.secretNuclearRevealed && (
                   <div className="p-3.5 rounded-xl bg-gradient-to-br from-lime-950/40 to-[#0b0f17] border border-lime-400/60 space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-lime-300 text-sm">☢️ Tajny Program Jądrowy (5×5)</h4>
+                      <h4 className="font-bold text-lime-300 text-sm">
+                        {lang === 'en' ? '☢️ Secret Nuclear Program (5×5)' : '☢️ Tajny Program Jądrowy (5×5)'}
+                      </h4>
                       <span className="font-mono text-lime-200 font-bold">
-                        Głowice: {currentPlayer.nuclearWarheadsReady ?? 0}
+                        {lang === 'en' ? 'Warheads:' : 'Głowice:'} {currentPlayer.nuclearWarheadsReady ?? 0}
                       </span>
                     </div>
                     <p className="text-slate-300">
-                      Zrównuje z ziemią obszar 5×5 i pozostawia nieużywalną strefę skażenia na 180 tur. Montaż: 8,5 mln zł + 25 kg Uranu.
+                      {lang === 'en'
+                        ? `Levels a 5×5 area and leaves an uninhabitable fallout zone for 180 ticks. Assembly: ${formatCompactMoney(8_500_000)} + 25 kg Uranium.`
+                        : `Zrównuje z ziemią obszar 5×5 i pozostawia nieużywalną strefę skażenia na 180 tur. Montaż: ${formatCompactMoney(8_500_000)} + 25 kg Uranu.`}
                     </p>
                     {currentPlayer.nuclearProjectActive ? (
                       <div className="space-y-1">
                         <div className="flex justify-between font-mono text-[11px] text-lime-300">
-                          <span>Składanie głowicy w toku...</span>
+                          <span>
+                            {lang === 'en' ? 'Warhead assembly in progress...' : 'Składanie głowicy w toku...'}
+                          </span>
                           <span>{Math.round(currentPlayer.nuclearProjectProgress ?? 0)}%</span>
                         </div>
                         <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden">
@@ -564,7 +659,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                           onClick={() => onStartNuclearProject?.()}
                           className="flex-1 py-2 rounded-lg bg-lime-700 hover:bg-lime-600 text-white font-bold"
                         >
-                          🔧 Zbuduj Głowicę (8.5M + 25U)
+                          🔧 {lang === 'en' ? 'Assemble Warhead' : 'Zbuduj Głowicę'} ({formatCompactMoney(8_500_000)} + 25U)
                         </button>
                         {(currentPlayer.nuclearWarheadsReady ?? 0) > 0 && (
                           <button
@@ -575,7 +670,7 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                             }}
                             className="flex-1 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold animate-pulse"
                           >
-                            ☢️ Odpal na Mapę (5×5)
+                            {lang === 'en' ? '☢️ Launch Strike (5×5)' : '☢️ Odpal na Mapę (5×5)'}
                           </button>
                         )}
                       </div>
@@ -590,7 +685,9 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
           {pillar !== 'diplomacy' && rivals.length > 0 && (
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1">Cel Operacji (Rywal):</label>
+                <label className="block text-slate-400 mb-1">
+                  {lang === 'en' ? 'Operation Target (Rival):' : 'Cel Operacji (Rywal):'}
+                </label>
                 <select
                   value={targetPlayerId}
                   onChange={(e) => {
@@ -612,23 +709,39 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Działka (dla Wykupu):</label>
+                <label className="block text-slate-400 mb-1">
+                  {lang === 'en' ? 'Plot (for Buyout):' : 'Działka (dla Wykupu):'}
+                </label>
                 <select
                   value={targetPlotId}
                   onChange={(e) => setTargetPlotId(e.target.value)}
                   className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-slate-100"
                 >
                   {targetPlots.length === 0 ? (
-                    <option value="">Brak działek rywala</option>
+                    <option value="">{lang === 'en' ? 'No rival plots' : 'Brak działek rywala'}</option>
                   ) : (
                     targetPlots.map((p) => {
                       const vis =
                         !p.building ||
                         isPlotBuildingVisibleToViewer(p, currentPlayer.id, currentPlayer, gameState);
+                      const bTitle =
+                        p.building && vis
+                          ? lang === 'en'
+                            ? BUILDINGS_EN[p.building.type]?.name ?? p.building.name
+                            : p.building.name
+                          : null;
                       return (
                         <option key={p.id} value={p.id}>
                           ({p.gridX},{p.gridY}){' '}
-                          {p.building ? (vis ? `· ${p.building.name}` : '· 🌫️ Obiekt Nieznany') : '· Wolny grunt'}
+                          {p.building
+                            ? vis
+                              ? `· ${bTitle}`
+                              : lang === 'en'
+                                ? '· 🌫️ Unknown Facility'
+                                : '· 🌫️ Obiekt Nieznany'
+                            : lang === 'en'
+                              ? '· Unbuilt Land'
+                              : '· Wolny grunt'}
                         </option>
                       );
                     })
@@ -637,14 +750,16 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Obiekt (Sabotaż / Abordaż):</label>
+                <label className="block text-slate-400 mb-1">
+                  {lang === 'en' ? 'Structure (Sabotage / Raid):' : 'Obiekt (Sabotaż / Abordaż):'}
+                </label>
                 <select
                   value={targetBuildingId}
                   onChange={(e) => setTargetBuildingId(e.target.value)}
                   className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-slate-100"
                 >
                   {targetBuildings.length === 0 ? (
-                    <option value="">Brak budynków rywala</option>
+                    <option value="">{lang === 'en' ? 'No rival structures' : 'Brak budynków rywala'}</option>
                   ) : (
                     targetBuildings.map((p) => {
                       const vis = isPlotBuildingVisibleToViewer(
@@ -653,11 +768,18 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         currentPlayer,
                         gameState
                       );
+                      const bTitle = vis
+                        ? lang === 'en'
+                          ? BUILDINGS_EN[p.building!.type]?.name ?? p.building!.name
+                          : p.building!.name
+                        : '';
                       return (
                         <option key={p.building!.id} value={p.building!.id}>
                           {vis
-                            ? `${p.building!.icon} ${p.building!.name}`
-                            : '🌫️ Obiekt Nieznany'}{' '}
+                            ? `${p.building!.icon} ${bTitle}`
+                            : lang === 'en'
+                              ? '🌫️ Unknown Facility'
+                              : '🌫️ Obiekt Nieznany'}{' '}
                           ({p.gridX},{p.gridY})
                         </option>
                       );
@@ -704,7 +826,10 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
 
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-[11px] text-slate-400">
-                        <span>Wymagane wpływy: {act.requiredScore} pkt</span>
+                        <span>
+                          {lang === 'en' ? 'Required influence:' : 'Wymagane wpływy:'} {act.requiredScore}{' '}
+                          {lang === 'en' ? 'pts' : 'pkt'}
+                        </span>
                         <span>Cooldown: {act.cooldownTicks}T</span>
                       </div>
                       <button
@@ -721,14 +846,24 @@ export const InfluencePanel: React.FC<InfluencePanelProps> = ({
                         className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold text-xs transition-colors"
                       >
                         {cd > 0
-                          ? `Odnowienie (${cd}T)`
+                          ? lang === 'en'
+                            ? `Cooldown (${cd}T)`
+                            : `Odnowienie (${cd}T)`
                           : missingTech
-                            ? '🔒 Wymaga technologii militarnej'
+                            ? lang === 'en'
+                              ? '🔒 Requires Military Tech'
+                              : '🔒 Wymaga technologii militarnej'
                             : lowScore
-                              ? `🔒 Za niskie wpływy (${act.requiredScore} pkt)`
+                              ? lang === 'en'
+                                ? `🔒 Low influence (${act.requiredScore} pts)`
+                                : `🔒 Za niskie wpływy (${act.requiredScore} pkt)`
                               : missingTarget
-                                ? 'Wybierz cel powyżej'
-                                : 'Uruchom Operację'}
+                                ? lang === 'en'
+                                  ? 'Select target above'
+                                  : 'Wybierz cel powyżej'
+                                : lang === 'en'
+                                  ? 'Execute Operation'
+                                  : 'Uruchom Operację'}
                       </button>
                     </div>
                   </div>

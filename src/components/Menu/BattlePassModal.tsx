@@ -7,6 +7,13 @@ import {
 } from '../../data/battlePass';
 import { claimBattlePassReward } from '../../engine/profileManager';
 import type { UserAccountProfile } from '../../engine/types';
+import {
+  localizeBattlePassTierTitle,
+  localizePvPDivisionLabel,
+  localizeQuest,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
+import { LanguageSwitcher } from '../HUD/LanguageSwitcher';
 import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface BattlePassModalProps {
@@ -22,6 +29,7 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
 }) => {
   const [tab, setTab] = useState<'pass' | 'quests'>('pass');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const { lang, t } = useI18n();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -33,19 +41,21 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
 
   const bp = computeBattlePassLevel(profile.battlePassXp);
   const division = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
-  const quests = profile.questState?.quests ?? [];
+  const quests = (profile.questState?.quests ?? []).map((q) => localizeQuest(q, lang));
   const dailyQuests = quests.filter((q) => q.period === 'daily');
   const weeklyQuests = quests.filter((q) => q.period === 'weekly');
 
   const claimableLevels = BATTLE_PASS_SEASON_1.filter(
-    (t) => bp.level >= t.level && !profile.claimedPassLevels.includes(t.level)
-  ).map((t) => t.level);
+    (tier) => bp.level >= tier.level && !profile.claimedPassLevels.includes(tier.level)
+  ).map((tier) => tier.level);
 
   const handleClaim = (lvl: number) => {
     const res = claimBattlePassReward(profile, lvl);
     if (res.ok) {
       onUpdateProfile(res.profile);
-      setFeedback(res.message ?? `Odebrano Poziom ${lvl}!`);
+      setFeedback(
+        lang === 'en' ? `Claimed Tier ${lvl}!` : res.message ?? `Odebrano Poziom ${lvl}!`
+      );
     }
   };
 
@@ -61,7 +71,11 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
     }
     if (count > 0) {
       onUpdateProfile(cur);
-      setFeedback(`Odebrano ${count} nagród z Karnetu Sezon 1!`);
+      setFeedback(
+        lang === 'en'
+          ? `Claimed ${count} Season 1 Pass rewards!`
+          : `Odebrano ${count} nagród z Karnetu Sezon 1!`
+      );
     }
   };
 
@@ -76,17 +90,16 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
         <div className="sticky top-0 z-20 px-5 py-4 bg-[#0b0f17]/95 backdrop-blur-md border-b border-[#243044] flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
-              <span>🎖️ Karnet Prezesa — Sezon 1</span>
+              <span>{t('bp.title')}</span>
               <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-mono">
-                100% DARMOWY
+                {t('bp.freeBadge')}
               </span>
             </h2>
-            <p className="text-xs text-slate-400">
-              Rozgrywaj mecze i wykonuj Zadania Dzienne/Tygodniowe, aby odblokować 30 poziomów nagród
-            </p>
+            <p className="text-xs text-slate-400">{t('bp.subtitle')}</p>
           </div>
 
           <div className="flex items-center gap-2.5">
+            <LanguageSwitcher compact />
             <div className="px-2.5 py-1 rounded-lg bg-[#151c28] border border-[#243044] text-amber-200 font-mono text-xs font-bold flex items-center gap-1.5">
               <MCoinIcon size={15} />
               <span>{profile.mCoins} M</span>
@@ -96,7 +109,7 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
               onClick={onClose}
               className="px-3 py-1.5 rounded-lg bg-[#1c2434] hover:bg-[#2a364d] border border-[#2d3b52] text-xs font-semibold text-slate-200"
             >
-              ✕ Zamknij
+              ✕ {t('common.close')}
             </button>
           </div>
         </div>
@@ -107,10 +120,10 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
                 <span className="px-2.5 py-1 rounded-lg bg-sky-500/20 border border-sky-400/50 font-mono font-bold text-sky-200 text-sm">
-                  Poziom {bp.level} / {BATTLE_PASS_MAX_LEVEL}
+                  {t('common.lvl')} {bp.level} / {BATTLE_PASS_MAX_LEVEL}
                 </span>
                 <span className={`px-2 py-1 rounded-lg border text-[11px] font-semibold ${division.badgeClass}`}>
-                  {division.icon} Dywizja: {division.label} ({division.points} pkt)
+                  {division.icon} {localizePvPDivisionLabel(division.id, division.label, lang)} ({division.points} {lang === 'en' ? 'pts' : 'pkt'})
                 </span>
               </div>
 
@@ -120,17 +133,21 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                   onClick={handleClaimAll}
                   className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow animate-pulse"
                 >
-                  🎁 Odbierz wszystkie ({claimableLevels.length})
+                  {t('bp.claimAll', { count: claimableLevels.length })}
                 </button>
               )}
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-[11px] text-slate-400">
-                <span>Postęp do poziomu {Math.min(BATTLE_PASS_MAX_LEVEL, bp.level + 1)}</span>
-                <span className="font-mono text-sky-300">
-                  {bp.intoLevelXp} / {bp.neededPerLevel} BP XP ({bp.progressPct}%)
+                <span>
+                  {t('bp.xpProgress', {
+                    xp: bp.intoLevelXp,
+                    next: bp.neededPerLevel,
+                    lvl: Math.min(BATTLE_PASS_MAX_LEVEL, bp.level + 1),
+                  })}
                 </span>
+                <span className="font-mono text-sky-300">{bp.progressPct}%</span>
               </div>
               <div className="h-2.5 rounded-full bg-[#151c28] border border-[#243044] overflow-hidden">
                 <div
@@ -158,7 +175,7 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                   : 'bg-[#0b0f17] text-slate-400'
               }`}
             >
-              🎖️ Ścieżka Nagród (1–30)
+              🎖️ {t('bp.tabTrack')}
             </button>
             <button
               type="button"
@@ -169,13 +186,14 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                   : 'bg-[#0b0f17] text-slate-400'
               }`}
             >
-              🎯 Zadania Dzienne & Tygodniowe ({quests.filter((q) => !q.completed).length} aktywne)
+              🎯 {t('bp.tabQuests', { ready: quests.filter((q) => !q.completed).length })}
             </button>
           </div>
 
           {tab === 'pass' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
               {BATTLE_PASS_SEASON_1.map((tier) => {
+                const tierTitle = localizeBattlePassTierTitle(tier.level, tier.title, lang);
                 const unlocked = bp.level >= tier.level;
                 const claimed = profile.claimedPassLevels.includes(tier.level);
                 const isMilestone = tier.level % 5 === 0;
@@ -196,20 +214,20 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="px-2 py-0.5 rounded bg-[#182235] border border-[#2d3b52] font-mono text-[10px] font-bold text-slate-200">
-                          LVL {tier.level}
+                          {t('common.lvl')} {tier.level}
                         </span>
                         <span className="text-xl">{tier.preview}</span>
                       </div>
                       {claimed && (
-                        <span className="text-[10px] font-bold text-emerald-400">✓ Odebrane</span>
+                        <span className="text-[10px] font-bold text-emerald-400">{t('bp.claimed')}</span>
                       )}
                     </div>
 
-                    <div className="font-semibold text-slate-100 leading-snug">{tier.title}</div>
+                    <div className="font-semibold text-slate-100 leading-snug">{tierTitle}</div>
 
                     {claimed ? (
                       <div className="py-1 text-center rounded bg-emerald-950/35 text-[11px] text-emerald-300">
-                        Odblokowano na koncie
+                        {lang === 'en' ? 'Unlocked on account' : 'Odblokowano na koncie'}
                       </div>
                     ) : unlocked ? (
                       <button
@@ -217,11 +235,11 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                         onClick={() => handleClaim(tier.level)}
                         className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
                       >
-                        🎁 Odbierz Nagrodę
+                        {t('bp.claimReward')}
                       </button>
                     ) : (
                       <div className="py-1 text-center rounded bg-[#151c28] text-[10px] text-slate-500 font-mono">
-                        🔒 Wymaga LVL {tier.level}
+                        🔒 {t('bp.requiresLvl', { lvl: tier.level })}
                       </div>
                     )}
                   </div>
@@ -232,7 +250,7 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="font-bold text-amber-300 uppercase tracking-wider text-[11px]">
-                  ☀️ Zadania Dzienne ({profile.questState?.dayKey})
+                  {t('bp.dailyTitle')} ({profile.questState?.dayKey})
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                   {dailyQuests.map((q) => {
@@ -248,12 +266,16 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="font-bold text-white">{q.title}</span>
-                          {q.completed && <span className="text-[10px] text-emerald-300 font-bold">✓ UKOŃCZONE</span>}
+                          {q.completed && (
+                            <span className="text-[10px] text-emerald-300 font-bold">
+                              {lang === 'en' ? '✓ DONE' : '✓ UKOŃCZONE'}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-slate-400">{q.description}</p>
                         <div className="space-y-1">
                           <div className="flex justify-between font-mono text-[10px] text-slate-300">
-                            <span>Postęp: {q.progress} / {q.target}</span>
+                            <span>{t('bp.progress', { cur: q.progress, target: q.target })}</span>
                             <span>{pct}%</span>
                           </div>
                           <div className="h-1.5 rounded-full bg-[#151c28] overflow-hidden">
@@ -274,7 +296,7 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
 
               <div className="space-y-2">
                 <div className="font-bold text-sky-300 uppercase tracking-wider text-[11px]">
-                  📅 Zadania Tygodniowe ({profile.questState?.weekKey})
+                  {t('bp.weeklyTitle')} ({profile.questState?.weekKey})
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {weeklyQuests.map((q) => {
@@ -290,12 +312,16 @@ export const BattlePassModal: React.FC<BattlePassModalProps> = ({
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="font-bold text-white text-sm">{q.title}</span>
-                          {q.completed && <span className="text-[10px] text-emerald-300 font-bold">✓ UKOŃCZONE</span>}
+                          {q.completed && (
+                            <span className="text-[10px] text-emerald-300 font-bold">
+                              {lang === 'en' ? '✓ DONE' : '✓ UKOŃCZONE'}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-slate-300">{q.description}</p>
                         <div className="space-y-1">
                           <div className="flex justify-between font-mono text-[10px] text-slate-300">
-                            <span>Postęp: {q.progress} / {q.target}</span>
+                            <span>{t('bp.progress', { cur: q.progress, target: q.target })}</span>
                             <span>{pct}%</span>
                           </div>
                           <div className="h-2 rounded-full bg-[#151c28] overflow-hidden">

@@ -1,5 +1,6 @@
 import { TOLL_RATE_CONFIG } from '../config/gameConfig';
 import { getArchetypeDefinition } from '../data/archetypes';
+import { getCurrentLanguage } from '../i18n';
 import { arePlayersAllied, hasActiveEmbargo } from './CoalitionSystem';
 import type {
   Building,
@@ -612,6 +613,7 @@ export function canTransportGoodsBetweenPlots(
     }
   }
 
+  const en = getCurrentLanguage() === 'en';
   return {
     reachable: false,
     mode: 'blocked',
@@ -619,8 +621,12 @@ export function canTransportGoodsBetweenPlots(
     toPlotId: dstPlot.id,
     reason:
       c1 !== c2
-        ? 'Woda odcina połączenie — wybuduj Most Drogowy, parę Portów Towarowych lub Lotnisk Cargo.'
-        : 'Brak przejezdnej drogi (blokada przejazdu lub odizolowana działka).',
+        ? en
+          ? 'Water blocks the connection — build a Road Bridge, Cargo Ports, or Cargo Airports.'
+          : 'Woda odcina połączenie — wybuduj Most Drogowy, parę Portów Towarowych lub Lotnisk Cargo.'
+        : en
+          ? 'No passable road route (roadblock or isolated plot).'
+          : 'Brak przejezdnej drogi (blokada przejazdu lub odizolowana działka).',
   };
 }
 
@@ -690,7 +696,10 @@ export function getCargoTransportModeBetweenPlayers(
       mode: 'blocked',
       fromPlotId: fallbackSeller[0]?.id ?? '',
       toPlotId: fallbackBuyer[0]?.id ?? '',
-      reason: 'Brak aktywnych działek po jednej ze stron.',
+      reason:
+        getCurrentLanguage() === 'en'
+          ? 'No active plots on one of the sides.'
+          : 'Brak aktywnych działek po jednej ze stron.',
     };
   }
 
@@ -709,7 +718,10 @@ export function getCargoTransportModeBetweenPlayers(
     mode: 'blocked',
     fromPlotId: fallbackSeller[0].id,
     toPlotId: fallbackBuyer[0].id,
-    reason: 'Brak połączenia lądowego (mostu), morskiego lub lotniczego między brzegami.',
+    reason:
+      getCurrentLanguage() === 'en'
+        ? 'No land bridge, sea port, or cargo air link between shores.'
+        : 'Brak połączenia lądowego (mostu), morskiego lub lotniczego między brzegami.',
   };
 }
 

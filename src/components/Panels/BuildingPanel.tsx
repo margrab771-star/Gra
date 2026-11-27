@@ -18,6 +18,13 @@ import {
 import { evaluateNonFinancialRequirements } from '../../engine/RequirementsSystem';
 import { hasExternalMarketAccess } from '../../engine/TransportSystem';
 import type { Building, BuildingTechNode, BuildingType, EmergencyServiceKind, GameState, Player, Plot, ResourceType } from '../../engine/types';
+import { BUILDINGS_EN, translateBuildingTechNode } from '../../i18n/buildingsEn';
+import {
+  localizeResourceName,
+  localizeResourceUnit,
+  localizeSynergyLabel,
+} from '../../i18n/dataTranslations';
+import { useI18n } from '../../i18n/useI18n';
 import { formatMoney } from '../../utils/formatters';
 import { DarkNumberInput, DarkToggle } from '../HUD/DarkControls';
 
@@ -100,6 +107,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     onProposeContract,
     onClose,
   }) => {
+    const { t, lang } = useI18n();
+    const buildingName =
+      lang === 'en' ? BUILDINGS_EN[building.type]?.name ?? building.name : building.name;
     const [tab, setTab] = useState<TabKey>('finance');
     const [confirmDemolish, setConfirmDemolish] = useState(false);
     const [selectedTechId, setSelectedTechId] = useState<string>(building.techTree[0]?.id ?? '');
@@ -177,12 +187,15 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     const repairCost = getRepairCost(building);
     const safety = getSafetyCoverageForPlot(gameState, building.ownerId, plot);
 
-    const selectedTechNode: BuildingTechNode | undefined =
+    const rawSelectedTechNode: BuildingTechNode | undefined =
       building.techTree.find((n) => n.id === selectedTechId) ?? building.techTree[0];
+    const selectedTechNode: BuildingTechNode | undefined = rawSelectedTechNode
+      ? translateBuildingTechNode(rawSelectedTechNode, lang)
+      : undefined;
 
-    const selectedReqEval = selectedTechNode
+    const selectedReqEval = rawSelectedTechNode
       ? evaluateNonFinancialRequirements(
-          selectedTechNode.requirements,
+          rawSelectedTechNode.requirements,
           currentPlayer,
           gameState,
           building,
@@ -206,13 +219,13 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           <div className="flex items-start justify-between border-b border-[#243044] pb-2.5 gap-2">
             <div>
               <div className="text-xs font-mono text-amber-400">
-                SEKTOR ({plot.gridX}, {plot.gridY}) · MGŁA WOJNY
+                {t('bldg.fogSector', { x: plot.gridX, y: plot.gridY })}
               </div>
-              <h3 className="text-base font-bold text-slate-100">🌫️ Obiekt Nieznany</h3>
+              <h3 className="text-base font-bold text-slate-100">{t('bldg.fogUnknown')}</h3>
               <div className="text-[11px] text-slate-400">
-                Właściciel:{' '}
+                {t('bldg.owner')}{' '}
                 <span style={{ color: owner?.color }} className="font-semibold">
-                  {owner?.companyName ?? 'Rywal'}
+                  {owner?.companyName ?? t('bldg.rivalFallback')}
                 </span>
               </div>
             </div>
@@ -226,10 +239,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           </div>
 
           <div className="p-3.5 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-2.5 text-xs">
-            <p className="text-slate-300 leading-relaxed">
-              Mutator <strong>Mgła Wojny Budynków</strong> ukrywa typ, przychody i poziom ulepszeń struktur przeciwników.
-              Wyślij zespół wywiadu gospodarczego, aby na stałe zdemaskować ten sektor.
-            </p>
+            <p className="text-slate-300 leading-relaxed">{t('bldg.fogDesc')}</p>
             {onRevealFogPlot && (
               <button
                 type="button"
@@ -237,21 +247,21 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 onClick={() => onRevealFogPlot(plot.id)}
                 className="w-full py-2.5 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold transition-colors"
               >
-                🕵️ Ujawnij Obiekt Wywiadem ({formatMoney(280_000)} lub 25 pkt militarnych)
+                {t('bldg.revealIntelBtn', { cost: formatMoney(280_000) })}
               </button>
             )}
           </div>
 
           {onProposePlotOffer && owner && (
             <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2 text-xs">
-              <div className="font-semibold text-amber-300">💰 Ślepa Oferta Wykupu Sektora</div>
+              <div className="font-semibold text-amber-300">{t('bldg.blindBuyoutTitle')}</div>
               <DarkToggle
                 checked={includeBldgOffer}
                 onChange={(v) => {
                   setIncludeBldgOffer(v);
                   setOfferPrice(getSuggestedPlotBuyoutValuation(plot, v));
                 }}
-                label="Uwzględnij nieznany budynek w wycenie"
+                label={t('bldg.blindIncludeBuilding')}
               />
               <DarkNumberInput value={offerPrice} onChange={setOfferPrice} min={10000} step={10000} />
               <button
@@ -260,7 +270,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 onClick={() => onProposePlotOffer(plot.id, offerPrice, includeBldgOffer)}
                 className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold"
               >
-                Złóż Ofertę Wykupu ({formatMoney(offerPrice)})
+                {t('bldg.submitBuyoutBtn', { price: formatMoney(offerPrice) })}
               </button>
             </div>
           )}
@@ -270,12 +280,12 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
 
     const logisticsLabel =
       building.logisticsMode === 'air'
-        ? '✈️ Lotnicza (Cargo)'
+        ? t('bldg.logAir')
         : building.logisticsMode === 'sea'
-          ? '🚢 Morska (Port)'
+          ? t('bldg.logSea')
           : building.logisticsMode === 'isolated'
-            ? '⚠️ Brak połączenia z siecią'
-            : '🛣️ Drogowa (Sieć)';
+            ? t('bldg.logIsolated')
+            : t('bldg.logRoad');
 
     return (
       <div className="space-y-3 text-sm animate-fadeIn">
@@ -285,21 +295,21 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             <span className="text-2xl shrink-0">{building.icon}</span>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 className="font-semibold text-slate-100 leading-tight">{building.name}</h3>
+                <h3 className="font-semibold text-slate-100 leading-tight">{buildingName}</h3>
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-[10px]">
-                  Poz. {building.level}
+                  {t('bldg.lvlShort', { lvl: building.level })}
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-mono text-[10px]">
-                  2.5D Tier {building.visualTier ?? 0}/4
+                  {t('bldg.visualTier', { tier: building.visualTier ?? 0 })}
                 </span>
                 {(building.visualTier ?? 0) >= 4 && (
                   <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-bold text-[10px]">
-                    ★ PROJEKT FLAGOWY
+                    {t('bldg.flagshipBadge')}
                   </span>
                 )}
               </div>
               <div className="text-[11px] text-slate-400 truncate">
-                Właściciel:{' '}
+                {t('bldg.owner')}{' '}
                 <span style={{ color: owner?.color }} className="font-medium">
                   {owner?.companyName}
                 </span>{' '}
@@ -317,9 +327,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     : onCloneBuilding?.(building.type)
                 }
                 className="px-2 py-1 rounded bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-300 text-[11px] font-semibold"
-                title="Klonuj 1:1 ten obiekt (pełny koszt budynku + ulepszeń bez ukrytej zniżki)"
+                title={t('bldg.cloneTitle')}
               >
-                🧪 Klonuj 1:1
+                {t('bldg.cloneBtn')}
               </button>
             )}
             <button
@@ -339,9 +349,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           (building.status.noRoadLink || building.logisticsMode === 'isolated') && (
             <div className="p-2.5 rounded-xl bg-rose-950/80 border-2 border-rose-500 text-rose-100 text-xs font-semibold flex items-start gap-2 shadow-[0_0_16px_rgba(244,63,94,0.25)]">
               <span className="text-base shrink-0 animate-pulse">🚫🛣️</span>
-              <span>
-                Brak dostępu do drogi — budynek nie zarabia i nie produkuje. Podłącz drogę lub autostradę do sąsiedniego pola.
-              </span>
+              <span>{t('bldg.noRoadBanner')}</span>
             </div>
           )}
 
@@ -349,19 +357,18 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         {building.destroyedRuins && (
           <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/60 space-y-2 text-xs">
             <div className="font-bold text-rose-200 flex items-center gap-1.5">
-              <span>🏚️ ZAWALONE RUINY OBIEKTU</span>
+              <span>{t('bldg.ruinsTitle')}</span>
             </div>
-            <p className="text-rose-200/80 leading-relaxed">
-              Konstrukcja uległa całkowitemu zniszczeniu wskutek katastrofy lub nieugaszonego incydentu.
-              Obiekt nie produkuje i nie zatrudnia załogi.
-            </p>
+            <p className="text-rose-200/80 leading-relaxed">{t('bldg.ruinsDesc')}</p>
             {isMine && (
               <button
                 type="button"
                 onClick={() => onDemolish(plot.id)}
                 className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
               >
-                🧹 Uprzątnij Ruiny ({formatMoney(Math.max(5000, Math.round(BUILDING_DEFINITIONS[building.type].baseCost * 0.12)))})
+                {t('bldg.clearRuinsBtn', {
+                  cost: formatMoney(Math.max(5000, Math.round(BUILDING_DEFINITIONS[building.type].baseCost * 0.12))),
+                })}
               </button>
             )}
           </div>
@@ -386,15 +393,15 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               {(building.status.onFire || building.activeHazard?.kind === 'fire') && (
                 <div className="text-orange-300 font-semibold space-y-1">
                   <div>
-                    🔥 AKTYWNY POŻAR!{' '}
+                    {t('bldg.fireActive')}{' '}
                     {building.activeHazard?.contained
-                      ? 'Wóz strażacki gasi ogień na miejscu.'
-                      : 'Jednostka w drodze po sieci dróg — postaw bliższą remizę lub szybsze autostrady!'}
+                      ? t('bldg.fireContained')
+                      : t('bldg.fireDispatched')}
                   </div>
                   {(building.activeHazard?.destructionProgress ?? 0) > 0 && (
                     <div className="space-y-0.5">
                       <div className="flex justify-between text-[10px]">
-                        <span>Postęp destrukcji do RUIN:</span>
+                        <span>{t('bldg.destructionPct')}</span>
                         <span className="font-mono">{Math.round(building.activeHazard?.destructionProgress ?? 0)}%</span>
                       </div>
                       <div className="h-1.5 w-full bg-black/50 rounded-full overflow-hidden">
@@ -409,10 +416,10 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               )}
               {(building.status.robberyActive || building.activeHazard?.kind === 'robbery') && (
                 <div className="text-rose-300 font-semibold">
-                  🚨 NAPAD / KRADZIEŻ!{' '}
+                  {t('bldg.robberyActive')}{' '}
                   {building.activeHazard?.contained
-                    ? 'Patrol Policji zabezpieczył obiekt.'
-                    : 'Radiowozy jadą na interwencję — zwiększ liczbę patroli PPP!'}
+                    ? t('bldg.robberyContained')
+                    : t('bldg.robberyDispatched')}
                 </div>
               )}
               {(building.status.hazmatIncident ||
@@ -421,10 +428,10 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   building.activeHazard.kind !== 'robbery')) && (
                 <div className="text-lime-300 font-semibold space-y-1">
                   <div>
-                    ☣️ WYCIEK CHEMICZNY / RADIACYJNY!{' '}
+                    {t('bldg.hazmatActive')}{' '}
                     {building.activeHazard?.contained
-                      ? 'Zespół HAZMAT zabezpiecza teren.'
-                      : 'Pojazdy HAZMAT w drodze (lub brak bazy HAZMAT / połączenia drogowego)!'}
+                      ? t('bldg.hazmatContained')
+                      : t('bldg.hazmatDispatched')}
                   </div>
                   {(building.activeHazard?.destructionProgress ?? 0) > 0 && (
                     <div className="h-1.5 w-full bg-black/50 rounded-full overflow-hidden">
@@ -438,32 +445,32 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               )}
               {building.status.missingInputs && (
                 <div className="flex items-center justify-between gap-2 text-rose-300 font-semibold">
-                  <span>⛔ Brak wsadu surowcowego (Gospodarka Zamknięta MP)!</span>
+                  <span>{t('bldg.missingInputs')}</span>
                   {onOpenB2BMarket && (
                     <button
                       type="button"
                       onClick={onOpenB2BMarket}
                       className="px-2 py-0.5 rounded bg-sky-600/30 border border-sky-400/50 text-sky-200 text-[10px]"
                     >
-                      Rynek B2B →
+                      {t('bldg.b2bMarketLink')}
                     </button>
                   )}
                 </div>
               )}
               {building.status.sewageCrisis && (
-                <div className="text-teal-300">🚰 Kryzys ściekowy — postaw Oczyszczalnię Ścieków!</div>
+                <div className="text-teal-300">{t('bldg.sewageCrisis')}</div>
               )}
               {building.status.wasteCrisis && (
-                <div className="text-lime-300">🗑️ Przepełnienie odpadów — postaw Spalarnię lub Recykling!</div>
+                <div className="text-lime-300">{t('bldg.wasteCrisis')}</div>
               )}
               {building.status.disasterStruck && (
-                <div className="text-amber-300">🌪️ Skutki katastrofy naturalnej obniżają efektywność!</div>
+                <div className="text-amber-300">{t('bldg.disasterStruck')}</div>
               )}
-              {building.status.breakdown && <div>⚠️ Poważna awaria — wymagany natychmiastowy remont!</div>}
-              {building.status.noPower && <div>⚡ Krytyczny deficyt prądu w sieci — sprawdź bilans MW!</div>}
-            {building.status.noWater && <div>💧 Deficyt wody przemysłowej — wydajność obniżona!</div>}
-            {building.status.droughtHit && <div>☀️ Susza obniża moc i chłodzenie obiektu!</div>}
-            {building.status.boycotted && <div>📢 Aktywny bojkot konsumencki (−35% przychodów)!</div>}
+              {building.status.breakdown && <div>{t('bldg.breakdownAlert')}</div>}
+              {building.status.noPower && <div>{t('bldg.noPowerAlert')}</div>}
+            {building.status.noWater && <div>{t('bldg.noWaterAlert')}</div>}
+            {building.status.droughtHit && <div>{t('bldg.droughtHitAlert')}</div>}
+            {building.status.boycotted && <div>{t('bldg.boycottedAlert')}</div>}
           </div>
         )}
 
@@ -477,9 +484,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
                   : 'bg-slate-800 border-slate-700 text-slate-400'
               }`}
-              title="Czas dojazdu straży pożarnej po drogach lub śmigłowcem"
+              title={t('bldg.fireTitle')}
             >
-              🚒 {safety.hasFireStation ? `${safety.fireEta ?? 1}T` : 'Brak'}
+              🚒 {safety.hasFireStation ? `${safety.fireEta ?? 1}T` : t('bldg.noneShort')}
             </span>
             <span
               className={`px-1.5 py-0.5 rounded border ${
@@ -487,9 +494,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   ? 'bg-lime-500/15 border-lime-500/35 text-lime-300'
                   : 'bg-slate-800 border-slate-700 text-slate-400'
               }`}
-              title="Czas dojazdu jednostki HAZMAT"
+              title={t('bldg.hazmatTitle')}
             >
-              ☣️ {safety.hasHazmat ? `${safety.hazmatEta ?? 1}T` : 'Brak'}
+              ☣️ {safety.hasHazmat ? `${safety.hazmatEta ?? 1}T` : t('bldg.noneShort')}
             </span>
             <span
               className={`px-1.5 py-0.5 rounded border ${
@@ -497,9 +504,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   ? 'bg-sky-500/15 border-sky-500/35 text-sky-300'
                   : 'bg-slate-800 border-slate-700 text-slate-400'
               }`}
-              title="Czas dojazdu karetki (+wydajność HR)"
+              title={t('bldg.hospitalTitle')}
             >
-              🏥 {safety.hasHospital ? `${safety.hospitalEta ?? 1}T` : 'Brak'}
+              🏥 {safety.hasHospital ? `${safety.hospitalEta ?? 1}T` : t('bldg.noneShort')}
             </span>
             <span
               className={`px-1.5 py-0.5 rounded border ${
@@ -507,9 +514,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   ? 'bg-blue-500/15 border-blue-400/35 text-blue-300'
                   : 'bg-slate-800 border-slate-700 text-slate-400'
               }`}
-              title="Nasycenie patrolami Policji PPP"
+              title={t('bldg.policeTitle')}
             >
-              🚓 {safety.hasPolice ? `${Math.round(safety.policePatrolRatio * 100)}%` : 'Brak'}
+              🚓 {safety.hasPolice ? `${Math.round(safety.policePatrolRatio * 100)}%` : t('bldg.noneShort')}
             </span>
           </div>
         </div>
@@ -517,10 +524,10 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         {/* Aktywne Synergie i Otoczenie */}
         <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-[11px]">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-slate-200">🧩 Aktywne Synergie i Otoczenie</span>
+            <span className="font-semibold text-slate-200">{t('bldg.synergiesTitle')}</span>
             <div className="flex items-center gap-1.5 font-mono">
               <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/35 text-sky-300">
-                🚶 Popyt: {Math.round(plot.passengerDemandPercent ?? 100)}%
+                {t('bldg.demandBadge', { pct: Math.round(plot.passengerDemandPercent ?? 100) })}
               </span>
               {synergyList.length > 0 && (
                 <span
@@ -536,9 +543,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             </div>
           </div>
           {synergyList.length === 0 ? (
-            <div className="text-slate-400">
-              Brak aktywnych synergii dzielnicowych w promieniu 2 pól. Sąsiedztwo stacji pasażerskich, parków lub obiektów komplementarnych zwiększa marżę.
-            </div>
+            <div className="text-slate-400">{t('bldg.noSynergies')}</div>
           ) : (
             <div className="space-y-1">
               {synergyList.map((syn, idx) => (
@@ -546,7 +551,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   key={`${syn.label}_${idx}`}
                   className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-[#131b2b]"
                 >
-                  <span className="text-slate-200 truncate">{syn.label}</span>
+                  <span className="text-slate-200 truncate">{localizeSynergyLabel(syn.label, lang)}</span>
                   <span
                     className={`font-mono font-semibold shrink-0 ${
                       syn.percentDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -568,25 +573,26 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             building.type === 'policeStation') && (
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-sky-500/35 space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-sky-300">
-                  🚐 Flota Operacyjna (Cała Mapa)
-                </span>
+                <span className="font-semibold text-sky-300">{t('bldg.fleetTitle')}</span>
                 <span className="font-mono text-slate-200 font-bold">
-                  {building.fleetSize ?? 2} / {getStationEffectiveMaxFleet(building)} pojazdów
+                  {t('bldg.fleetCount', {
+                    cur: building.fleetSize ?? 2,
+                    max: getStationEffectiveMaxFleet(building),
+                  })}
                 </span>
               </div>
               <div className="text-[11px] text-slate-400 flex items-center justify-between">
                 <span>
-                  W akcji:{' '}
+                  {t('bldg.fleetInAction')}{' '}
                   {
                     (gameState.dispatches ?? []).filter(
                       (d) => d.stationPlotId === plot.id && d.status !== 'queued'
                     ).length
                   }{' '}
-                  · Śmigłowce:{' '}
+                  · {lang === 'en' ? 'Helicopters:' : 'Śmigłowce:'}{' '}
                   {building.techTree.some((t) => t.status === 'done' && t.effects.helicopterDispatch)
-                    ? 'TAK (omija blokady)'
-                    : 'Nie'}
+                    ? t('bldg.fleetHeliYes')
+                    : t('bldg.fleetHeliNo')}
                 </span>
               </div>
               {onBuyServiceVehicle &&
@@ -596,13 +602,13 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     onClick={() => onBuyServiceVehicle(building.id)}
                     className="w-full py-1.5 rounded bg-sky-600/25 hover:bg-sky-600/40 border border-sky-400/45 text-sky-200 font-semibold"
                   >
-                    ➕ Dokup Pojazd do Floty (
-                    {formatMoney(
-                      SERVICE_VEHICLE_COST[
-                        (building.fleetType ?? 'fire') as EmergencyServiceKind
-                      ]
-                    )}
-                    )
+                    {t('bldg.buyVehicleBtn', {
+                      cost: formatMoney(
+                        SERVICE_VEHICLE_COST[
+                          (building.fleetType ?? 'fire') as EmergencyServiceKind
+                        ]
+                      ),
+                    })}
                   </button>
                 )}
             </div>
@@ -612,7 +618,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         {!isMine && onProposePlotOffer && (
           <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2 text-xs">
             <div className="font-semibold text-amber-300">
-              💰 Złóż Ofertę Wykupu ({owner?.companyName})
+              {t('bldg.makeBuyoutOffer', { company: owner?.companyName ?? '' })}
             </div>
             <DarkToggle
               checked={includeBldgOffer}
@@ -620,7 +626,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 setIncludeBldgOffer(inc);
                 setOfferPrice(getSuggestedPlotBuyoutValuation(plot, inc));
               }}
-              label={`Obejmuje stojącą strukturę (${building.name})`}
+              label={t('bldg.includeStructureLabel', { name: buildingName })}
             />
             <div className="flex items-center gap-2">
               <DarkNumberInput
@@ -636,7 +642,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 onClick={() => onProposePlotOffer(plot.id, offerPrice, includeBldgOffer)}
                 className="px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold disabled:opacity-40 shrink-0"
               >
-                Wyślij Ofertę
+                {t('bldg.sendOfferBtn')}
               </button>
             </div>
           </div>
@@ -646,7 +652,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         <div className="grid grid-cols-2 gap-2">
           <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044]">
             <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-              <span>Zniszczenie</span>
+              <span>{t('bldg.damageLabel')}</span>
               <span
                 className={`font-mono font-bold ${
                   building.damagePercent >= 60
@@ -675,7 +681,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
 
           <div className="p-2 rounded-lg bg-[#0b0f17] border border-[#243044]">
             <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-              <span>Efektywność</span>
+              <span>{t('bldg.efficiencyLabel')}</span>
               <span className="font-mono text-sky-300 font-bold">{building.efficiency}%</span>
             </div>
             <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -692,23 +698,23 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           className={`grid ${isWarehouse && isMine ? 'grid-cols-5' : 'grid-cols-4'} gap-1 p-1 rounded-lg bg-[#0b0f17] border border-[#243044] text-[11px]`}
         >
           {[
-            { key: 'finance', label: 'Finanse' },
-            ...(isWarehouse && isMine ? [{ key: 'logistics', label: 'Logistyka i Podział' }] : []),
-            { key: 'tech', label: 'Drzewko' },
-            { key: 'hr', label: 'Kadry HR' },
-            { key: 'b2b', label: 'B2B' },
-          ].map((t) => (
+            { key: 'finance', label: t('bldg.tabFinance') },
+            ...(isWarehouse && isMine ? [{ key: 'logistics', label: t('bldg.tabLogistics') }] : []),
+            { key: 'tech', label: t('bldg.tabTech') },
+            { key: 'hr', label: t('bldg.tabHr') },
+            { key: 'b2b', label: t('bldg.tabB2B') },
+          ].map((tb) => (
             <button
-              key={t.key}
+              key={tb.key}
               type="button"
-              onClick={() => setTab(t.key as TabKey)}
+              onClick={() => setTab(tb.key as TabKey)}
               className={`py-1.5 px-1 rounded font-medium transition-all truncate ${
-                tab === t.key
+                tab === tb.key
                   ? 'bg-[#1c2638] text-amber-300 border border-amber-500/30 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t.label}
+              {tb.label}
             </button>
           ))}
         </div>
@@ -717,9 +723,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         {isWarehouse && isMine && warehouseSummary && (tab === 'logistics' || tab === 'finance') && (
           <div className="p-3 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-3 text-xs animate-fadeIn">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold text-amber-300">
-                📦 Logistyka i Podział Produkcji (Magazyn vs Eksport)
-              </span>
+              <span className="font-semibold text-amber-300">{t('bldg.whSplitTitle')}</span>
               <span className="font-mono font-bold text-slate-100">
                 {warehouseSummary.totalUsed.toFixed(1)} / {warehouseSummary.totalCapacity} t
               </span>
@@ -736,7 +740,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               </div>
               {thisWhSummary && warehouseSummary.warehouses.length > 1 && (
                 <div className="text-[10px] text-slate-400 flex justify-between">
-                  <span>Ten magazyn ({plot.gridX},{plot.gridY}):</span>
+                  <span>{t('bldg.thisWarehouse', { x: plot.gridX, y: plot.gridY })}</span>
                   <span className="font-mono text-slate-300">
                     {thisWhSummary.used.toFixed(1)} / {thisWhSummary.capacity} t
                   </span>
@@ -747,7 +751,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             {onSetStockpileAllocation && (
               <div className="p-2.5 rounded-lg bg-[#131b2b] border border-[#243044] space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-200 font-semibold">Globalny podział firmy</span>
+                  <span className="text-slate-200 font-semibold">{t('bldg.globalSplitLabel')}</span>
                   <span className="font-mono text-[11px]">
                     <span className="text-amber-300">📦 {globalStorePct}%</span>
                     <span className="text-slate-500"> / </span>
@@ -764,8 +768,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   className="w-full accent-amber-400 cursor-pointer"
                 />
                 <div className="flex items-center justify-between text-[10px] text-slate-400">
-                  <span>Magazynuj {globalStorePct}%</span>
-                  <span>Eksportuj (Sprzedaj) {100 - globalStorePct}%</span>
+                  <span>{t('bldg.storePct', { pct: globalStorePct })}</span>
+                  <span>{t('bldg.exportPct', { pct: 100 - globalStorePct })}</span>
                 </div>
                 <div className="grid grid-cols-5 gap-1">
                   {[0, 25, 50, 75, 100].map((pct) => (
@@ -789,7 +793,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wide">
-                  Podział wg surowca ({warehouseResourceList.length})
+                  {t('bldg.perResSplitHeader', { count: warehouseResourceList.length })}
                 </span>
                 {onSetStockpileAllocation && (
                   <div className="flex items-center gap-1">
@@ -800,7 +804,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     >
                       {TRADEABLE_RESOURCE_LIST.map((rk) => (
                         <option key={rk} value={rk}>
-                          {RESOURCE_DEFINITIONS[rk].emoji} {RESOURCE_DEFINITIONS[rk].name}
+                          {RESOURCE_DEFINITIONS[rk].emoji}{' '}
+                          {localizeResourceName(rk, RESOURCE_DEFINITIONS[rk].name, lang)}
                         </option>
                       ))}
                     </select>
@@ -810,9 +815,9 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                         onSetStockpileAllocation({ resource: customSplitRes, resourcePercent: globalStorePct })
                       }
                       className="px-1.5 py-0.5 rounded bg-sky-600/25 border border-sky-400/40 text-[10px] text-sky-200"
-                      title="Dodaj własny suwak dla wybranego surowca"
+                      title={t('bldg.addRuleTitle')}
                     >
-                      + Dodaj
+                      {t('bldg.addRuleBtn')}
                     </button>
                   </div>
                 )}
@@ -820,7 +825,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
 
               {warehouseResourceList.length === 0 ? (
                 <div className="p-2 rounded bg-[#131b2b] border border-[#243044] text-slate-400 text-[11px]">
-                  Brak produkowanych surowców w sieci — zbuduj kopalnię lub fabrykę połączoną z magazynem albo dodaj regułę powyżej.
+                  {t('bldg.noWhRes')}
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
@@ -834,23 +839,23 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                       <div key={rk} className="p-2 rounded bg-[#131b2b] border border-[#243044] space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-slate-100">
-                            {rd.emoji} {rd.name}
+                            {rd.emoji} {localizeResourceName(rk, rd.name, lang)}
                             <span className="ml-1.5 font-mono text-[10px] text-slate-400">
-                              ({stockAmt.toFixed(1)} {rd.unit} · +{rate.toFixed(1)}/T)
+                              ({stockAmt.toFixed(1)} {localizeResourceUnit(rd.unit, lang)} · +{rate.toFixed(1)}/T)
                             </span>
                           </span>
                           <div className="flex items-center gap-1.5">
                             <span className="font-mono text-[10px] text-amber-300">
-                              {effPct}% mag / {100 - effPct}% exp
+                              {t('bldg.magExpShort', { store: effPct, exp: 100 - effPct })}
                             </span>
                             {customVal !== undefined && onSetStockpileAllocation && (
                               <button
                                 type="button"
                                 onClick={() => onSetStockpileAllocation({ resource: rk, resourcePercent: null })}
                                 className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-600 text-[9px] text-slate-300"
-                                title="Przywróć globalny procent"
+                                title={t('bldg.resetGlobalTitle')}
                               >
-                                Globalny
+                                {t('bldg.resetGlobalBtn')}
                               </button>
                             )}
                           </div>
@@ -895,7 +900,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 </div>
               )}
               <div className="text-[10px] text-slate-400">
-                Nadwyżka po zapełnieniu magazynu ({warehouseSummary.totalCapacity} t) jest automatycznie eksportowana na rynek.
+                {t('bldg.whOverflowHint', { cap: warehouseSummary.totalCapacity })}
               </div>
             </div>
           </div>
@@ -906,23 +911,23 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           <div className="space-y-2.5 animate-fadeIn">
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5 text-xs">
               <div className="flex justify-between font-semibold">
-                <span className="text-slate-300">Przychód (na cykl)</span>
+                <span className="text-slate-300">{t('bldg.revenuePerTick')}</span>
                 <span className="font-mono text-emerald-400">+{formatMoney(building.revenue)}</span>
               </div>
               <div className="border-t border-[#1b2434] pt-1.5 space-y-1 text-slate-400">
-                <Row label="Surowce i wsad" val={-building.costs.inputs} />
-                <Row label="Płace brutto" val={-building.costs.wages} />
-                <Row label="Składki ZUS pracodawcy" val={-building.costs.zus} />
-                <Row label="Logistyka i transport" val={-building.costs.transport} />
-                <Row label="Prąd i woda sieciowa" val={-(building.costs.energy + building.costs.water)} />
-                <Row label="Utrzymanie i serwis" val={-building.costs.maintenance} />
+                <Row label={t('bldg.costInputs')} val={-building.costs.inputs} />
+                <Row label={t('bldg.costWages')} val={-building.costs.wages} />
+                <Row label={t('bldg.costZus')} val={-building.costs.zus} />
+                <Row label={t('bldg.costTransport')} val={-building.costs.transport} />
+                <Row label={t('bldg.costUtilities')} val={-(building.costs.energy + building.costs.water)} />
+                <Row label={t('bldg.costMaintenance')} val={-building.costs.maintenance} />
                 {building.costs.environmentalFine > 0 && (
-                  <Row label="Kary środowiskowe" val={-building.costs.environmentalFine} highlightRed />
+                  <Row label={t('bldg.costEnvFine')} val={-building.costs.environmentalFine} highlightRed />
                 )}
-                <Row label="Podatek CIT / Akcyza" val={-building.costs.taxes} />
+                <Row label={t('bldg.costTaxes')} val={-building.costs.taxes} />
               </div>
               <div className="border-t border-[#243044] pt-1.5 flex justify-between font-bold text-sm">
-                <span className="text-slate-100">Zysk Netto (na cykl)</span>
+                <span className="text-slate-100">{t('bldg.netProfitPerTick')}</span>
                 <span className={`font-mono ${building.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {building.netProfit >= 0 ? '+' : ''}
                   {formatMoney(building.netProfit)}
@@ -934,7 +939,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             {Object.keys(building.productionPerTick).length > 0 && (
               <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-300 font-medium">Wolumen Produkcji</span>
+                  <span className="text-slate-300 font-medium">{t('bldg.productionVolume')}</span>
                   {isMine && (
                     <button
                       type="button"
@@ -945,7 +950,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                           : 'bg-[#182130] border-[#2d3b52] text-slate-300'
                       }`}
                     >
-                      {building.stockpileOutput ? '📦 Magazynuj zapasy' : '💹 Sprzedawaj na giełdzie'}
+                      {building.stockpileOutput ? t('bldg.stockpileBtn') : t('bldg.sellSpotBtn')}
                     </button>
                   )}
                 </div>
@@ -960,10 +965,10 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                         key={res}
                         className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 font-mono"
                       >
-                        {rdef.emoji} +{amt} {rdef.unit}/T
+                        {rdef.emoji} +{amt} {localizeResourceUnit(rdef.unit, lang)}/T
                         {res !== 'electricity' && res !== 'water' && RESOURCE_DEFINITIONS[res as ResourceType]?.tradeable !== false && isMine && (
                           <span className="ml-1.5 text-[10px] text-amber-300">
-                            ({splitPct}% mag / {100 - splitPct}% exp)
+                            ({t('bldg.magExpShort', { store: splitPct, exp: 100 - splitPct })})
                           </span>
                         )}
                       </span>
@@ -977,6 +982,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             {(() => {
               const fuelSpec = getPowerPlantFuelSpec(building.type);
               if (!fuelSpec) return null;
+              const fuelLabel = localizeResourceName(fuelSpec.primaryResource, fuelSpec.label, lang);
               const fuelPct = Math.max(0, Math.min(100, building.fuelLevel ?? 0));
               const fuelStored = building.fuelStored ?? 0;
               const fuelMax = building.fuelMax ?? fuelSpec.maxStock;
@@ -991,20 +997,20 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               const canMarketImport = hasExternalMarketAccess(gameState, plot, currentPlayer.id);
               const srcLabel =
                 building.fuelSourceMode === 'mine'
-                  ? '🚛 Własna kopalnia / magazyn (0 zł marży)'
+                  ? t('bldg.fuelSrcMine')
                   : building.fuelSourceMode === 'b2b'
-                    ? '🚢 Kontrakt B2B'
+                    ? t('bldg.fuelSrcB2B')
                     : building.fuelSourceMode === 'market'
-                      ? '⚠️ Awaryjny import z rynku (+35% kosztów)'
-                      : '⏸️ Brak aktywnej dostawy w tym cyklu';
+                      ? t('bldg.fuelSrcMarket')
+                      : t('bldg.fuelSrcNone');
               return (
                 <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-amber-300">
-                      ⛽ Paliwo ({fuelSpec.label})
+                      {t('bldg.fuelTitle', { fuel: fuelLabel })}
                     </span>
                     <span className={`font-mono font-bold ${textColor}`}>
-                      {fuelSpec.label}: {fuelPct}% ({fuelStored.toFixed(1)}/{fuelMax})
+                      {fuelLabel}: {fuelPct}% ({fuelStored.toFixed(1)}/{fuelMax})
                     </span>
                   </div>
                   <div className="h-2 w-full bg-[#151c28] rounded-full overflow-hidden border border-[#243044]">
@@ -1014,14 +1020,14 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     />
                   </div>
                   <div className="text-[11px] text-slate-300 flex flex-wrap justify-between gap-1">
-                    <span>Źródło: {srcLabel}</span>
+                    <span>{t('bldg.fuelSourceLabel', { src: srcLabel })}</span>
                     <span className="font-mono text-slate-400">
-                      Zużycie: {fuelSpec.consumptionPerTick}/T
+                      {t('bldg.fuelUsage', { amt: fuelSpec.consumptionPerTick })}
                     </span>
                   </div>
                   {building.status.noFuel && (
                     <div className="p-1.5 rounded bg-rose-950/50 border border-rose-500/45 text-[11px] text-rose-200">
-                      ⛔ Zbiornik pusty (0 MW)! Połącz kopalnię drogą/mostem/portem, podpisz B2B lub włącz import awaryjny.
+                      {t('bldg.fuelEmptyBanner')}
                     </div>
                   )}
                   {isMine && onToggleEmergencyFuelImport && (
@@ -1029,11 +1035,11 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                       <DarkToggle
                         checked={Boolean(building.emergencyMarketImport)}
                         onChange={() => onToggleEmergencyFuelImport(building.id)}
-                        label="Awaryjny import z rynku (+35% kosztów)"
+                        label={t('bldg.fuelEmergencyToggle')}
                       />
                       {!canMarketImport && (
                         <div className="text-[10px] text-rose-300">
-                          ⚠️ Brak wyjścia lądowego (mostu) ani portu/lotniska do miasta — import z rynku zablokowany.
+                          {t('bldg.fuelNoMarketAccess')}
                         </div>
                       )}
                     </div>
@@ -1046,7 +1052,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             {isMine && !building.destroyedRuins && onToggleInsurance && (
               <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-sky-500/35 space-y-1.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-sky-300">🛡️ Polisa Ubezpieczeniowa</span>
+                  <span className="font-semibold text-sky-300">{t('bldg.insuranceTitle')}</span>
                   <button
                     type="button"
                     onClick={() => onToggleInsurance(building.id)}
@@ -1056,12 +1062,12 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                         : 'bg-slate-800 border-slate-600 text-slate-300'
                     }`}
                   >
-                    {building.insured ? 'Polisa: AKTYWNA' : 'Wykup Polisę'}
+                    {building.insured ? t('bldg.insuranceActive') : t('bldg.insuranceBuy')}
                   </button>
                 </div>
                 <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1">
-                  <span>Składka: {formatMoney(insurancePremium)} / cykl</span>
-                  <span>Wypłata szkody: 65% · Roszczenia: {building.insuranceClaimsCount ?? 0}</span>
+                  <span>{t('bldg.insurancePremium', { cost: formatMoney(insurancePremium) })}</span>
+                  <span>{t('bldg.insuranceClaims', { count: building.insuranceClaimsCount ?? 0 })}</span>
                 </div>
               </div>
             )}
@@ -1070,7 +1076,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             {isMine && (
               <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-200">🛠️ System Autonaprawy</span>
+                  <span className="font-semibold text-slate-200">{t('bldg.autoRepairTitle')}</span>
                   <button
                     type="button"
                     onClick={() =>
@@ -1086,13 +1092,13 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                         : 'bg-slate-800 border-slate-600 text-slate-400'
                     }`}
                   >
-                    {building.autoRepairEnabled ? 'Autonaprawa: WŁ' : 'Autonaprawa: WYŁ'}
+                    {building.autoRepairEnabled ? t('bldg.autoRepairOn') : t('bldg.autoRepairOff')}
                   </button>
                 </div>
 
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-slate-400">Próg zniszczenia do naprawy:</span>
+                    <span className="text-slate-400">{t('bldg.autoRepairThreshold')}</span>
                     <div className="flex items-center gap-1">
                       <DarkNumberInput
                         value={building.autoRepairThreshold}
@@ -1127,7 +1133,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 <DarkToggle
                   checked={setAsDefaultTpl}
                   onChange={setSetAsDefaultTpl}
-                  label="Ustaw jako domyślny dla nowych budynków"
+                  label={t('bldg.autoRepairSetDefault')}
                 />
 
                 <button
@@ -1141,7 +1147,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   }
                   className="w-full py-1.5 px-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-semibold text-[11px] transition-colors"
                 >
-                  📋 Zastosuj szablon do wszystkich struktur
+                  {t('bldg.autoRepairApplyAll')}
                 </button>
               </div>
             )}
@@ -1154,7 +1160,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   onClick={() => onRepair(building.id)}
                   className="flex-1 py-2 px-3 rounded-lg bg-[#182235] hover:bg-[#1f2d45] border border-sky-500/40 text-sky-300 text-xs font-semibold disabled:opacity-40"
                 >
-                  🔧 Remont ({formatMoney(repairCost)})
+                  {t('bldg.repairBtn', { cost: formatMoney(repairCost) })}
                 </button>
                 {!confirmDemolish ? (
                   <button
@@ -1162,7 +1168,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     onClick={() => setConfirmDemolish(true)}
                     className="py-2 px-3 rounded-lg bg-[#1c2434] hover:bg-rose-950/50 border border-[#334155] text-rose-300 text-xs font-medium"
                   >
-                    Wyburz
+                    {t('bldg.demolishBtn')}
                   </button>
                 ) : (
                   <button
@@ -1170,7 +1176,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     onClick={() => onDemolish(plot.id)}
                     className="py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold"
                   >
-                    Potwierdź
+                    {t('bldg.confirmBtn')}
                   </button>
                 )}
               </div>
@@ -1231,7 +1237,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   )}
                 </svg>
 
-                {building.techTree.map((node) => {
+                {building.techTree.map((rawNode) => {
+                  const node = translateBuildingTechNode(rawNode, lang);
                   const isSel = selectedTechNode?.id === node.id;
                   const st = node.status;
                   const isApex = Boolean(node.effects.isApex || node.tier === 4);
@@ -1262,16 +1269,16 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     >
                       <div className="flex items-center justify-between text-[9px] font-mono mb-0.5">
                         <span className={isApex ? 'text-amber-300 font-bold' : ''}>
-                          {isApex ? '★ EKSTRA · ' : ''}
+                          {isApex ? t('bldg.nodeFlagshipPrefix') : ''}
                           {st === 'done'
-                            ? 'GOTOWE'
+                            ? t('bldg.nodeDone')
                             : st === 'researching'
                               ? `${Math.round(node.progress)}%`
                               : st === 'excluded'
-                                ? 'WYKL.'
+                                ? t('bldg.nodeExcluded')
                                 : st === 'available'
-                                  ? 'DOSTĘPNE'
-                                  : 'BLOKADA'}
+                                  ? t('bldg.nodeAvail')
+                                  : t('bldg.nodeLocked')}
                         </span>
                         <span className="text-amber-300">{Math.round(node.cost / 1000)}k</span>
                       </div>
@@ -1302,15 +1309,13 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 </div>
 
                 {selectedTechNode.exclusiveWith && selectedTechNode.exclusiveWith.length > 0 && (
-                  <div className="text-[11px] text-rose-300">
-                    ⚠️ Wybór tej ścieżki trwale wyklucza alternatywny moduł na tym poziomie!
-                  </div>
+                  <div className="text-[11px] text-rose-300">{t('bldg.exclusiveWarn')}</div>
                 )}
 
                 {selectedReqEval.items.length > 0 && (
                   <div className="p-2 rounded bg-[#111827] border border-[#1e293b] space-y-1">
                     <div className="text-[10px] font-semibold uppercase text-slate-400">
-                      Wymagania Wdrożenia
+                      {t('bldg.reqHeader')}
                     </div>
                     {selectedReqEval.items.map((item) => (
                       <div key={item.id} className="flex items-start justify-between gap-2 text-[11px]">
@@ -1333,7 +1338,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                             disabled={currentPlayer.cash < item.missingResource.spotCost}
                             className="px-1.5 py-0.5 rounded bg-sky-600/25 hover:bg-sky-600/40 border border-sky-400/40 text-sky-200 text-[10px] shrink-0 disabled:opacity-40"
                           >
-                            +Kup ({formatMoney(item.missingResource.spotCost)})
+                            {t('bldg.spotBuyBtn', { cost: formatMoney(item.missingResource.spotCost) })}
                           </button>
                         )}
                       </div>
@@ -1344,7 +1349,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 {selectedTechNode.status === 'researching' && (
                   <div>
                     <div className="flex justify-between text-[10px] font-mono text-sky-300 mb-1">
-                      <span>Wdrażanie w obiekcie...</span>
+                      <span>{t('bldg.researchingLabel')}</span>
                       <span>{Math.round(selectedTechNode.progress)}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
@@ -1367,7 +1372,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     onClick={() => onResearchTech(building.id, selectedTechNode.id)}
                     className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold disabled:opacity-40 transition-colors"
                   >
-                    Wdróż Moduł ({selectedTechNode.researchTicks} cykli)
+                    {t('bldg.deployNodeBtn', { ticks: selectedTechNode.researchTicks })}
                   </button>
                 )}
               </div>
@@ -1380,7 +1385,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           <div className="space-y-3 text-xs animate-fadeIn">
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-slate-300 font-medium">Zatrudnienie (Etaty)</span>
+                <span className="text-slate-300 font-medium">{t('bldg.hrEmployment')}</span>
                 <span className="font-mono text-sm font-bold text-slate-100">
                   {building.workers} / {building.maxWorkers}
                 </span>
@@ -1393,7 +1398,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     disabled={building.workers <= 0}
                     className="flex-1 py-1.5 rounded bg-[#182130] hover:bg-rose-950/50 border border-[#2d3b52] text-rose-300 disabled:opacity-40"
                   >
-                    −2 Etaty (Odprawa)
+                    {t('bldg.hrFire2')}
                   </button>
                   <button
                     type="button"
@@ -1401,7 +1406,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     disabled={building.workers >= building.maxWorkers}
                     className="flex-1 py-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/40 text-emerald-300 font-semibold disabled:opacity-40"
                   >
-                    +2 Etaty (Rekrutacja)
+                    {t('bldg.hrHire2')}
                   </button>
                 </div>
               )}
@@ -1409,7 +1414,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
 
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-slate-300 font-medium">Wykształcenie i Kursy Załogi</span>
+                <span className="text-slate-300 font-medium">{t('bldg.hrSkillHeader')}</span>
                 <span className="font-mono font-bold text-sky-300">{building.workerSkill}%</span>
               </div>
               <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
@@ -1418,9 +1423,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   style={{ width: `${building.workerSkill}%` }}
                 />
               </div>
-              <p className="text-[11px] text-slate-400">
-                Szkolenia odblokowują zaawansowane moduły w drzewku budynku oraz podnoszą wydajność bez dokładania składek ZUS!
-              </p>
+              <p className="text-[11px] text-slate-400">{t('bldg.hrSkillDesc')}</p>
               {isMine && (
                 <button
                   type="button"
@@ -1432,22 +1435,22 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   }
                   className="w-full py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold disabled:opacity-40"
                 >
-                  🎓 Wyślij Kadrę na Kurs (+12% · {formatMoney(trainingCost)})
+                  {t('bldg.hrTrainBtn', { cost: formatMoney(trainingCost) })}
                 </button>
               )}
             </div>
 
             <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1">
               <div className="font-semibold text-slate-200 mb-1">
-                Kalkulacja ZUS i Narzutów ({zusDetails.totalEmployerRate.toFixed(1)}%)
+                {t('bldg.zusTitle', { rate: zusDetails.totalEmployerRate.toFixed(1) })}
               </div>
-              <Row label="Składka emerytalna (9,76%)" val={-zusDetails.emerytalna} />
-              <Row label="Składka rentowa (6,50%)" val={-zusDetails.rentowa} />
-              <Row label="Składka wypadkowa (1,67%)" val={-zusDetails.wypadkowa} />
-              <Row label="Fundusz Pracy i FGŚP (2,55%)" val={-(zusDetails.fp + zusDetails.fgsp)} />
+              <Row label={t('bldg.zusPension')} val={-zusDetails.emerytalna} />
+              <Row label={t('bldg.zusDisability')} val={-zusDetails.rentowa} />
+              <Row label={t('bldg.zusAccident')} val={-zusDetails.wypadkowa} />
+              <Row label={t('bldg.zusLaborFund')} val={-(zusDetails.fp + zusDetails.fgsp)} />
               <div className="border-t border-[#1b2434] pt-1 flex justify-between font-semibold text-amber-300">
-                <span>Niedobór kadr na rynku:</span>
-                <span className="font-mono">{gameState.laborShortageIndex}% presji płacowej</span>
+                <span>{t('bldg.laborShortageLabel')}</span>
+                <span className="font-mono">{t('bldg.wagePressureVal', { pct: gameState.laborShortageIndex })}</span>
               </div>
             </div>
           </div>
@@ -1458,7 +1461,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
           <div className="space-y-3 text-xs animate-fadeIn">
             {isMine && rivals.length > 0 && (
               <div className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
-                <div className="font-semibold text-slate-200">Nowa Umowa B2B (Bez prowizji giełdy)</div>
+                <div className="font-semibold text-slate-200">{t('bldg.b2bNewTitle')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={partnerId}
@@ -1476,8 +1479,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     onChange={(e) => setIsSelling(e.target.value === 'sell')}
                     className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-1.5 text-slate-100"
                   >
-                    <option value="sell">Sprzedaję partnerowi</option>
-                    <option value="buy">Kupuję od partnera</option>
+                    <option value="sell">{t('bldg.b2bSellTo')}</option>
+                    <option value="buy">{t('bldg.b2bBuyFrom')}</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -1492,7 +1495,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   >
                     {Object.values(RESOURCE_DEFINITIONS).map((rd) => (
                       <option key={rd.type} value={rd.type}>
-                        {rd.name}
+                        {localizeResourceName(rd.type, rd.name, lang)}
                       </option>
                     ))}
                   </select>
@@ -1511,7 +1514,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-400">Czas trwania (cykle):</span>
+                  <span className="text-slate-400">{t('bldg.b2bDuration')}</span>
                   <DarkNumberInput
                     value={contractDuration}
                     onChange={setContractDuration}
@@ -1535,7 +1538,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   }
                   className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                 >
-                  🤝 Zaproponuj Kontrakt B2B
+                  {t('bldg.b2bProposeBtn')}
                 </button>
               </div>
             )}
@@ -1548,7 +1551,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                   : c.proposerId !== currentPlayer.id && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id))
             ) && (
               <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/40 space-y-1.5">
-                <div className="font-semibold text-amber-300">Oczekujące Oferty B2B do Zatwierdzenia</div>
+                <div className="font-semibold text-amber-300">{t('bldg.b2bPendingTitle')}</div>
                 {gameState.contracts
                   .filter(
                     (c) =>
@@ -1561,7 +1564,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     <div key={c.id} className="p-2 rounded bg-[#151c28] flex justify-between items-center gap-2">
                       <div>
                         <div className="text-slate-100 font-medium">
-                          {RESOURCE_DEFINITIONS[c.resource].emoji} {RESOURCE_DEFINITIONS[c.resource].name} · {c.quantityPerTick}/T
+                          {RESOURCE_DEFINITIONS[c.resource].emoji}{' '}
+                          {localizeResourceName(c.resource, RESOURCE_DEFINITIONS[c.resource].name, lang)} · {c.quantityPerTick}/T
                         </div>
                         <div className="text-[11px] text-slate-400">
                           {c.sellerName} → {c.buyerName} · {formatMoney(c.pricePerUnit)}
@@ -1602,11 +1606,11 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             )}
 
             <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5">
-              <div className="font-semibold text-slate-300">Aktywne Kontrakty Konglomeratu</div>
+              <div className="font-semibold text-slate-300">{t('bldg.b2bActiveTitle')}</div>
               {gameState.contracts.filter(
                 (c) => c.status === 'active' && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id)
               ).length === 0 ? (
-                <div className="text-slate-500">Brak aktywnych umów B2B.</div>
+                <div className="text-slate-500">{t('bldg.b2bNone')}</div>
               ) : (
                 gameState.contracts
                   .filter(
@@ -1616,7 +1620,8 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                     <div key={c.id} className="p-2 rounded bg-[#151c28] flex justify-between items-center">
                       <div>
                         <div className="text-slate-100 font-medium">
-                          {RESOURCE_DEFINITIONS[c.resource].emoji} {RESOURCE_DEFINITIONS[c.resource].name} · {c.quantityPerTick}/T
+                          {RESOURCE_DEFINITIONS[c.resource].emoji}{' '}
+                          {localizeResourceName(c.resource, RESOURCE_DEFINITIONS[c.resource].name, lang)} · {c.quantityPerTick}/T
                         </div>
                         <div className="text-[11px] text-slate-400">
                           {c.sellerName} → {c.buyerName}

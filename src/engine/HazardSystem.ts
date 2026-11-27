@@ -1,5 +1,6 @@
 import { SERVICE_VEHICLE_COST } from '../config/gameConfig';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import { handleBuildingDestructionInsurance } from './BuildingSystem';
 import { getPlayerGlobalTechModifiers } from './EconomyEngine';
 import { recalculateSpatialNetwork } from './PlotSystem';
@@ -72,13 +73,19 @@ export function buyServiceVehicleForPlayer(
   building: Building,
   player: Player
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (
     building.type !== 'fireStation' &&
     building.type !== 'hazmatBase' &&
     building.type !== 'hospital' &&
     building.type !== 'policeStation'
   ) {
-    return { ok: false, error: 'Ten obiekt nie utrzymuje floty pojazdów służb.' };
+    return {
+      ok: false,
+      error: en
+        ? 'This facility does not maintain an emergency vehicle fleet.'
+        : 'Ten obiekt nie utrzymuje floty pojazdów służb.',
+    };
   }
   const kind: EmergencyServiceKind =
     building.type === 'fireStation'
@@ -94,14 +101,18 @@ export function buyServiceVehicleForPlayer(
   if (cur >= cap) {
     return {
       ok: false,
-      error: `Osiągnięto limit garaży (${cur}/${cap}). Rozbuduj garaże w drzewku budynku!`,
+      error: en
+        ? `Garage capacity reached (${cur}/${cap}). Expand garages in the building tech tree!`
+        : `Osiągnięto limit garaży (${cur}/${cap}). Rozbuduj garaże w drzewku budynku!`,
     };
   }
   const cost = SERVICE_VEHICLE_COST[kind];
   if (player.cash < cost) {
     return {
       ok: false,
-      error: `Brak gotówki na zakup pojazdu (${cost.toLocaleString('pl-PL')} zł).`,
+      error: en
+        ? `Insufficient cash to purchase vehicle (${formatMoney(cost)}).`
+        : `Brak gotówki na zakup pojazdu (${formatMoney(cost)}).`,
     };
   }
   player.cash -= cost;

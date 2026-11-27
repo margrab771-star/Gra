@@ -1,4 +1,5 @@
 import type { DifficultyPreset, PvPDivisionId, ScenarioId } from '../engine/types';
+import { getCurrentLanguage } from '../i18n';
 
 export interface PublicLobbyListing {
   roomCode: string;
@@ -186,7 +187,7 @@ export async function fetchActivePublicLobbies(): Promise<{
     const rows = (await res.json()) as Array<Record<string, unknown>>;
     const remote: PublicLobbyListing[] = rows.map((r) => ({
       roomCode: String(r.room_code ?? ''),
-      roomName: String(r.room_name ?? 'Pokój Publiczny'),
+      roomName: String(r.room_name ?? (getCurrentLanguage() === 'en' ? 'Public Room' : 'Pokój Publiczny')),
       hostName: String(r.host_name ?? 'Host'),
       hostDivision: (String(r.host_division ?? 'startup') as PvPDivisionId),
       hostPrestige: Number(r.host_prestige ?? 0),

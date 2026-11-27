@@ -1,4 +1,5 @@
 import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { hasActiveEmbargo } from './CoalitionSystem';
@@ -40,21 +41,40 @@ export function proposeB2BContract(
   isSelling: boolean,
   opts: ProposeContractOptions = {}
 ): { ok: boolean; contract?: B2BContract; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const resDef = RESOURCE_DEFINITIONS[resource];
   if (!resDef || resDef.tradeable === false) {
-    return { ok: false, error: 'Tego medium/odpadu nie można obracać na giełdzie B2B.' };
+    return {
+      ok: false,
+      error: en
+        ? 'This utility/waste stream cannot be traded on the B2B exchange.'
+        : 'Tego medium/odpadu nie można obracać na giełdzie B2B.',
+    };
   }
 
   const kind = opts.kind ?? 'recurring';
   const effectiveDuration = kind === 'spot' ? 1 : durationTicks;
   if (quantityPerTick <= 0 || effectiveDuration <= 0) {
-    return { ok: false, error: 'Ilość i czas trwania kontraktu muszą być dodatnie.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Quantity and contract duration must be positive.'
+        : 'Ilość i czas trwania kontraktu muszą być dodatnie.',
+    };
   }
   if (kind !== 'barter' && pricePerUnit <= 0) {
-    return { ok: false, error: 'Cena jednostkowa musi być dodatnia.' };
+    return {
+      ok: false,
+      error: en ? 'Unit price must be positive.' : 'Cena jednostkowa musi być dodatnia.',
+    };
   }
   if (kind === 'barter' && (!opts.barterResource || (opts.barterQtyPerTick ?? 0) <= 0)) {
-    return { ok: false, error: 'Dla wymiany barterowej wybierz drugi surowiec oraz ilość.' };
+    return {
+      ok: false,
+      error: en
+        ? 'For barter trade, choose a second resource and quantity.'
+        : 'Dla wymiany barterowej wybierz drugi surowiec oraz ilość.',
+    };
   }
 
   const isOpenListing = Boolean(opts.openListing || partnerId === 'OPEN');
@@ -64,8 +84,8 @@ export function proposeB2BContract(
       id: `ctr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       sellerId: isSelling ? proposer.id : '',
       buyerId: isSelling ? '' : proposer.id,
-      sellerName: isSelling ? proposer.companyName : 'Otwarte zlecenie kupna',
-      buyerName: isSelling ? 'Otwarta oferta sprzedaży' : proposer.companyName,
+      sellerName: isSelling ? proposer.companyName : en ? 'Open buy order' : 'Otwarte zlecenie kupna',
+      buyerName: isSelling ? (en ? 'Open sell offer' : 'Otwarta oferta sprzedaży') : proposer.companyName,
       proposerId: proposer.id,
       createdTick: state.time.tick,
       resource,
@@ -86,10 +106,18 @@ export function proposeB2BContract(
 
   const partner = state.players.find((p) => p.id === partnerId);
   if (!partner || partner.id === proposer.id) {
-    return { ok: false, error: 'Wybierz poprawnego partnera biznesowego.' };
+    return {
+      ok: false,
+      error: en ? 'Select a valid business partner.' : 'Wybierz poprawnego partnera biznesowego.',
+    };
   }
   if (hasActiveEmbargo(state, proposer.id, partner.id)) {
-    return { ok: false, error: 'Aktywne embargo handlowe uniemożliwia zawarcie kontraktu z tą firmą.' };
+    return {
+      ok: false,
+      error: en
+        ? 'An active trade embargo blocks contracts with this company.'
+        : 'Aktywne embargo handlowe uniemożliwia zawarcie kontraktu z tą firmą.',
+    };
   }
 
   const seller = isSelling ? proposer : partner;
@@ -137,7 +165,9 @@ export function proposeB2BContract(
         ok: false,
         error:
           contract.blockedReason ??
-          'Partner lub nadawca nie posiada jeszcze wymaganego zapasu/gotówki na transakcję spot.',
+          (en
+            ? 'Partner or sender lacks the required stock/cash for this spot trade.'
+            : 'Partner lub nadawca nie posiada jeszcze wymaganego zapasu/gotówki na transakcję spot.'),
       };
     }
     contract.status = 'completed';
@@ -233,13 +263,22 @@ export function acceptB2BContract(
   const c = state.contracts.find((ct) => ct.id === contractId);
   if (!c) return { ok: false, error: 'Nie znaleziono kontraktu.' };
 
+  const en = getCurrentLanguage() === 'en';
   if (c.status === 'open_listing') {
     const ownerId = c.listingSide === 'sell' ? c.sellerId : c.buyerId;
     if (ownerId === player.id) {
-      return { ok: false, error: 'Nie możesz przyjąć własnej oferty giełdowej.' };
+      return {
+        ok: false,
+        error: en ? 'You cannot accept your own market listing.' : 'Nie możesz przyjąć własnej oferty giełdowej.',
+      };
     }
     if (hasActiveEmbargo(state, ownerId, player.id)) {
-      return { ok: false, error: 'Aktywne embargo blokuje wymianę z wystawcą oferty.' };
+      return {
+        ok: false,
+        error: en
+          ? 'An active trade embargo blocks deals with this issuer.'
+          : 'Aktywne embargo blokuje wymianę z wystawcą oferty.',
+      };
     }
     if (c.listingSide === 'sell') {
       c.buyerId = player.id;
@@ -251,16 +290,29 @@ export function acceptB2BContract(
     c.status = 'active';
   } else {
     if (c.status !== 'pending' && c.status !== 'proposed') {
-      return { ok: false, error: 'Kontrakt nie oczekuje na akceptację.' };
+      return {
+        ok: false,
+        error: en ? 'Contract is not awaiting approval.' : 'Kontrakt nie oczekuje na akceptację.',
+      };
     }
     if (c.sellerId !== player.id && c.buyerId !== player.id) {
-      return { ok: false, error: 'Ten kontrakt Cię nie dotyczy.' };
+      return { ok: false, error: en ? 'This contract does not involve you.' : 'Ten kontrakt Cię nie dotyczy.' };
     }
     if (c.proposerId === player.id || (c.responderId && c.responderId !== player.id)) {
-      return { ok: false, error: 'Tylko odbiorca oferty może zatwierdzić tę umowę B2B.' };
+      return {
+        ok: false,
+        error: en
+          ? 'Only the receiving party can approve this B2B offer.'
+          : 'Tylko odbiorca oferty może zatwierdzić tę umowę B2B.',
+      };
     }
     if (hasActiveEmbargo(state, c.sellerId, c.buyerId)) {
-      return { ok: false, error: 'Aktywne embargo blokuje aktywację tej umowy.' };
+      return {
+        ok: false,
+        error: en
+          ? 'An active embargo blocks activating this contract.'
+          : 'Aktywne embargo blokuje aktywację tej umowy.',
+      };
     }
     c.status = 'active';
   }
@@ -268,13 +320,17 @@ export function acceptB2BContract(
   if (c.kind === 'spot') {
     const seller = state.players.find((p) => p.id === c.sellerId);
     const buyer = state.players.find((p) => p.id === c.buyerId);
-    if (!seller || !buyer) return { ok: false, error: 'Brak strony kontraktu.' };
+    if (!seller || !buyer) return { ok: false, error: en ? 'Missing contract party.' : 'Brak strony kontraktu.' };
     const settlement = executeContractSettlement(state, c, seller, buyer);
     if (!settlement.settled) {
       c.status = 'cancelled';
       return {
         ok: false,
-        error: c.blockedReason ?? 'Nie udało się rozliczyć kontraktu spot (brak zapasu, gotówki lub trasy).',
+        error:
+          c.blockedReason ??
+          (en
+            ? 'Could not settle spot contract (insufficient stock, cash, or route).'
+            : 'Nie udało się rozliczyć kontraktu spot (brak zapasu, gotówki lub trasy).'),
       };
     }
     c.remainingTicks = 0;
@@ -299,16 +355,23 @@ export function rejectB2BContract(
   player: Player,
   contractId: string
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const c = state.contracts.find((ct) => ct.id === contractId);
-  if (!c) return { ok: false, error: 'Nie znaleziono oferty kontraktu.' };
+  if (!c) return { ok: false, error: en ? 'Contract offer not found.' : 'Nie znaleziono oferty kontraktu.' };
   if (c.status !== 'pending' && c.status !== 'proposed') {
-    return { ok: false, error: 'Ta oferta nie oczekuje już na odpowiedź.' };
+    return {
+      ok: false,
+      error: en ? 'This offer is no longer awaiting a response.' : 'Ta oferta nie oczekuje już na odpowiedź.',
+    };
   }
   if (c.sellerId !== player.id && c.buyerId !== player.id) {
-    return { ok: false, error: 'Brak uprawnień do odrzucenia oferty.' };
+    return { ok: false, error: en ? 'Not authorized to reject this offer.' : 'Brak uprawnień do odrzucenia oferty.' };
   }
   if (c.proposerId === player.id) {
-    return { ok: false, error: 'Własną ofertę możesz anulować, a nie odrzucić.' };
+    return {
+      ok: false,
+      error: en ? 'You can cancel your own offer, not reject it.' : 'Własną ofertę możesz anulować, a nie odrzucić.',
+    };
   }
   c.status = 'rejected';
   return { ok: true };
@@ -319,10 +382,11 @@ export function cancelB2BContract(
   player: Player,
   contractId: string
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   const c = state.contracts.find((ct) => ct.id === contractId);
-  if (!c) return { ok: false, error: 'Nie znaleziono kontraktu.' };
+  if (!c) return { ok: false, error: en ? 'Contract not found.' : 'Nie znaleziono kontraktu.' };
   if (c.sellerId !== player.id && c.buyerId !== player.id) {
-    return { ok: false, error: 'Brak uprawnień do zerwania umowy.' };
+    return { ok: false, error: en ? 'Not authorized to cancel this contract.' : 'Brak uprawnień do zerwania umowy.' };
   }
   if (c.status === 'active' && c.kind !== 'spot') {
     const penalty = Math.round(c.quantityPerTick * Math.max(100, c.pricePerUnit) * 2.5);
@@ -339,16 +403,23 @@ export function executeCashTransferB2B(
   amount: number,
   note?: string
 ): { ok: boolean; error?: string; record?: CashTransferRecord } {
+  const en = getCurrentLanguage() === 'en';
   const recipient = state.players.find((p) => p.id === recipientId && !p.isEliminated);
   if (!recipient || recipient.id === sender.id) {
-    return { ok: false, error: 'Wybierz aktywnego odbiorcę przelewu.' };
+    return {
+      ok: false,
+      error: en ? 'Select an active transfer recipient.' : 'Wybierz aktywnego odbiorcę przelewu.',
+    };
   }
   const cleanAmount = Math.round(amount);
   if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
-    return { ok: false, error: 'Kwota przelewu musi być dodatnia.' };
+    return { ok: false, error: en ? 'Transfer amount must be positive.' : 'Kwota przelewu musi być dodatnia.' };
   }
   if (sender.cash < cleanAmount) {
-    return { ok: false, error: 'Niewystarczająca gotówka na wykonanie przelewu.' };
+    return {
+      ok: false,
+      error: en ? 'Insufficient cash to complete this transfer.' : 'Niewystarczająca gotówka na wykonanie przelewu.',
+    };
   }
 
   sender.cash -= cleanAmount;
@@ -383,16 +454,21 @@ function executeContractSettlement(
   fromPlotId: string;
   mode: 'road' | 'sea' | 'air';
 } {
+  const en = getCurrentLanguage() === 'en';
   if (hasActiveEmbargo(state, seller.id, buyer.id)) {
     c.transportMode = 'blocked';
-    c.blockedReason = 'Aktywne embargo handlowe.';
+    c.blockedReason = en ? 'Active trade embargo.' : 'Aktywne embargo handlowe.';
     return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
   }
 
   const route = getCargoTransportModeBetweenPlayers(state, seller.id, buyer.id, c.resource);
   if (!route.reachable || route.mode === 'blocked') {
     c.transportMode = 'blocked';
-    c.blockedReason = route.reason ?? 'Woda odcina połączenie — zbuduj Most Drogowy, Port lub Lotnisko Cargo.';
+    c.blockedReason =
+      route.reason ??
+      (en
+        ? 'Water severs the link — build a Road Bridge, Freight Port, or Cargo Airport.'
+        : 'Woda odcina połączenie — zbuduj Most Drogowy, Port lub Lotnisko Cargo.');
     return { settled: false, qty: 0, arrivalPlotId: '', fromPlotId: '', mode: 'road' };
   }
 

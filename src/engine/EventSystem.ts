@@ -2,7 +2,9 @@ import { DIFFICULTY_PRESETS, GOVERNMENT_CONFIGS } from '../config/gameConfig';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { EVENT_TEMPLATES } from '../data/events';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { localizeGovernment, localizeResourceName } from '../i18n/dataTranslations';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import { recalculateSpatialNetwork } from './PlotSystem';
 import type {
   ActiveBreakthroughState,
@@ -636,12 +638,19 @@ export function submitTenderDelivery(
   player: Player,
   tenderId: string
 ): { ok: boolean; error?: string; completed?: boolean } {
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const t = (state.tenders ?? []).find((tn) => tn.id === tenderId);
   if (!t || t.status !== 'open') {
-    return { ok: false, error: 'Ten przetarg nie jest już aktywny.' };
+    return { ok: false, error: en ? 'This tender is no longer active.' : 'Ten przetarg nie jest już aktywny.' };
   }
   if (t.kind === 'clean_energy') {
-    return { ok: false, error: 'Przetarg OZE rozstrzyga się automatycznie według mocy MW w terminie zamknięcia.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Clean-energy tenders settle automatically by MW output at the deadline.'
+        : 'Przetarg OZE rozstrzyga się automatycznie według mocy MW w terminie zamknięcia.',
+    };
   }
 
   const playerProg = t.deliveredByPlayer[player.id] ?? {};
@@ -666,9 +675,18 @@ export function submitTenderDelivery(
   t.deliveredByPlayer[player.id] = playerProg;
   if (!deliveredAnything) {
     const missingSummary = Object.entries(t.requirements)
-      .map(([r, req]) => `${RESOURCE_DEFINITIONS[r as ResourceType]?.name ?? r}: ${(playerProg[r as ResourceType] ?? 0).toFixed(0)}/${req}`)
+      .map(([r, req]) => {
+        const res = r as ResourceType;
+        const rName = localizeResourceName(res, RESOURCE_DEFINITIONS[res]?.name ?? r, lang);
+        return `${rName}: ${(playerProg[res] ?? 0).toFixed(0)}/${req}`;
+      })
       .join(', ');
-    return { ok: false, error: `Brak potrzebnych zapasów w magazynie głównym (${missingSummary}).` };
+    return {
+      ok: false,
+      error: en
+        ? `Insufficient stock in warehouse (${missingSummary}).`
+        : `Brak potrzebnych zapasów w magazynie głównym (${missingSummary}).`,
+    };
   }
 
   const allMet = Object.entries(t.requirements).every(
@@ -750,27 +768,42 @@ export function lobbyGovernmentElection(
       lobbyVotes: { free_market: 1, ecological: 1, interventionist: 1 },
     };
   }
+  const lang = getCurrentLanguage();
+  const en = lang === 'en';
   const cashCost = 220_000;
   const infCost = 18;
   if (useInfluence) {
     const totalInf = player.influence.financial + player.influence.social;
     if (totalInf < infCost) {
-      return { ok: false, message: `Lobbing polityczny wymaga min. ${infCost} pkt wpływów.` };
+      return {
+        ok: false,
+        message: en
+          ? `Political lobbying requires at least ${infCost} influence pts.`
+          : `Lobbing polityczny wymaga min. ${infCost} pkt wpływów.`,
+      };
     }
     player.influence.financial = Math.max(0, player.influence.financial - Math.ceil(infCost * 0.5));
     player.influence.social = Math.max(0, player.influence.social - Math.floor(infCost * 0.5));
   } else {
     if (player.cash < cashCost) {
-      return { ok: false, message: `Kampania lobbingowa wymaga ${cashCost.toLocaleString('pl-PL')} zł.` };
+      return {
+        ok: false,
+        message: en
+          ? `Lobbying campaign costs ${formatMoney(cashCost)}.`
+          : `Kampania lobbingowa wymaga ${formatMoney(cashCost)}.`,
+      };
     }
     player.cash -= cashCost;
   }
 
   state.government.lobbyVotes[govKind] = (state.government.lobbyVotes[govKind] ?? 0) + 3;
-  const cfg = GOVERNMENT_CONFIGS[govKind];
+  const rawCfg = GOVERNMENT_CONFIGS[govKind];
+  const cfg = localizeGovernment({ id: govKind, name: rawCfg.name, summary: rawCfg.summary }, lang);
   return {
     ok: true,
-    message: `Zasilono kampanię ugrupowania ${cfg.name} (+3 głosy poparcia do najbliższych wyborów)!`,
+    message: en
+      ? `Backed ${cfg.name} campaign (+3 election votes toward next term)!`
+      : `Zasilono kampanię ugrupowania ${cfg.name} (+3 głosy poparcia do najbliższych wyborów)!`,
   };
 }
 
@@ -916,23 +949,35 @@ export function placeLiveAuctionBid(
   auctionId: string,
   bidAmount: number
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   const auc = state.liveAuction;
   if (!auc || auc.id !== auctionId || auc.status !== 'active') {
-    return { ok: false, message: 'Licytacja wygasła lub nie jest już aktywna.' };
+    return {
+      ok: false,
+      message: en ? 'Auction has expired or is no longer active.' : 'Licytacja wygasła lub nie jest już aktywna.',
+    };
   }
   if (auc.highestBidderId === player.id) {
-    return { ok: false, message: 'Twoja oferta jest obecnie najwyższa!' };
+    return {
+      ok: false,
+      message: en ? 'Your bid is currently the highest!' : 'Twoja oferta jest obecnie najwyższa!',
+    };
   }
   const minRequired = auc.bidsCount === 0 ? auc.startingBid : auc.currentBid + auc.minIncrement;
   const cleanBid = Math.round(Math.max(bidAmount, minRequired));
   if (cleanBid < minRequired) {
     return {
       ok: false,
-      message: `Minimalne przebicie wynosi ${minRequired.toLocaleString('pl-PL')} zł.`,
+      message: en
+        ? `Minimum bid is ${formatMoney(minRequired)}.`
+        : `Minimalne przebicie wynosi ${formatMoney(minRequired)}.`,
     };
   }
   if (player.cash < cleanBid) {
-    return { ok: false, message: `Brak środków w gotówce (${cleanBid.toLocaleString('pl-PL')} zł).` };
+    return {
+      ok: false,
+      message: en ? `Insufficient cash (${formatMoney(cleanBid)}).` : `Brak środków w gotówce (${formatMoney(cleanBid)}).`,
+    };
   }
 
   auc.currentBid = cleanBid;
@@ -944,6 +989,8 @@ export function placeLiveAuctionBid(
   auc.secondsRemaining = Math.max(auc.secondsRemaining, 8);
   return {
     ok: true,
-    message: `Prowadzisz w licytacji ofertą ${cleanBid.toLocaleString('pl-PL')} zł!`,
+    message: en
+      ? `You lead the auction with ${formatMoney(cleanBid)}!`
+      : `Prowadzisz w licytacji ofertą ${formatMoney(cleanBid)}!`,
   };
 }

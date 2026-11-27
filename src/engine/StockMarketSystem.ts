@@ -1,5 +1,6 @@
 import { getArchetypeDefinition } from '../data/archetypes';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { formatCompactMoney, formatGameDate, formatMoney } from '../utils/formatters';
 import { getResourcePrice } from './EconomyEngine';
 import type { CorporateStock, GameState, Player } from './types';
 
@@ -51,14 +52,23 @@ export function tradeCorporateStock(
   targetCompanyId: string,
   shareDeltaPercent: number
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   syncCorporateStocks(state);
   const stock = state.stocks.find((s) => s.companyId === targetCompanyId);
   const targetPlayer = state.players.find((p) => p.id === targetCompanyId);
   if (!stock || !targetPlayer) {
-    return { ok: false, message: 'Nie znaleziono wybranej spółki na giełdzie.' };
+    return {
+      ok: false,
+      message: en ? 'Target company not found on the stock exchange.' : 'Nie znaleziono wybranej spółki na giełdzie.',
+    };
   }
   if (targetCompanyId === buyer.id) {
-    return { ok: false, message: 'Własny pakiet kontrolny posiadasz automatycznie na starcie.' };
+    return {
+      ok: false,
+      message: en
+        ? 'You automatically hold your own controlling stake at match start.'
+        : 'Własny pakiet kontrolny posiadasz automatycznie na starcie.',
+    };
   }
 
   const currentStake = stock.holdings[buyer.id] ?? 0;
@@ -68,13 +78,20 @@ export function tradeCorporateStock(
   if (shareDeltaPercent > 0) {
     const buyPct = Math.min(shareDeltaPercent, issuerStake);
     if (buyPct <= 0) {
-      return { ok: false, message: 'Właściciel wyczerpał pulę wolnych udziałów na sprzedaż.' };
+      return {
+        ok: false,
+        message: en
+          ? 'The owner has no remaining float shares available to sell.'
+          : 'Właściciel wyczerpał pulę wolnych udziałów na sprzedaż.',
+      };
     }
     const cost = Math.round(buyPct * stock.sharePrice * 450);
     if (buyer.cash < cost) {
       return {
         ok: false,
-        message: `Brak środków na zakup ${buyPct}% akcji (${cost.toLocaleString('pl-PL')} zł).`,
+        message: en
+          ? `Insufficient cash to buy ${buyPct}% shares (${formatMoney(cost)}).`
+          : `Brak środków na zakup ${buyPct}% akcji (${formatMoney(cost)}).`,
       };
     }
 
@@ -95,14 +112,19 @@ export function tradeCorporateStock(
 
     return {
       ok: true,
-      message: `Kupiono ${buyPct}% akcji ${targetPlayer.companyName} za ${cost.toLocaleString('pl-PL')} zł (prowizja 4%).`,
+      message: en
+        ? `Bought ${buyPct}% of ${targetPlayer.companyName} for ${formatMoney(cost)} (4% brokerage fee).`
+        : `Kupiono ${buyPct}% akcji ${targetPlayer.companyName} za ${formatMoney(cost)} (prowizja 4%).`,
     };
   }
 
   // Sprzedaż posiadanych akcji (-5% lub -10%): wykup wyłącznie z rezerwy giełdowej i realnej gotówki emitenta
   const requestedSell = Math.min(Math.abs(shareDeltaPercent), currentStake);
   if (requestedSell <= 0) {
-    return { ok: false, message: 'Nie posiadasz udziałów tej firmy do sprzedaży.' };
+    return {
+      ok: false,
+      message: en ? 'You hold no shares in this company to sell.' : 'Nie posiadasz udziałów tej firmy do sprzedaży.',
+    };
   }
 
   const pricePerPct = Math.max(1, stock.sharePrice * 425);
@@ -114,7 +136,9 @@ export function tradeCorporateStock(
   if (sellPct <= 0) {
     return {
       ok: false,
-      message: `${targetPlayer.companyName} nie posiada obecnie płynnej gotówki na odkup udziałów (rezerwa: ${availReserve.toLocaleString('pl-PL')} zł).`,
+      message: en
+        ? `${targetPlayer.companyName} currently lacks liquidity for share buyback (reserve: ${formatMoney(availReserve)}).`
+        : `${targetPlayer.companyName} nie posiada obecnie płynnej gotówki na odkup udziałów (rezerwa: ${formatMoney(availReserve)}).`,
     };
   }
 
@@ -129,7 +153,9 @@ export function tradeCorporateStock(
   stock.holdings[targetCompanyId] = issuerStake + sellPct;
   return {
     ok: true,
-    message: `Sprzedano ${sellPct}% akcji ${targetPlayer.companyName} za ${proceeds.toLocaleString('pl-PL')} zł.`,
+    message: en
+      ? `Sold ${sellPct}% of ${targetPlayer.companyName} for ${formatMoney(proceeds)}.`
+      : `Sprzedano ${sellPct}% akcji ${targetPlayer.companyName} za ${formatMoney(proceeds)}.`,
   };
 }
 
@@ -138,21 +164,39 @@ export function issueCorporateBondForPlayer(
   player: Player,
   amount: number
 ): { ok: boolean; error?: string } {
+  const en = getCurrentLanguage() === 'en';
   if (state.settings.mutators?.noLoans) {
     return {
       ok: false,
-      error: 'Mutator "Bez Kredytów": emisja obligacji dłużnych jest wyłączona w tej rozgrywce.',
+      error: en
+        ? 'No Loans Mutator: corporate bond issuance is disabled in this match.'
+        : 'Mutator "Bez Kredytów": emisja obligacji dłużnych jest wyłączona w tej rozgrywce.',
     };
   }
   const minCorpLvl = Math.max(1, 2 + getArchetypeDefinition(player.archetype).modifiers.stockAccessCorpLevelDelta);
   if (player.corporationLevel < minCorpLvl) {
-    return { ok: false, error: `Emisja obligacji korporacyjnych wymaga min. Etapu ${minCorpLvl}.` };
+    return {
+      ok: false,
+      error: en
+        ? `Corporate bonds require at least Corporation Level ${minCorpLvl}.`
+        : `Emisja obligacji korporacyjnych wymaga min. Etapu ${minCorpLvl}.`,
+    };
   }
   if ((player.bonds?.length ?? 0) >= 3) {
-    return { ok: false, error: 'Osiągnięto limit 3 równoległych serii obligacji korporacyjnych.' };
+    return {
+      ok: false,
+      error: en
+        ? 'Maximum limit of 3 active corporate bond series reached.'
+        : 'Osiągnięto limit 3 równoległych serii obligacji korporacyjnych.',
+    };
   }
   if (amount < 250_000 || amount > 5_000_000) {
-    return { ok: false, error: 'Wartość emisji musi mieścić się między 250 tys. a 5 mln zł.' };
+    return {
+      ok: false,
+      error: en
+        ? `Bond issuance must be between ${formatCompactMoney(250_000)} and ${formatCompactMoney(5_000_000)}.`
+        : 'Wartość emisji musi mieścić się między 250 tys. a 5 mln zł.',
+    };
   }
 
   const rate = Math.max(0.032, Number((state.baseInterestRate * 0.72).toFixed(4)));
@@ -179,6 +223,7 @@ export function executeGreyMarketActionForPlayer(
   player: Player,
   actionId: 'black_arms' | 'black_fuel' | 'tax_shelter' | 'bribe_auditor'
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   player.inspectionRisk = player.inspectionRisk ?? 0;
 
   switch (actionId) {
@@ -187,14 +232,21 @@ export function executeGreyMarketActionForPlayer(
       const qty = 20;
       const cost = Math.round(qty * mktPrice * 0.68);
       if (player.cash < cost) {
-        return { ok: false, message: `Brak środków na zakup z szarej strefy (${cost.toLocaleString('pl-PL')} zł).` };
+        return {
+          ok: false,
+          message: en
+            ? `Insufficient cash for black-market purchase (${formatMoney(cost)}).`
+            : `Brak środków na zakup z szarej strefy (${formatMoney(cost)}).`,
+        };
       }
       player.cash -= cost;
       player.warehouseStockpile.weapons = (player.warehouseStockpile.weapons ?? 0) + qty;
       player.inspectionRisk = Math.min(100, player.inspectionRisk + 14);
       return {
         ok: true,
-        message: `Dostawa z szarej strefy: +${qty} szt. Broni za ${cost.toLocaleString('pl-PL')} zł (-32% od ceny giełdy). Uwaga: ryzyko kontroli +14%!`,
+        message: en
+          ? `Black-market shipment: +${qty} pcs Weapons for ${formatMoney(cost)} (-32% vs exchange). Audit risk +14%!`
+          : `Dostawa z szarej strefy: +${qty} szt. Broni za ${formatMoney(cost)} (-32% od ceny giełdy). Uwaga: ryzyko kontroli +14%!`,
       };
     }
 
@@ -203,7 +255,10 @@ export function executeGreyMarketActionForPlayer(
       const chemP = getResourcePrice(state, 'chemicals');
       const cost = Math.round((50 * fuelP + 25 * chemP) * 0.66);
       if (player.cash < cost) {
-        return { ok: false, message: `Brak gotówki (${cost.toLocaleString('pl-PL')} zł).` };
+        return {
+          ok: false,
+          message: en ? `Insufficient cash (${formatMoney(cost)}).` : `Brak gotówki (${formatMoney(cost)}).`,
+        };
       }
       player.cash -= cost;
       player.warehouseStockpile.fuel = (player.warehouseStockpile.fuel ?? 0) + 50;
@@ -211,7 +266,9 @@ export function executeGreyMarketActionForPlayer(
       player.inspectionRisk = Math.min(100, player.inspectionRisk + 12);
       return {
         ok: true,
-        message: `Czarny rynek: +50 paliwa i +25 chemikaliów poza oficjalnym obrotem! Ryzyko kontroli +12%.`,
+        message: en
+          ? 'Black market: +50 fuel and +25 chemicals off the books! Audit risk +12%.'
+          : 'Czarny rynek: +50 paliwa i +25 chemikaliów poza oficjalnym obrotem! Ryzyko kontroli +12%.',
       };
     }
 
@@ -220,20 +277,27 @@ export function executeGreyMarketActionForPlayer(
       player.inspectionRisk = Math.min(100, player.inspectionRisk + 18);
       return {
         ok: true,
-        message: `Raj podatkowy uruchomiony: -40% podatku CIT przez 18 cykli (Ryzyko kontroli +18%).`,
+        message: en
+          ? 'Offshore tax haven active: -40% Corporate Tax for 18 ticks (Audit risk +18%).'
+          : 'Raj podatkowy uruchomiony: -40% podatku CIT przez 18 cykli (Ryzyko kontroli +18%).',
       };
     }
 
     case 'bribe_auditor': {
       const cost = 95_000;
       if (player.cash < cost) {
-        return { ok: false, message: `Brak środków (${cost.toLocaleString('pl-PL')} zł).` };
+        return {
+          ok: false,
+          message: en ? `Insufficient funds (${formatMoney(cost)}).` : `Brak środków (${formatMoney(cost)}).`,
+        };
       }
       player.cash -= cost;
       player.inspectionRisk = Math.max(0, player.inspectionRisk - 30);
       return {
         ok: true,
-        message: `Zatuszowano dokumentację księgową — ryzyko kontroli spadło o 30% (obecnie: ${Math.round(player.inspectionRisk)}%).`,
+        message: en
+          ? `Ledger discrepancies scrubbed — audit risk dropped by 30% (now: ${Math.round(player.inspectionRisk)}%).`
+          : `Zatuszowano dokumentację księgową — ryzyko kontroli spadło o 30% (obecnie: ${Math.round(player.inspectionRisk)}%).`,
       };
     }
   }

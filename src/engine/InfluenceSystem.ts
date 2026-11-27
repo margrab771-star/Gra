@@ -1,5 +1,7 @@
 import { INFLUENCE_ACTIONS } from '../data/influenceActions';
-import { formatGameDate } from '../utils/formatters';
+import { getCurrentLanguage } from '../i18n';
+import { BUILDINGS_EN } from '../i18n/buildingsEn';
+import { formatGameDate, formatMoney } from '../utils/formatters';
 import { arePlayersAllied, hasActiveNAP } from './CoalitionSystem';
 import { handleBuildingDestructionInsurance } from './BuildingSystem';
 import { getPlayerEntrepreneurModifiers, getPlayerGlobalTechModifiers } from './EconomyEngine';
@@ -44,27 +46,39 @@ export function startSecretNuclearProject(
   state: GameState,
   player: Player
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   if (!evaluateSecretNuclearUnlock(state, player)) {
     return {
       ok: false,
-      message:
-        'Wymaga jednoczesnego posiadania Kopalni Uranu, Wzbogacania Uranu, Uniwersytetu, Centrum R&D i Bazy PMC.',
+      message: en
+        ? 'Requires owning a Uranium Mine, Uranium Enrichment Facility, University, R&D Lab, and PMC Base simultaneously.'
+        : 'Wymaga jednoczesnego posiadania Kopalni Uranu, Wzbogacania Uranu, Uniwersytetu, Centrum R&D i Bazy PMC.',
     };
   }
   if (player.nuclearProjectActive) {
-    return { ok: false, message: 'Tajny montaż głowicy jądrowej jest już w toku.' };
+    return {
+      ok: false,
+      message: en ? 'Secret nuclear warhead assembly is already underway.' : 'Tajny montaż głowicy jądrowej jest już w toku.',
+    };
   }
   const cashCost = 8_500_000;
   const uraniumCost = 25;
   const stockU = player.warehouseStockpile.uranium ?? 0;
 
   if (player.cash < cashCost) {
-    return { ok: false, message: `Budowa głowicy wymaga ${cashCost.toLocaleString('pl-PL')} zł.` };
+    return {
+      ok: false,
+      message: en
+        ? `Warhead construction requires ${formatMoney(cashCost)}.`
+        : `Budowa głowicy wymaga ${formatMoney(cashCost)}.`,
+    };
   }
   if (stockU < uraniumCost) {
     return {
       ok: false,
-      message: `Brak wzbogaconego/surowego uranu w magazynie (${stockU.toFixed(1)} / ${uraniumCost} kg).`,
+      message: en
+        ? `Insufficient uranium in warehouse (${stockU.toFixed(1)} / ${uraniumCost} kg).`
+        : `Brak wzbogaconego/surowego uranu w magazynie (${stockU.toFixed(1)} / ${uraniumCost} kg).`,
     };
   }
 
@@ -75,7 +89,9 @@ export function startSecretNuclearProject(
 
   return {
     ok: true,
-    message: 'Rozpoczęto tajny projekt budowy głowicy jądrowej (ok. 20 tur). Uważaj na wywiady rywali!',
+    message: en
+      ? 'Started secret nuclear warhead program (~20 ticks). Beware rival intelligence agencies!'
+      : 'Rozpoczęto tajny projekt budowy głowicy jądrowej (ok. 20 tur). Uważaj na wywiady rywali!',
   };
 }
 
@@ -140,9 +156,15 @@ export function executeTacticalMissileStrike(
   player: Player,
   targetPlotId: string
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   const cooldown = player.actionCooldowns['tactical_missile'] ?? 0;
   if (cooldown > 0) {
-    return { ok: false, message: `Wyrzutnia rakiet taktycznych ładuje się (${cooldown} tur).` };
+    return {
+      ok: false,
+      message: en
+        ? `Tactical missile battery is reloading (${cooldown} ticks).`
+        : `Wyrzutnia rakiet taktycznych ładuje się (${cooldown} tur).`,
+    };
   }
 
   const hasUnlockedBase = state.plots.some(
@@ -156,12 +178,16 @@ export function executeTacticalMissileStrike(
   if (!hasUnlockedBase) {
     return {
       ok: false,
-      message: 'Wymaga Bazy PMC z ulepszeniem EKSTRA: "Taktyczna Bateria Rakietowa (3×3)".',
+      message: en
+        ? 'Requires a PMC Base with Flagship upgrade: "Tactical Missile Battery (3×3)".'
+        : 'Wymaga Bazy PMC z Projektem Flagowym: "Taktyczna Bateria Rakietowa (3×3)".',
     };
   }
 
   const targetPlot = state.plots.find((p) => p.id === targetPlotId);
-  if (!targetPlot) return { ok: false, message: 'Nie wybrano poprawnego celu na mapie.' };
+  if (!targetPlot) {
+    return { ok: false, message: en ? 'Select a valid map target.' : 'Nie wybrano poprawnego celu na mapie.' };
+  }
 
   const strikeArea = state.plots.filter(
     (p) => Math.abs(p.gridX - targetPlot.gridX) <= 1 && Math.abs(p.gridY - targetPlot.gridY) <= 1
@@ -171,7 +197,9 @@ export function executeTacticalMissileStrike(
       if (p.ownerId !== player.id) {
         return {
           ok: false,
-          message: 'W strefie rażenia 3×3 znajdują się aktywa koalicjanta lub partnera NAP!',
+          message: en
+            ? 'Allied coalition or NAP partner assets lie within the 3×3 blast radius!'
+            : 'W strefie rażenia 3×3 znajdują się aktywa koalicjanta lub partnera NAP!',
         };
       }
     }
@@ -179,7 +207,10 @@ export function executeTacticalMissileStrike(
 
   const cost = 1_800_000;
   if (player.cash < cost) {
-    return { ok: false, message: `Wystrzelenie rakiety kosztuje ${cost.toLocaleString('pl-PL')} zł.` };
+    return {
+      ok: false,
+      message: en ? `Missile launch costs ${formatMoney(cost)}.` : `Wystrzelenie rakiety kosztuje ${formatMoney(cost)}.`,
+    };
   }
 
   player.cash -= cost;
@@ -237,7 +268,9 @@ export function executeTacticalMissileStrike(
 
   return {
     ok: true,
-    message: `Uderzenie taktyczne w (${targetPlot.gridX}, ${targetPlot.gridY})! Zniszczono ${destroyedCount} struktur.`,
+    message: en
+      ? `Tactical strike on (${targetPlot.gridX}, ${targetPlot.gridY})! Destroyed ${destroyedCount} structures.`
+      : `Uderzenie taktyczne w (${targetPlot.gridX}, ${targetPlot.gridY})! Zniszczono ${destroyedCount} struktur.`,
   };
 }
 
@@ -246,17 +279,23 @@ export function executeNuclearStrike(
   player: Player,
   targetPlotId: string
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   if ((player.nuclearWarheadsReady ?? 0) < 1) {
-    return { ok: false, message: 'Brak gotowej głowicy jądrowej w arsenale.' };
+    return {
+      ok: false,
+      message: en ? 'No armed nuclear warhead in your arsenal.' : 'Brak gotowej głowicy jądrowej w arsenale.',
+    };
   }
   const hasBase = state.plots.some(
     (p) => p.ownerId === player.id && p.building?.type === 'militaryBase' && p.building.isActive && !p.building.destroyedRuins
   );
   if (!hasBase) {
-    return { ok: false, message: 'Odpalenie wymaga aktywnej Bazy PMC.' };
+    return { ok: false, message: en ? 'Launch requires an active PMC Base.' : 'Odpalenie wymaga aktywnej Bazy PMC.' };
   }
   const targetPlot = state.plots.find((p) => p.id === targetPlotId);
-  if (!targetPlot) return { ok: false, message: 'Niepoprawny cel ataku nuklearnego.' };
+  if (!targetPlot) {
+    return { ok: false, message: en ? 'Invalid nuclear strike target.' : 'Niepoprawny cel ataku nuklearnego.' };
+  }
 
   const zone5x5 = state.plots.filter(
     (p) => Math.abs(p.gridX - targetPlot.gridX) <= 2 && Math.abs(p.gridY - targetPlot.gridY) <= 2
@@ -265,7 +304,9 @@ export function executeNuclearStrike(
     if (p.ownerId && p.ownerId !== player.id && (arePlayersAllied(state, player.id, p.ownerId) || hasActiveNAP(state, player.id, p.ownerId))) {
       return {
         ok: false,
-        message: 'W strefie opadu radioaktywnego 5×5 znajduje się terytorium sojusznika lub partnera NAP!',
+        message: en
+          ? 'Allied or NAP partner territory lies inside the 5×5 fallout radius!'
+          : 'W strefie opadu radioaktywnego 5×5 znajduje się terytorium sojusznika lub partnera NAP!',
       };
     }
   }
@@ -322,7 +363,9 @@ export function executeNuclearStrike(
 
   return {
     ok: true,
-    message: `☢️ Detonacja na (${targetPlot.gridX}, ${targetPlot.gridY})! Zniszczono ${wipedCount} obiektów i skażono obszar 5×5.`,
+    message: en
+      ? `☢️ Detonation at (${targetPlot.gridX}, ${targetPlot.gridY})! Wiped out ${wipedCount} structures and irradiated a 5×5 zone.`
+      : `☢️ Detonacja na (${targetPlot.gridX}, ${targetPlot.gridY})! Zniszczono ${wipedCount} obiektów i skażono obszar 5×5.`,
   };
 }
 
@@ -334,14 +377,25 @@ export function executeInfluenceAction(
   targetPlotId?: string,
   targetBuildingId?: string
 ): { ok: boolean; message: string } {
+  const en = getCurrentLanguage() === 'en';
   const action = INFLUENCE_ACTIONS.find((a) => a.id === actionId);
-  if (!action) return { ok: false, message: 'Nieznana operacja wpływu.' };
+  if (!action) return { ok: false, message: en ? 'Unknown influence operation.' : 'Nieznana operacja wpływu.' };
 
   const cd = player.actionCooldowns[actionId] ?? 0;
-  if (cd > 0) return { ok: false, message: `Operacja w trakcie odnowienia (${cd} tur).` };
+  if (cd > 0) {
+    return {
+      ok: false,
+      message: en ? `Operation cooling down (${cd} ticks).` : `Operacja w trakcie odnowienia (${cd} tur).`,
+    };
+  }
 
   if (action.requiredTech && player.globalTech[action.requiredTech]?.status !== 'done') {
-    return { ok: false, message: 'Wymaga odblokowania odpowiedniej technologii w drzewku.' };
+    return {
+      ok: false,
+      message: en
+        ? 'Requires unlocking the prerequisite tech in the Tech Tree.'
+        : 'Wymaga odblokowania odpowiedniej technologii w drzewku.',
+    };
   }
 
   const pillarScore =
@@ -354,7 +408,9 @@ export function executeInfluenceAction(
   if (pillarScore < action.requiredScore) {
     return {
       ok: false,
-      message: `Wymaga min. ${action.requiredScore} pkt w tym Filarze (masz ${Math.round(pillarScore)}).`,
+      message: en
+        ? `Requires at least ${action.requiredScore} pts in this Pillar (have ${Math.round(pillarScore)}).`
+        : `Wymaga min. ${action.requiredScore} pkt w tym Filarze (masz ${Math.round(pillarScore)}).`,
     };
   }
 
@@ -366,10 +422,18 @@ export function executeInfluenceAction(
     actionId === 'organize_boycott';
   if (isHostile && targetPlayer) {
     if (arePlayersAllied(state, player.id, targetPlayer.id)) {
-      return { ok: false, message: 'Nie możesz atakować członka własnej koalicji!' };
+      return {
+        ok: false,
+        message: en ? 'You cannot target a member of your own coalition!' : 'Nie możesz atakować członka własnej koalicji!',
+      };
     }
     if (hasActiveNAP(state, player.id, targetPlayer.id)) {
-      return { ok: false, message: 'Aktywny Pakt o Nieagresji (NAP) blokuje agresywne operacje!' };
+      return {
+        ok: false,
+        message: en
+          ? 'An active Non-Aggression Pact (NAP) blocks hostile operations!'
+          : 'Aktywny Pakt o Nieagresji (NAP) blokuje agresywne operacje!',
+      };
     }
   }
 
@@ -386,7 +450,7 @@ export function executeInfluenceAction(
   if (player.cash < effectiveCost) {
     return {
       ok: false,
-      message: `Brak środków (${effectiveCost.toLocaleString('pl-PL')} zł).`,
+      message: en ? `Insufficient funds (${formatMoney(effectiveCost)}).` : `Brak środków (${formatMoney(effectiveCost)}).`,
     };
   }
 
@@ -399,7 +463,12 @@ export function executeInfluenceAction(
       player.influence.financial += Math.round(12 * powerMult);
       player.actionCooldowns['env_shield'] = 10;
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      return { ok: true, message: 'Urzędnicy przyjęli argumenty finansowe — 10 tur ochrony przed karami.' };
+      return {
+        ok: true,
+        message: en
+          ? 'Officials accepted your financial arguments — 10 ticks of fine immunity.'
+          : 'Urzędnicy przyjęli argumenty finansowe — 10 tur ochrony przed karami.',
+      };
     }
 
     case 'lobbying': {
@@ -407,7 +476,10 @@ export function executeInfluenceAction(
       player.influence.financial += Math.round(15 * powerMult);
       player.activeTaxReliefTicks = 20;
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      return { ok: true, message: 'Lobbing zakończony sukcesem: -40% CIT przez 20 tur.' };
+      return {
+        ok: true,
+        message: en ? 'Lobbying succeeded: -40% Corporate Tax for 20 ticks.' : 'Lobbing zakończony sukcesem: -40% CIT przez 20 tur.',
+      };
     }
 
     case 'buy_law': {
@@ -423,20 +495,39 @@ export function executeInfluenceAction(
         'Przełomowa ustawa deregulacyjna uchwalona przez parlament',
         `${player.companyName} przeforsowała korzystne regulacje obniżające podatek CIT w gospodarce.`
       );
-      return { ok: true, message: 'Ustawa przeszła! CIT w gospodarce spadł o 2 p.p.' };
+      return {
+        ok: true,
+        message: en ? 'Bill passed! Economy-wide Corporate Tax cut by 2 p.p.' : 'Ustawa przeszła! CIT w gospodarce spadł o 2 p.p.',
+      };
     }
 
     case 'forced_buyout': {
       if (player.corporationLevel < 4) {
-        return { ok: false, message: 'Przymusowy wykup wymaga min. 4. Poziomu Korporacji.' };
+        return {
+          ok: false,
+          message: en ? 'Forced buyout requires at least Corporation Level 4.' : 'Przymusowy wykup wymaga min. 4. Poziomu Korporacji.',
+        };
       }
       if (!targetPlayer || !targetPlotId) {
-        return { ok: false, message: 'Wybierz rywala oraz działkę do przymusowego wykupu.' };
+        return {
+          ok: false,
+          message: en ? 'Select a rival and plot for forced buyout.' : 'Wybierz rywala oraz działkę do przymusowego wykupu.',
+        };
       }
       const plot = state.plots.find((p) => p.id === targetPlotId && p.ownerId === targetPlayer.id);
-      if (!plot) return { ok: false, message: 'Wybrana działka nie należy do wskazanego rywala.' };
+      if (!plot) {
+        return {
+          ok: false,
+          message: en ? 'Selected plot does not belong to that rival.' : 'Wybrana działka nie należy do wskazanego rywala.',
+        };
+      }
       if (plot.building?.type === 'corporateHQ') {
-        return { ok: false, message: 'Siedziba Główna (HQ) konkurenta jest chroniona przed wywłaszczeniem.' };
+        return {
+          ok: false,
+          message: en
+            ? 'A rival Corporate HQ is protected against expropriation.'
+            : 'Siedziba Główna (HQ) konkurenta jest chroniona przed wywłaszczeniem.',
+        };
       }
 
       const statutoryCompensation = Math.round(plot.price * 0.85);
@@ -444,7 +535,9 @@ export function executeInfluenceAction(
       if (player.cash < total) {
         return {
           ok: false,
-          message: `Łączny koszt przejęcia z odszkodowaniem to ${total.toLocaleString('pl-PL')} zł.`,
+          message: en
+            ? `Total expropriation cost including compensation is ${formatMoney(total)}.`
+            : `Łączny koszt przejęcia z odszkodowaniem to ${formatMoney(total)}.`,
         };
       }
 
@@ -469,8 +562,10 @@ export function executeInfluenceAction(
           state.notifications = [
             {
               id: `buyout_blocked_${state.time.tick}`,
-              title: '⚖️ Zablokowano próbę wrogiego przejęcia!',
-              message: `${player.companyName} próbowała wywłaszczyć Twoją działkę (${plot.gridX}, ${plot.gridY}), ale dział prawny i służby obroniły majątek.`,
+              title: en ? '⚖️ Hostile Buyout Blocked!' : '⚖️ Zablokowano próbę wrogiego przejęcia!',
+              message: en
+                ? `${player.companyName} tried to expropriate your plot (${plot.gridX}, ${plot.gridY}), but legal counsel defended the asset.`
+                : `${player.companyName} próbowała wywłaszczyć Twoją działkę (${plot.gridX}, ${plot.gridY}), ale dział prawny i służby obroniły majątek.`,
               severity: 'warning' as const,
               tick: state.time.tick,
             },
@@ -485,7 +580,9 @@ export function executeInfluenceAction(
         );
         return {
           ok: false,
-          message: `Wniosek zablokowany przez dział prawny rywala! Poniesiono koszty sądowe ${legalPenalty.toLocaleString('pl-PL')} zł.`,
+          message: en
+            ? `Injunction blocked by rival legal counsel! Incurred court fees of ${formatMoney(legalPenalty)}.`
+            : `Wniosek zablokowany przez dział prawny rywala! Poniesiono koszty sądowe ${formatMoney(legalPenalty)}.`,
         };
       }
 
@@ -506,11 +603,16 @@ export function executeInfluenceAction(
         `Na mocy nowej ustawy specinwestycyjnej działka (${plot.gridX},${plot.gridY}) zmieniła właściciela za odszkodowaniem.`,
         plot.id
       );
-      return { ok: true, message: `Przejęto działkę (${plot.gridX},${plot.gridY}) od ${targetPlayer.companyName}!` };
+      return {
+        ok: true,
+        message: en
+          ? `Seized plot (${plot.gridX},${plot.gridY}) from ${targetPlayer.companyName}!`
+          : `Przejęto działkę (${plot.gridX},${plot.gridY}) od ${targetPlayer.companyName}!`,
+      };
     }
 
     case 'espionage': {
-      if (!targetPlayer) return { ok: false, message: 'Wybierz cel wywiadowczy.' };
+      if (!targetPlayer) return { ok: false, message: en ? 'Select an espionage target.' : 'Wybierz cel wywiadowczy.' };
       player.cash -= effectiveCost;
       player.spiedPlayers[targetPlayer.id] = 20;
       player.researchPoints += 15;
@@ -518,19 +620,27 @@ export function executeInfluenceAction(
       player.actionCooldowns[actionId] = action.cooldownTicks;
       return {
         ok: true,
-        message: `Wywiad zinfiltrował ${targetPlayer.companyName} (+15 pkt badań, wgląd w finanse).`,
+        message: en
+          ? `Intelligence infiltrated ${targetPlayer.companyName} (+15 research pts, financial visibility unlocked).`
+          : `Wywiad zinfiltrował ${targetPlayer.companyName} (+15 pkt badań, wgląd w finanse).`,
       };
     }
 
     case 'sabotage': {
       if (!targetPlayer || !targetBuildingId) {
-        return { ok: false, message: 'Wybierz rywala i konkretny budynek do sabotażu.' };
+        return {
+          ok: false,
+          message: en ? 'Select a rival and specific target building.' : 'Wybierz rywala i konkretny budynek do sabotażu.',
+        };
       }
       const targetPlot = state.plots.find(
         (p) => p.ownerId === targetPlayer.id && p.building?.id === targetBuildingId
       );
       if (!targetPlot || !targetPlot.building) {
-        return { ok: false, message: 'Nie znaleziono wskazanego budynku przeciwnika.' };
+        return {
+          ok: false,
+          message: en ? 'Target enemy facility not found.' : 'Nie znaleziono wskazanego budynku przeciwnika.',
+        };
       }
       const enemySecurityDefense = state.plots
         .filter(
@@ -557,6 +667,10 @@ export function executeInfluenceAction(
       player.actionCooldowns[actionId] = action.cooldownTicks;
       player.influence.military += Math.round(12 * powerMult);
 
+      const targetBName = en
+        ? BUILDINGS_EN[targetPlot.building.type]?.name ?? targetPlot.building.name
+        : targetPlot.building.name;
+
       if (Math.random() <= successChance) {
         targetPlot.building.condition = Math.max(15, targetPlot.building.condition - 45);
         targetPlot.building.sabotagedTicks = 8;
@@ -570,25 +684,43 @@ export function executeInfluenceAction(
           `Obiekt należący do ${targetPlayer.companyName} stanął w miejscu na skutek tajemniczej usterki sieci sterującej.`,
           targetPlot.id
         );
-        return { ok: true, message: `Sabotaż udany! ${targetPlot.building.name} wstrzymany na 8 tur.` };
+        return {
+          ok: true,
+          message: en
+            ? `Sabotage succeeded! ${targetBName} halted for 8 ticks.`
+            : `Sabotaż udany! ${targetBName} wstrzymany na 8 tur.`,
+        };
       }
-      return { ok: false, message: 'Kontrwywiad rywala udaremnił akcję dywersyjną.' };
+      return {
+        ok: false,
+        message: en
+          ? 'Rival counter-intelligence foiled the sabotage attempt.'
+          : 'Kontrwywiad rywala udaremnił akcję dywersyjną.',
+      };
     }
 
     case 'corporate_raid': {
       if (!targetPlayer || !targetBuildingId) {
-        return { ok: false, message: 'Wybierz rywala oraz obiekt do abordażu.' };
+        return {
+          ok: false,
+          message: en ? 'Select a rival and facility to raid.' : 'Wybierz rywala oraz obiekt do abordażu.',
+        };
       }
       const targetPlot = state.plots.find(
         (p) => p.ownerId === targetPlayer.id && p.building?.id === targetBuildingId
       );
       if (!targetPlot || !targetPlot.building) {
-        return { ok: false, message: 'Nie znaleziono wskazanego obiektu przeciwnika.' };
+        return {
+          ok: false,
+          message: en ? 'Target enemy structure not found.' : 'Nie znaleziono wskazanego obiektu przeciwnika.',
+        };
       }
       if (targetPlot.building.type === 'corporateHQ') {
         return {
           ok: false,
-          message: 'Siedziba Główna (HQ) konkurenta jest chroniona immunitetem i nie podlega abordażowi!',
+          message: en
+            ? 'Rival Corporate HQ enjoys diplomatic immunity and cannot be raided!'
+            : 'Siedziba Główna (HQ) konkurenta jest chroniona immunitetem i nie podlega abordażowi!',
         };
       }
       player.cash -= effectiveCost;
@@ -601,6 +733,9 @@ export function executeInfluenceAction(
         attackerMil < 35 || milRatio < 0.75
           ? 0.08
           : Math.min(0.75, 0.25 + (milRatio - 0.75) * 0.45);
+      const raidBName = en
+        ? BUILDINGS_EN[targetPlot.building.type]?.name ?? targetPlot.building.name
+        : targetPlot.building.name;
       if (Math.random() < raidChance) {
         targetPlot.ownerId = player.id;
         targetPlot.building.ownerId = player.id;
@@ -615,17 +750,29 @@ export function executeInfluenceAction(
           `Oddziały kondotierów i komorników korporacyjnych zajęły obiekt firmy ${targetPlayer.companyName}.`,
           targetPlot.id
         );
-        return { ok: true, message: `Abordaż zakończony przejęciem ${targetPlot.building.name}!` };
+        return {
+          ok: true,
+          message: en
+            ? `Corporate raid seized ${raidBName}!`
+            : `Abordaż zakończony przejęciem ${raidBName}!`,
+        };
       }
       return {
         ok: false,
-        message: `Ochrona obiektu odparła próbę korporacyjnego abordażu (szansa: ${Math.round(raidChance * 100)}%).`,
+        message: en
+          ? `Facility security repelled the raid (chance: ${Math.round(raidChance * 100)}%).`
+          : `Ochrona obiektu odparła próbę korporacyjnego abordażu (szansa: ${Math.round(raidChance * 100)}%).`,
       };
     }
 
     case 'coup_attempt': {
       if (player.militaryPower < 100 || player.influence.military < 110) {
-        return { ok: false, message: 'Zbyt słabe zaplecze militarne na udany zamach stanu (min. 100 Siły Militarnej).' };
+        return {
+          ok: false,
+          message: en
+            ? 'Insufficient military backing for a coup attempt (min. 100 Military Power).'
+            : 'Zbyt słabe zaplecze militarne na udany zamach stanu (min. 100 Siły Militarnej).',
+        };
       }
       player.cash -= effectiveCost;
       player.actionCooldowns[actionId] = action.cooldownTicks;
@@ -659,7 +806,9 @@ export function executeInfluenceAction(
         );
         return {
           ok: false,
-          message: `Zamach stanu odparty przez kontrwywiad rywali! (Szansa sukcesu: ${Math.round(coupChance * 100)}%).`,
+          message: en
+            ? `Coup crushed by rival counter-intelligence! (Success odds: ${Math.round(coupChance * 100)}%).`
+            : `Zamach stanu odparty przez kontrwywiad rywali! (Szansa sukcesu: ${Math.round(coupChance * 100)}%).`,
         };
       }
 
@@ -695,7 +844,9 @@ export function executeInfluenceAction(
       );
       return {
         ok: true,
-        message: `Zamach stanu udany! Przejęto ${seized} zakłady i obniżono CIT do ${Math.round(state.taxRate * 100)}%.`,
+        message: en
+          ? `Coup succeeded! Seized ${seized} facilities and cut Corporate Tax to ${Math.round(state.taxRate * 100)}%.`
+          : `Zamach stanu udany! Przejęto ${seized} zakłady i obniżono CIT do ${Math.round(state.taxRate * 100)}%.`,
       };
     }
 
@@ -705,7 +856,12 @@ export function executeInfluenceAction(
       player.influence.social += Math.round(15 * powerMult);
       state.voterMood = Math.min(100, state.voterMood + 8);
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      return { ok: true, message: 'Sojusz z duchowieństwem umocniony — rośnie poparcie społeczne!' };
+      return {
+        ok: true,
+        message: en
+          ? 'Civic & clergy backing strengthened — public approval rising!'
+          : 'Sojusz z duchowieństwem umocniony — rośnie poparcie społeczne!',
+      };
     }
 
     case 'media_campaign': {
@@ -714,7 +870,12 @@ export function executeInfluenceAction(
       player.influence.social += Math.round(18 * powerMult);
       player.reputation = Math.min(100, player.reputation + 10);
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      return { ok: true, message: 'Narracja medialna przechylona na korzyść Twojego imperium.' };
+      return {
+        ok: true,
+        message: en
+          ? 'Media narrative shifted in favor of your empire.'
+          : 'Narracja medialna przechylona na korzyść Twojego imperium.',
+      };
     }
 
     case 'voter_mobilization': {
@@ -725,11 +886,21 @@ export function executeInfluenceAction(
         state.activeLaws.push('lower_zus');
       }
       player.actionCooldowns[actionId] = action.cooldownTicks;
-      return { ok: true, message: 'Wyborcy wymusili na rządzie obniżkę składek ZUS o 10%!' };
+      return {
+        ok: true,
+        message: en
+          ? 'Voters pressured the government into cutting employer payroll tax by 10%!'
+          : 'Wyborcy wymusili na rządzie obniżkę składek ZUS o 10%!',
+      };
     }
 
     case 'organize_boycott': {
-      if (!targetPlayer) return { ok: false, message: 'Wybierz konkurenta do objęcia bojkotem.' };
+      if (!targetPlayer) {
+        return {
+          ok: false,
+          message: en ? 'Select a rival corporation to boycott.' : 'Wybierz konkurenta do objęcia bojkotem.',
+        };
+      }
       player.cash -= effectiveCost;
       player.influence.social += Math.round(12 * powerMult);
       player.actionCooldowns[actionId] = action.cooldownTicks;
@@ -748,11 +919,16 @@ export function executeInfluenceAction(
         `Masowy bojkot konsumencki uderza w ${targetPlayer.companyName}!`,
         `Organizacje społeczne i media wzywają do unikania usług i towarów koncernu (${hitCount} obiektów objętych presją).`
       );
-      return { ok: true, message: `Bojkot ogłoszony! Przychody ${targetPlayer.companyName} spadają o 35% na 12 tur.` };
+      return {
+        ok: true,
+        message: en
+          ? `Boycott launched! ${targetPlayer.companyName} revenues drop 35% for 12 ticks.`
+          : `Bojkot ogłoszony! Przychody ${targetPlayer.companyName} spadają o 35% na 12 tur.`,
+      };
     }
 
     default:
-      return { ok: false, message: 'Nieobsługiwana operacja.' };
+      return { ok: false, message: en ? 'Unsupported operation.' : 'Nieobsługiwana operacja.' };
   }
 }
 
