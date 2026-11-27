@@ -1751,7 +1751,9 @@ export function processBuildingTick(
         const marketRemainder = Math.max(0, Number((produced - overflowStored).toFixed(2)));
         if (marketRemainder > 0.001) {
           building.status.storageFull = true;
-          const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus) * 0.85;
+          const utilScale = res === 'electricity' ? 0.32 : res === 'water' ? 0.36 : 1.0;
+          const unitPrice =
+            getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus) * 0.85 * utilScale;
           grossRevenue += marketRemainder * unitPrice;
           utilitySnapshot?.producedLots?.push({
             resource: res,
@@ -1810,7 +1812,9 @@ export function processBuildingTick(
       }
       const marketSold = Math.max(0, Number((afterWarehouse - diverted).toFixed(2)));
       if (marketSold > 0.001) {
-        const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
+        const utilScale = res === 'electricity' ? 0.32 : res === 'water' ? 0.36 : 1.0;
+        const unitPrice =
+          getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus) * utilScale;
         grossRevenue += marketSold * unitPrice;
         utilitySnapshot?.producedLots?.push({
           resource: res,

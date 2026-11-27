@@ -10,6 +10,7 @@ import type {
   MarketCyclePhase,
   MarketCycleState,
   MarketSectorKey,
+  MonopolySegment,
   MonopolyShare,
   Player,
   Plot,
@@ -405,152 +406,228 @@ function getBuildingBookValue(building: Building): number {
   return 100_000 + building.level * 65_000 + upgradeValue;
 }
 
-export function calculateMonopolyShares(state: GameState, currentPlayerId: string): MonopolyShare[] {
-  const trackedResources: ResourceType[] = [
-    'electricity',
-    'steel',
-    'copper',
-    'gold',
-    'jewelry',
-    'fuel',
-    'semiconductors',
-    'coal',
-    'oil',
-    'uranium',
-    'weapons',
-  ];
+const TRACKED_MONOPOLY_RESOURCES: ResourceType[] = [
+  'electricity',
+  'steel',
+  'copper',
+  'gold',
+  'jewelry',
+  'fuel',
+  'semiconductors',
+  'coal',
+  'oil',
+  'uranium',
+  'weapons',
+];
 
+function getEffectiveProductionUnitValue(state: GameState, res: ResourceType): number {
+  const marketPrice = getResourcePrice(state, res) || RESOURCE_DEFINITIONS[res]?.basePrice || 0;
+  if (res === 'electricity') return marketPrice * 0.12;
+  if (res === 'water') return marketPrice * 0.2;
+  return marketPrice;
+}
+
+function collectTrackedProduction(state: GameState): {
+  prodByPlayer: Record<string, Partial<Record<ResourceType, number>>>;
+  totalByRes: Partial<Record<ResourceType, number>>;
+  activeRevenueByPlayer: Record<string, number>;
+} {
   const prodByPlayer: Record<string, Partial<Record<ResourceType, number>>> = {};
   const totalByRes: Partial<Record<ResourceType, number>> = {};
+  const activeRevenueByPlayer: Record<string, number> = {};
 
   for (const plot of state.plots) {
     const b = plot.building;
-    if (!b || !b.isActive) continue;
+    if (!b || !b.isActive || b.destroyedRuins) continue;
+    activeRevenueByPlayer[b.ownerId] = (activeRevenueByPlayer[b.ownerId] ?? 0) + Math.max(0, b.revenue ?? 0);
     if (!prodByPlayer[b.ownerId]) prodByPlayer[b.ownerId] = {};
     for (const [resKey, amt] of Object.entries(b.productionPerTick)) {
       const res = resKey as ResourceType;
-      const val = amt ?? 0;
+      const val = Math.max(0, amt ?? 0);
+      if (val <= 0) continue;
       prodByPlayer[b.ownerId][res] = (prodByPlayer[b.ownerId][res] ?? 0) + val;
       totalByRes[res] = (totalByRes[res] ?? 0) + val;
     }
   }
 
-  return trackedResources.map((res) => {
+  return { prodByPlayer, totalByRes, activeRevenueByPlayer };
+}
+
+export function calculateMonopolyShares(state: GameState, currentPlayerId: string): MonopolyShare[] {
+  const { prodByPlayer, totalByRes } = collectTrackedProduction(state);
+
+  return TRACKED_MONOPOLY_RESOURCES.map((res) => {
     const def = RESOURCE_DEFINITIONS[res];
     const total = totalByRes[res] ?? 0;
-    const playerAmt = prodByPlayer[currentPlayerId]?.[res] ?? 0;
-    const playerShare = total > 0 ? Math.round((playerAmt / total) * 100) : 0;
 
-    let leaderId = '';
-    let leaderName = 'Rynek Rozproszony';
-    let bestAmt = 0;
-    for (const p of state.players) {
-      const amt = prodByPlayer[p.id]?.[res] ?? 0;
-      if (amt > bestAmt) {
-        bestAmt = amt;
-        leaderId = p.id;
-        leaderName = p.companyName;
+    const rawEntries = state.players
+      .map((p) => {
+        const amt = prodByPlayer[p.id]?.[res] ?? 0;
+        const exact = total > 0 ? (amt / total) * 100 : 0;
+        const floored = Math.floor(exact);
+        return {
+          player: p,
+          amt,
+          exact,
+          floored,
+          frac: exact - floored,
+          share: floored,
+        };
+      })
+      .filter((e) => e.amt > 0);
+
+    // Największa reszta gwarantuje, że suma udziałów w każdym sektorze nie przekroczy 100%
+    if (total > 0 && rawEntries.length > 0) {
+      const targetSum = Math.min(100, Math.round(rawEntries.reduce((s, e) => s + e.exact, 0)));
+      const currentSum = rawEntries.reduce((s, e) => s + e.share, 0);
+      let remaining = Math.max(0, targetSum - currentSum);
+      const byFrac = [...rawEntries].sort((a, b) => b.frac - a.frac || b.amt - a.amt);
+      for (const entry of byFrac) {
+        if (remaining <= 0) break;
+        entry.share += 1;
+        remaining -= 1;
       }
     }
+
+    const sortedSegments = [...rawEntries].sort((a, b) => b.share - a.share || b.amt - a.amt);
+    const segments: MonopolySegment[] = sortedSegments
+      .filter((e) => e.share > 0)
+      .map((e) => ({
+        playerId: e.player.id,
+        companyName: e.player.companyName,
+        color: e.player.color,
+        share: e.share,
+      }));
+
+    const shareByPlayerId = new Map(sortedSegments.map((e) => [e.player.id, e.share]));
+    const playerShare = shareByPlayerId.get(currentPlayerId) ?? 0;
+    const best = sortedSegments[0];
 
     return {
       resource: res,
       name: def.name,
       emoji: def.emoji,
       playerShare,
-      leaderName,
-      leaderId,
+      leaderName: best ? best.player.companyName : 'Rynek Rozproszony',
+      leaderId: best ? best.player.id : '',
+      leaderShare: best ? best.share : 0,
+      segments,
     };
   });
 }
 
-export function getOverallDominanceScore(state: GameState, playerId: string): number {
-  const shares = calculateMonopolyShares(state, playerId);
-  const activeMarkets = shares.filter((s) => s.playerShare > 0);
-  const topMarketShare = shares.reduce((max, s) => Math.max(max, s.playerShare), 0);
+function computeGroupDominanceScore(state: GameState, activeSet: Set<string>): number {
+  if (activeSet.size === 0) return 0;
 
-  const player = state.players.find((p) => p.id === playerId);
-  if (!player) return 0;
+  const { prodByPlayer, totalByRes, activeRevenueByPlayer } = collectTrackedProduction(state);
 
+  let weightedActiveSectors = 0;
+  let activeTrackedSectorsCount = 0;
+  let weightedShareSum = 0;
+  let nonEnergyActiveCount = 0;
+  let hasElectricity = false;
+
+  for (const res of TRACKED_MONOPOLY_RESOURCES) {
+    const total = totalByRes[res] ?? 0;
+    let groupAmt = 0;
+    for (const pid of activeSet) {
+      groupAmt += prodByPlayer[pid]?.[res] ?? 0;
+    }
+
+    if (groupAmt > 0) {
+      if (res === 'electricity') hasElectricity = true;
+      else nonEnergyActiveCount++;
+    }
+
+    if (total <= 0) continue;
+    activeTrackedSectorsCount++;
+    const weight = res === 'electricity' ? 0.45 : 1.0;
+    weightedActiveSectors += weight;
+    const sectorShare = Math.min(100, (groupAmt / total) * 100);
+    weightedShareSum += sectorShare * weight;
+  }
+
+  // Udział w sektorach w skali całej gospodarki (min. 6 sektorów bazowych zapobiega dominacji 1 sektora we wczesnej grze)
+  const sectorDenominator = Math.max(6, weightedActiveSectors);
+  const sectorSharePct = Math.min(100, weightedShareSum / sectorDenominator);
+
+  // Globalny udział w wartości produkcji wszystkich zasobów wszystkich graczy na mapie
+  let groupProdValue = 0;
+  let totalGlobalProdValue = 0;
+  for (const [resKey, totalAmt] of Object.entries(totalByRes)) {
+    const res = resKey as ResourceType;
+    const amt = totalAmt ?? 0;
+    if (amt <= 0) continue;
+    const unitVal = getEffectiveProductionUnitValue(state, res);
+    totalGlobalProdValue += amt * unitVal;
+    for (const pid of activeSet) {
+      groupProdValue += (prodByPlayer[pid]?.[res] ?? 0) * unitVal;
+    }
+  }
+  const rawProdValueShare =
+    totalGlobalProdValue > 0 ? Math.min(100, (groupProdValue / totalGlobalProdValue) * 100) : 0;
+  const marketMaturityScale = Math.min(1, Math.max(0.3, activeTrackedSectorsCount / 4));
+  const prodValueShare = rawProdValueShare * marketMaturityScale;
+
+  // Globalny udział w majątku netto oraz przychodach operacyjnych wszystkich graczy
   const totalNetWorth = state.players.reduce((sum, p) => sum + Math.max(0, p.netWorth), 0);
-  const wealthShare = totalNetWorth > 0 ? (Math.max(0, player.netWorth) / totalNetWorth) * 100 : 0;
+  let groupNetWorth = 0;
+  let totalRevenue = 0;
+  let groupRevenue = 0;
+  let combinedInf = 0;
+  let secretBonusSum = 0;
 
-  const influenceBonus = Math.min(
-    20,
-    (player.influence.financial + player.influence.military + player.influence.social) / 25
+  for (const p of state.players) {
+    const pTickRev = Object.values(p.lastTickRevenueByCategory ?? {}).reduce((s, v) => s + Math.max(0, v), 0);
+    const pRev = Math.max(pTickRev, activeRevenueByPlayer[p.id] ?? 0);
+    totalRevenue += pRev;
+    if (!activeSet.has(p.id)) continue;
+    groupNetWorth += Math.max(0, p.netWorth);
+    groupRevenue += pRev;
+    combinedInf += p.influence.financial + p.influence.military + p.influence.social;
+    secretBonusSum += p.secretGoalDominanceBonus ?? 0;
+  }
+
+  const wealthShare = totalNetWorth > 0 ? (groupNetWorth / totalNetWorth) * 100 : 0;
+  const revShare = totalRevenue > 0 ? (groupRevenue / totalRevenue) * 100 : wealthShare;
+  const financialShare = wealthShare * 0.6 + revShare * 0.4;
+
+  // Premie za szeroką obecność w branżach, wpływy i cel ukryty
+  const breadthBonus = Math.min(10, nonEnergyActiveCount * 1.45 + (hasElectricity ? 0.5 : 0));
+  const infScale = 0.7 + activeSet.size * 0.3;
+  const influenceBonus = Math.min(5, combinedInf / (100 * infScale));
+  const secretBonus = Math.min(6, secretBonusSum * (activeSet.size > 1 ? 0.45 : 0.6));
+
+  let score = Math.round(
+    sectorSharePct * 0.3 +
+      prodValueShare * 0.28 +
+      financialShare * 0.3 +
+      breadthBonus +
+      influenceBonus +
+      secretBonus
   );
-  const breadthBonus = activeMarkets.length * 2.0;
-  const secretBonus = player.secretGoalDominanceBonus ?? 0;
 
-  return Math.min(100, Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus + secretBonus));
+  // Twardy hamulec realizmu: produkcja wyłącznie prądu lub 1 niszy bez przemysłu nie daje monopolu globalnego
+  if (nonEnergyActiveCount === 0) {
+    score = Math.min(score, 48);
+  } else if (nonEnergyActiveCount === 1 && !hasElectricity) {
+    score = Math.min(score, 58);
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
+
+export function getOverallDominanceScore(state: GameState, playerId: string): number {
+  const player = state.players.find((p) => p.id === playerId && !p.isEliminated);
+  if (!player) return 0;
+  return computeGroupDominanceScore(state, new Set([playerId]));
 }
 
 export function getCoalitionDominanceScore(state: GameState, memberIds: string[]): number {
   const activeSet = new Set(
     memberIds.filter((id) => state.players.some((p) => p.id === id && !p.isEliminated))
   );
-  if (activeSet.size === 0) return 0;
-
-  const trackedResources: ResourceType[] = [
-    'steel',
-    'copper',
-    'gold',
-    'jewelry',
-    'fuel',
-    'semiconductors',
-    'coal',
-    'oil',
-    'uranium',
-    'weapons',
-  ];
-
-  const prodByCoalition: Partial<Record<ResourceType, number>> = {};
-  const totalByRes: Partial<Record<ResourceType, number>> = {};
-
-  for (const plot of state.plots) {
-    const b = plot.building;
-    if (!b || !b.isActive) continue;
-    for (const [resKey, amt] of Object.entries(b.productionPerTick)) {
-      const res = resKey as ResourceType;
-      const val = amt ?? 0;
-      totalByRes[res] = (totalByRes[res] ?? 0) + val;
-      if (activeSet.has(b.ownerId)) {
-        prodByCoalition[res] = (prodByCoalition[res] ?? 0) + val;
-      }
-    }
-  }
-
-  let activeMarketsCount = 0;
-  let topMarketShare = 0;
-  for (const res of trackedResources) {
-    const total = totalByRes[res] ?? 0;
-    const colAmt = prodByCoalition[res] ?? 0;
-    if (colAmt > 0) activeMarketsCount++;
-    const share = total > 0 ? Math.round((colAmt / total) * 100) : 0;
-    if (share > topMarketShare) topMarketShare = share;
-  }
-
-  const totalNetWorth = state.players.reduce((sum, p) => sum + Math.max(0, p.netWorth), 0);
-  let combinedNW = 0;
-  let combinedInf = 0;
-  let secretBonusSum = 0;
-  for (const p of state.players) {
-    if (!activeSet.has(p.id)) continue;
-    combinedNW += Math.max(0, p.netWorth);
-    combinedInf += p.influence.financial + p.influence.military + p.influence.social;
-    secretBonusSum += p.secretGoalDominanceBonus ?? 0;
-  }
-
-  const wealthShare = totalNetWorth > 0 ? (combinedNW / totalNetWorth) * 100 : 0;
-  const infScale = 0.7 + activeSet.size * 0.3;
-  const influenceBonus = Math.min(22, combinedInf / (25 * infScale));
-  const breadthBonus = Math.min(18, activeMarketsCount * 1.8);
-  const secretBonus = Math.min(12, secretBonusSum * 0.65);
-
-  return Math.min(
-    100,
-    Math.round(wealthShare * 0.58 + topMarketShare * 0.25 + influenceBonus + breadthBonus + secretBonus)
-  );
+  return computeGroupDominanceScore(state, activeSet);
 }
 
 export function takeBankLoan(

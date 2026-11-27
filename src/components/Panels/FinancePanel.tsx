@@ -877,48 +877,164 @@ export const FinancePanel: React.FC<FinancePanelProps> = ({
             </>
           )}
 
-          {tab === 'monopol' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-[#0b0f17] border border-amber-500/40">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-slate-100 text-sm">
-                    {lang === 'en'
-                      ? `Market Domination Index (Target: ${domThreshold}%)`
-                      : `Wskaźnik Dominacji Rynkowej (Cel Monopolu: ${domThreshold}%)`}
-                  </span>
-                  <span className="font-mono text-lg font-bold text-amber-300">{dominance}% / {domThreshold}%</span>
-                </div>
-                <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-sky-500 via-emerald-400 to-amber-400 transition-all duration-300"
-                    style={{ width: `${dominance}%` }}
-                  />
-                </div>
-              </div>
+          {tab === 'monopol' && (() => {
+            const globalRanking = [...gameState.players]
+              .map((p) => ({
+                player: p,
+                score: p.isEliminated ? 0 : getOverallDominanceScore(gameState, p.id),
+              }))
+              .sort((a, b) => b.score - a.score || b.player.netWorth - a.player.netWorth);
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {monopolyShares.map((ms) => (
-                  <div key={ms.resource} className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold text-slate-200">
-                        {ms.emoji} {localizeResourceName(ms.resource, ms.name, lang)}
-                      </span>
-                      <span className="font-mono font-bold text-sky-300">
-                        {ms.playerShare}% {lang === 'en' ? 'share' : 'udziału'}
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                      <div className="h-full bg-sky-400" style={{ width: `${ms.playerShare}%` }} />
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      {lang === 'en' ? 'Market leader:' : 'Lider rynku:'}{' '}
-                      <span className="text-slate-200">{ms.leaderName}</span>
-                    </div>
+            return (
+              <div className="space-y-4">
+                <div className="p-4 rounded-lg bg-[#0b0f17] border border-amber-500/40">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-slate-100 text-sm">
+                      {lang === 'en'
+                        ? `Global Market Domination Index (Target: ${domThreshold}%)`
+                        : `Globalny Wskaźnik Dominacji Rynkowej (Cel Monopolu: ${domThreshold}%)`}
+                    </span>
+                    <span className="font-mono text-lg font-bold text-amber-300">{dominance}% / {domThreshold}%</span>
                   </div>
-                ))}
+                  <p className="text-[11px] text-slate-400 mb-2">
+                    {lang === 'en'
+                      ? 'Measures combined global share across all sectors, production value, revenue, net worth, and industry breadth.'
+                      : 'Łączny udział globalny w produkcji wszystkich sektorów, wartości wyjściowej, przychodach, majątku i dywersyfikacji branż.'}
+                  </p>
+                  <div className="h-3 rounded-full bg-slate-800 overflow-hidden relative">
+                    <div
+                      className="h-full bg-gradient-to-r from-sky-500 via-emerald-400 to-amber-400 transition-all duration-300"
+                      style={{ width: `${dominance}%` }}
+                    />
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-amber-300/80"
+                      style={{ left: `${domThreshold}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Ranking Dominacji Graczy */}
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-200">
+                    <span>
+                      {lang === 'en' ? '🏆 Global Dominance Standings' : '🏆 Ranking Dominacji Graczy'}
+                    </span>
+                    <span className="text-[11px] font-normal text-slate-400">
+                      {lang === 'en' ? `Target: ${domThreshold}%` : `Próg wygranej: ${domThreshold}%`}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {globalRanking.map(({ player: rp, score }, idx) => {
+                      const isSelf = rp.id === currentPlayer.id;
+                      return (
+                        <div key={rp.id} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-mono text-[11px] text-slate-500 w-4">#{idx + 1}</span>
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: rp.color }}
+                              />
+                              <span
+                                className={`truncate ${
+                                  rp.isEliminated
+                                    ? 'line-through text-slate-500'
+                                    : isSelf
+                                      ? 'font-bold text-amber-300'
+                                      : 'text-slate-200'
+                                }`}
+                              >
+                                {rp.companyName}
+                              </span>
+                              {isSelf && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] text-amber-200 font-semibold">
+                                  {lang === 'en' ? 'YOU' : 'TY'}
+                                </span>
+                              )}
+                              {rp.isEliminated && (
+                                <span className="text-[10px] text-rose-400">
+                                  ({lang === 'en' ? 'Bankrupt' : 'Bankrut'})
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-mono font-bold text-slate-100 shrink-0">{score}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                              className="h-full transition-all duration-300"
+                              style={{ width: `${score}%`, backgroundColor: rp.color }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Udziały w 11 sektorach z kolorowymi paskami wielu graczy */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {monopolyShares.map((ms) => {
+                    const segs = ms.segments ?? [];
+                    const leaderLabel = ms.leaderId
+                      ? `${ms.leaderName} (${ms.leaderShare ?? 0}%)`
+                      : lang === 'en'
+                        ? 'Fragmented / Inactive'
+                        : 'Rynek Rozproszony';
+                    return (
+                      <div key={ms.resource} className="p-3 rounded-lg bg-[#0b0f17] border border-[#243044] space-y-1.5">
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="font-semibold text-slate-200 truncate">
+                            {ms.emoji} {localizeResourceName(ms.resource, ms.name, lang)}
+                          </span>
+                          <span className="font-mono font-bold text-sky-300 shrink-0">
+                            {ms.playerShare}%
+                          </span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-800 overflow-hidden flex">
+                          {segs.length > 0 ? (
+                            segs.map((seg) => (
+                              <div
+                                key={seg.playerId}
+                                className="h-full transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                                style={{ width: `${seg.share}%`, backgroundColor: seg.color }}
+                                title={`${seg.companyName}: ${seg.share}%`}
+                              />
+                            ))
+                          ) : (
+                            <div className="h-full w-0" />
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-400">
+                          <span>
+                            {lang === 'en' ? 'Your share:' : 'Twój udział:'}{' '}
+                            <span className="text-slate-200 font-mono">{ms.playerShare}%</span>
+                          </span>
+                          <span className="truncate">
+                            {lang === 'en' ? 'Leader:' : 'Lider:'}{' '}
+                            <span className="text-slate-200">{leaderLabel}</span>
+                          </span>
+                        </div>
+                        {segs.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {segs.slice(0, 4).map((seg) => (
+                              <span key={seg.playerId} className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: seg.color }}
+                                />
+                                <span className="truncate max-w-[95px]">{seg.companyName}</span>
+                                <span className="font-mono text-slate-300">{seg.share}%</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {tab === 'warehouse' && (
             <div className="space-y-3">

@@ -1033,21 +1033,19 @@ function checkVictoryConditions(state: GameState): void {
 
   if (state.time.tick >= 40 && state.players.length > 1) {
     if (state.settings.victoryMode === 'coalition' && state.coalitions && state.coalitions.length > 0) {
-      const totalMarketNetWorth = state.players.reduce((s, p) => s + Math.max(0, p.netWorth), 0);
       for (const col of state.coalitions) {
         const activeMembers = col.memberIds.filter((id) => state.players.some((p) => p.id === id && !p.isEliminated));
         if (activeMembers.length === 0) continue;
         const combinedNW = calculateCoalitionNetWorthSum(state, col.id);
-        const wealthPct = totalMarketNetWorth > 0 ? (combinedNW / totalMarketNetWorth) * 100 : 0;
         const combinedBuildings = state.plots.filter(
           (pl) => pl.ownerId && activeMembers.includes(pl.ownerId) && pl.building && !pl.building.destroyedRuins
         ).length;
         const coalitionDominance = getCoalitionDominanceScore(state, activeMembers);
 
-        if ((wealthPct >= domThreshold || coalitionDominance >= domThreshold) && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
+        if (coalitionDominance >= domThreshold && combinedNW >= 16_000_000 && combinedBuildings >= 6) {
           state.winningCoalitionId = col.id;
           state.winnerId = col.leaderId;
-          const pctVal = Math.max(Math.round(wealthPct), coalitionDominance);
+          const pctVal = coalitionDominance;
           state.victoryReason = en
             ? `Coalition [${col.tag}] ${col.name} achieved combined market domination (${pctVal}% at ${domThreshold}% threshold) and won as an alliance!`
             : `Koalicja [${col.tag}] ${col.name} osiągnęła łączną dominację rynkową (${pctVal}% przy progu ${domThreshold}%) i zwyciężyła jako sojusz!`;

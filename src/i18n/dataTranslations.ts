@@ -183,12 +183,12 @@ const GLOBAL_TECH_EN: Record<
   ind_geology: {
     name: 'Mineral Geophysics & Georadar',
     description: 'Unlocks 3x3 Area Geological Scan and boosts mine extraction.',
-    effects: ['Unlocks 3x3 Area Survey (Georadar)', '+15% mine extraction', '-30% survey cost'],
+    effects: ['Unlocks 3x3 Area Survey (Georadar)', '+10% mine extraction', '-30% survey cost'],
   },
   ind_metallurgy: {
     name: 'Steel & Copper Metallurgy',
     description: 'Optimizes blast furnaces and copper refining for national power grids.',
-    effects: ['+20% processing output', 'Stronger steel & cable plant margins'],
+    effects: ['+14% processing output', 'Stronger steel & cable plant margins'],
   },
   ind_gold_jewelry: {
     name: 'Gold Refining & Jewelry Craft',
@@ -198,7 +198,7 @@ const GLOBAL_TECH_EN: Record<
   ind_automation: {
     name: 'Industrial Automation',
     description: 'Robotic assembly lines slash workforce payroll tax burdens.',
-    effects: ['+25% factory output', '-15% employer payroll taxes'],
+    effects: ['+18% factory output', '-15% employer payroll taxes'],
   },
   ind_clean_heavy: {
     name: 'Clean Industrial Tech',
@@ -209,7 +209,7 @@ const GLOBAL_TECH_EN: Record<
     name: 'Deep-Crust Extraction',
     description: 'Reaches deep uranium, gold, rare earth, diamond, and lithium deposits.',
     effects: [
-      '+30% critical mineral mine output',
+      '+22% critical mineral mine output',
       'Unlocks Diamond Mine, Lithium Mine & Luxury Diamond House',
     ],
   },
@@ -224,7 +224,7 @@ const GLOBAL_TECH_EN: Record<
   mod_grid: {
     name: 'Smart Power Grids',
     description: 'Cuts transmission losses and stabilizes plant power delivery.',
-    effects: ['+20% power plant efficiency', '-15% electricity bills'],
+    effects: ['+12% power plant efficiency', '-15% electricity bills'],
   },
   mod_hydro_shield: {
     name: 'Retention & Closed Water Loops',
@@ -239,13 +239,13 @@ const GLOBAL_TECH_EN: Record<
   mod_nuclear: {
     name: 'Gen-III+ Nuclear Fission',
     description: 'Safe high-output nuclear energy capable of monopolizing grid supply.',
-    effects: ['Unlocks Nuclear Power Plant', '+35% power output'],
+    effects: ['Unlocks Nuclear Power Plant', '+20% power output'],
   },
   mod_ai_erp: {
     name: 'Industrial Artificial Intelligence',
     description: 'Algorithmic B2B logistics, EV battery production, and cloud datacenters.',
     effects: [
-      '+30% R&D speed',
+      '+20% R&D speed',
       '+15% empire-wide output',
       'Unlocks EV Battery Factory & Data Center',
     ],
@@ -253,7 +253,7 @@ const GLOBAL_TECH_EN: Record<
   mod_enrichment: {
     name: 'Uranium Isotope Centrifuges',
     description: 'Precision uranium fuel enrichment for Gen-IV reactors and covert programs.',
-    effects: ['Unlocks Uranium Enrichment Plant', '+25% nuclear power plant capacity'],
+    effects: ['Unlocks Uranium Enrichment Plant', '+18% nuclear power plant capacity'],
   },
   mod_aerospace: {
     name: 'Aerospace & Orbital Program',
@@ -263,12 +263,12 @@ const GLOBAL_TECH_EN: Record<
   mod_fusion: {
     name: 'Thermonuclear Fusion',
     description: 'Final energy revolution: zero-emission fusion reactor of colossal output.',
-    effects: ['Unlocks Fusion Reactor', '+45% power grid output'],
+    effects: ['Unlocks Fusion Reactor', '+25% power grid output'],
   },
   ind_logistics: {
     name: 'Intermodal Freight Hubs',
     description: 'Integrated transfer hubs cushion fuel price spikes and unlock Passenger Rail.',
-    effects: ['-25% road transport costs', 'Faster truck dispatch fleet'],
+    effects: ['-18% road transport costs', 'Faster truck dispatch fleet'],
   },
   log_maritime: {
     name: 'Maritime Cargo & Seaports',
@@ -278,7 +278,7 @@ const GLOBAL_TECH_EN: Record<
   log_copper_grid: {
     name: 'Heavy Power Trunks & Containers',
     description: 'Integrates copper transmission corridors and B2B container standards.',
-    effects: ['+15% power grid output', '-15% logistics costs'],
+    effects: ['+12% power grid output', '-15% logistics costs'],
   },
   log_air_cargo: {
     name: 'Cargo & VIP Aviation',
@@ -288,7 +288,7 @@ const GLOBAL_TECH_EN: Record<
   saf_fire_prevention: {
     name: 'Industrial Safety & Fire Codes',
     description: 'Modern suppression codes cut fire frequency and machine wear.',
-    effects: ['-30% plant fire risk', 'Higher Fire Station readiness'],
+    effects: ['-20% plant fire risk', 'Higher Fire Station readiness'],
   },
   saf_medicine: {
     name: 'Occupational Medicine & Clinics',
@@ -303,12 +303,12 @@ const GLOBAL_TECH_EN: Record<
   saf_crisis_shield: {
     name: 'Integrated Crisis Shield',
     description: 'Full automated fire, medical, and radiological monitoring network.',
-    effects: ['-40% environmental fine severity', 'Higher voter trust (+approval)'],
+    effects: ['-28% environmental fine severity', 'Higher voter trust (+approval)'],
   },
   mil_compliance: {
     name: 'Corporate Counterintelligence',
     description: 'Protects treasury data, geology maps, and factories against rival spies.',
-    effects: ['+35% defense against sabotage and espionage'],
+    effects: ['+22% defense against sabotage and espionage'],
   },
   mil_arms: {
     name: 'Armaments & PMC Doctrine',
@@ -318,12 +318,12 @@ const GLOBAL_TECH_EN: Record<
   mil_cyber: {
     name: 'Cyber-Intel & OSINT',
     description: 'Unlocks the Intelligence Center and covert information ops.',
-    effects: ['Unlocks Intelligence Center', '+30% espionage & sabotage effectiveness'],
+    effects: ['Unlocks Intelligence Center', '+22% espionage & sabotage effectiveness'],
   },
   mil_boarding: {
     name: 'Corporate Boarding Doctrine',
     description: 'Tactical buyout units engineered to seize weakened rival assets.',
-    effects: ['+45% Corporate Raid success odds', '+40 military strength'],
+    effects: ['+28% Corporate Raid success odds', '+40 military strength'],
   },
   mil_coup: {
     name: 'Coup Protocol',
@@ -353,7 +353,7 @@ const ENTREPRENEUR_SKILLS_EN: Record<
   ent_fin_4: { name: 'Dividend Emperor', description: 'Advanced capital allocation maximizing return on corporate equity.', effects: ['+14% operating margin', '-10% CIT tax'] },
   ent_fin_hedge: { name: 'Alpha Arbitrage Fund', description: 'Exploits informational edges during market bubbles and crashes.', effects: ['+10% market sell price', '-8% resource buy discount'] },
   ent_fin_holding: { name: 'Offshore Holding Structure', description: 'Cross-border treasury consolidation slashes debt & tax drag.', effects: ['-12% CIT tax', '-2 pp loan interest', '+12% margin'] },
-  ent_fin_apex: { name: 'Monopoly Architect (Flagship Project)', description: 'Pinnacle financial authority commanding treasury liquidity and equity pricing.', effects: ['+25% empire margin', '+12% sale prices', '-10% CIT tax'] },
+  ent_fin_apex: { name: 'Monopoly Architect (Flagship Project)', description: 'Pinnacle financial authority commanding treasury liquidity and equity pricing.', effects: ['+22% empire margin', '+12% sale prices', '-10% CIT tax'] },
 
   ent_neg_1: { name: 'Hard Negotiator', description: 'Better B2B contract terms and cheaper raw input sourcing.', effects: ['+5% product sell price', '-5% input purchase cost'] },
   ent_neg_2: { name: 'Land & B2B Broker', description: 'Makes AI and rivals markedly more receptive to plot buyout offers.', effects: ['+15% plot offer acceptance', '+7% sell price'] },
@@ -374,22 +374,22 @@ const ENTREPRENEUR_SKILLS_EN: Record<
   ent_log_apex: { name: 'Titan of Industry & Logistics (Flagship Project)', description: 'Frictionless industrial logistics delivering supreme empire margins.', effects: ['+22% profit in all plants', '-25% transport', '-12% input costs'] },
 
   ent_tech_1: { name: 'Science Patron', description: 'Scholarships and technical sponsorship reduce R&D costs.', effects: ['-15% tech research costs', '+15% research speed'] },
-  ent_tech_2: { name: 'Patent Incubator', description: 'Accelerates internal upgrade research inside every building.', effects: ['+30% R&D speed inside buildings and labs'] },
+  ent_tech_2: { name: 'Patent Incubator', description: 'Accelerates internal upgrade research inside every building.', effects: ['+22% R&D speed inside buildings and labs'] },
   ent_tech_3: { name: 'Industry 5.0 Visionary', description: 'Synergy between capital and science lifts advanced factories.', effects: ['-20% R&D cost', '+12% empire margin'] },
   ent_tech_eco: { name: 'Green Transition Pioneer', description: 'Supports recycling and renewables while cutting eco & safety drag.', effects: ['-20% safety & eco compliance', '-8% green tax burden'] },
-  ent_tech_4: { name: 'Conglomerate Chancellor', description: 'Unmatched global R&D speed paired with tighter hazard prevention.', effects: ['+35% research speed', '-25% safety services cost'] },
+  ent_tech_4: { name: 'Conglomerate Chancellor', description: 'Unmatched global R&D speed paired with tighter hazard prevention.', effects: ['+25% research speed', '-25% safety services cost'] },
   ent_tech_quantum: { name: 'Academy of Fusion & Quantum Optics', description: 'Trains elite scientists for fusion reactors and quantum networks.', effects: ['+14% high-tech margin', '-15% R&D cost'] },
-  ent_tech_singularity: { name: 'R&D Breakthrough Center', description: 'Proprietary institutes keep your patents a decade ahead of rivals.', effects: ['+45% R&D speed', '-25% rollout costs', '+10% sale prices'] },
-  ent_tech_apex: { name: 'Technology Visionary (Flagship Project)', description: 'Highest scientific authority delivering extraordinary R&D velocity.', effects: ['+60% global & Flagship R&D speed', '+20% profit', '-10% CIT'] },
+  ent_tech_singularity: { name: 'R&D Breakthrough Center', description: 'Proprietary institutes keep your patents a decade ahead of rivals.', effects: ['+28% R&D speed', '-25% rollout costs', '+10% sale prices'] },
+  ent_tech_apex: { name: 'Technology Visionary (Flagship Project)', description: 'Highest scientific authority delivering extraordinary R&D velocity.', effects: ['+35% global & Flagship R&D speed', '+20% profit', '-10% CIT'] },
 
   ent_inf_1: { name: 'Elite & Civic Goodwill', description: 'Builds immediate political credibility among opinion leaders.', effects: ['+15 social/church influence', '+20% influence action potency'] },
   ent_inf_2: { name: 'Backroom Strategist', description: 'Deep ties across media, councils, and parliament sustain leverage.', effects: ['+30% potency across all 3 Influence Pillars'] },
-  ent_inf_3: { name: 'Master of Public Narrative', description: 'Lobbying, PR stunts, and media blitzes land with sharp precision.', effects: ['+45% strength across all Pillars', '+15 social influence'] },
+  ent_inf_3: { name: 'Master of Public Narrative', description: 'Lobbying, PR stunts, and media blitzes land with sharp precision.', effects: ['+30% strength across all Pillars', '+15 social influence'] },
   ent_inf_pmc: { name: 'Defense Licenses & Counterintel', description: 'Lays the institutional foundation for private tactical units.', effects: ['+25 military strength', '-15% raid & takeover costs'] },
-  ent_inf_4: { name: 'Market Sovereign', description: 'Commands peak parliamentary, tariff, and buyout authority.', effects: ['+40% strength across all Pillars', '-15% plot buyout cost'] },
+  ent_inf_4: { name: 'Market Sovereign', description: 'Commands peak parliamentary, tariff, and buyout authority.', effects: ['+30% strength across all Pillars', '-15% plot buyout cost'] },
   ent_inf_deterrence: { name: 'Deterrence Doctrine', description: 'Fortifies PMC bases, anti-sabotage defenses, and strategic strike power.', effects: ['+40 military strength', '-20% safety service costs'] },
-  ent_inf_kingmaker: { name: 'Parliament Kingmaker', description: 'Cabinet policy aligns with your boardroom priorities.', effects: ['+50% Pillar strength', '-10% CIT', '+30 military power'] },
-  ent_inf_apex: { name: 'Gray Eminence of Empire (Flagship Project)', description: 'Supreme backroom power over media, parliament, and security forces.', effects: ['+75% Pillar strength', '+60 military pts', '+18% political profit'] },
+  ent_inf_kingmaker: { name: 'Parliament Kingmaker', description: 'Cabinet policy aligns with your boardroom priorities.', effects: ['+32% Pillar strength', '-10% CIT', '+30 military power'] },
+  ent_inf_apex: { name: 'Gray Eminence of Empire (Flagship Project)', description: 'Supreme backroom power over media, parliament, and security forces.', effects: ['+40% Pillar strength', '+60 military pts', '+18% political profit'] },
 };
 
 export function localizeSkillNode<

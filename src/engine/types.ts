@@ -893,6 +893,13 @@ export interface FinancialHistoryPoint {
   netWorth: number;
 }
 
+export interface MonopolySegment {
+  playerId: string;
+  companyName: string;
+  color: string;
+  share: number;
+}
+
 export interface MonopolyShare {
   resource: ResourceType;
   name: string;
@@ -900,6 +907,8 @@ export interface MonopolyShare {
   playerShare: number;
   leaderName: string;
   leaderId: string;
+  leaderShare?: number;
+  segments?: MonopolySegment[];
 }
 
 // ─── Newspaper & Events ───────────────────────────────────────────────────────

@@ -12,14 +12,15 @@ function makeFiveNodeTree(
     n4: { name: string; desc: string; trade: string; eff: BuildingTechNode['effects'] };
     flagship: { name: string; desc: string; trade: string; eff: BuildingTechNode['effects']; reqs?: NonFinancialRequirements };
   }
-): TechSeed[] {
+, corpLevel = 1): TechSeed[] {
+  const costRef = corpLevel >= 5 ? baseCost / 1.6 : corpLevel === 4 ? baseCost / 1.55 : corpLevel === 3 ? baseCost / 1.45 : corpLevel === 2 ? baseCost / 1.35 : baseCost;
   return [
     {
       id: `${prefix}_t1`,
       name: nodes.n1.name,
       description: nodes.n1.desc,
       tradeoffNote: nodes.n1.trade,
-      cost: Math.round(baseCost * 0.34),
+      cost: Math.round((costRef * 0.52) / 1000) * 1000,
       researchTicks: 8,
       prerequisites: [],
       category: 'efficiency',
@@ -32,7 +33,7 @@ function makeFiveNodeTree(
       name: nodes.n2.name,
       description: nodes.n2.desc,
       tradeoffNote: nodes.n2.trade,
-      cost: Math.round(baseCost * 0.42),
+      cost: Math.round((costRef * 0.64) / 1000) * 1000,
       researchTicks: 10,
       prerequisites: [],
       category: 'capacity',
@@ -45,7 +46,7 @@ function makeFiveNodeTree(
       name: nodes.n3.name,
       description: nodes.n3.desc,
       tradeoffNote: nodes.n3.trade,
-      cost: Math.round(baseCost * 0.65),
+      cost: Math.round((costRef * 1.05) / 1000) * 1000,
       researchTicks: 13,
       prerequisites: [`${prefix}_t1`],
       category: 'green',
@@ -59,7 +60,7 @@ function makeFiveNodeTree(
       name: nodes.n4.name,
       description: nodes.n4.desc,
       tradeoffNote: nodes.n4.trade,
-      cost: Math.round(baseCost * 0.95),
+      cost: Math.round((costRef * 1.63) / 1000) * 1000,
       researchTicks: 16,
       prerequisites: [`${prefix}_t2`],
       category: 'monopoly',
@@ -73,7 +74,7 @@ function makeFiveNodeTree(
       name: `${nodes.flagship.name} (Projekt Flagowy)`,
       description: nodes.flagship.desc,
       tradeoffNote: nodes.flagship.trade,
-      cost: Math.round(baseCost * 2.25),
+      cost: Math.round((costRef * 4.05) / 1000) * 1000,
       researchTicks: 22,
       prerequisites: [`${prefix}_t3`, `${prefix}_t4`],
       category: 'flagship',
@@ -128,8 +129,8 @@ function makeDecorativeMonumentDef(opts: {
       n1: {
         name: 'Strefa Zwiedzania i Alejki',
         desc: 'Zwiększa przychody z biletów gości.',
-        trade: '+30% wpływów i wyższe poparcie społeczne.',
-        eff: { productionBonus: 0.3, influenceBonus: 8 },
+        trade: '+13% wpływów i wyższe poparcie społeczne.',
+        eff: { productionBonus: 0.13, influenceBonus: 8 },
       },
       n2: {
         name: 'System Retencji Wody',
@@ -146,14 +147,14 @@ function makeDecorativeMonumentDef(opts: {
       n4: {
         name: 'Pawilon Wystawowy VIP',
         desc: 'Przyciąga turystów i biznes.',
-        trade: '+45% przychodu obiektu i +15 wpływów.',
-        eff: { productionBonus: 0.45, influenceBonus: 15 },
+        trade: '+22% przychodu obiektu i +15 wpływów.',
+        eff: { productionBonus: 0.22, influenceBonus: 15 },
       },
       flagship: {
         name: 'Wielki Kompleks Dziedzictwa',
         desc: 'Monumentalna oprawa metropolii.',
-        trade: '+85% przychodu, +30 wpływów i silna tarcza przeciw smogowi.',
-        eff: { productionBonus: 0.85, influenceBonus: 30, pollutionDelta: -6 },
+        trade: '+28% przychodu, +30 wpływów i silna tarcza przeciw smogowi.',
+        eff: { productionBonus: 0.28, influenceBonus: 30, pollutionDelta: -6 },
         reqs: { requiredCorpLevel: 2, minWorkerSkill: 50 },
       },
     }),
@@ -220,14 +221,14 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n1: {
         name: 'Rozkłady Cyfrowe GPS',
         desc: 'Optymalizuje linie autobusowe i skraca czas przesiadek.',
-        trade: '+22% przychodu z biletów, -12% zużycia paliwa.',
-        eff: { productionBonus: 0.22, costReduction: 0.12 },
+        trade: '+12% przychodu z biletów, -12% zużycia paliwa.',
+        eff: { productionBonus: 0.12, costReduction: 0.12 },
       },
       n2: {
         name: 'Przegubowa Flota Miejska',
         desc: 'Większe pojazdy obsługują szczytowy ruch do dzielnic handlowych.',
-        trade: '+25% pojemności pasażerów i premii popytu.',
-        eff: { productionBonus: 0.25, electricityDelta: 0.1 },
+        trade: '+12% pojemności pasażerów i premii popytu.',
+        eff: { productionBonus: 0.12, electricityDelta: 0.1 },
       },
       n3: {
         name: 'Autobusy Elektryczne ZERO-EMISJI',
@@ -238,14 +239,14 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'System Buspasów Ekspresowych',
         desc: 'Priorytetowe korytarze przyspieszają dojazdy na całej trasie.',
-        trade: '+30% przychodów i -15% rotacji pracowników w okolicy.',
-        eff: { productionBonus: 0.3, workerReduction: 0.15 },
+        trade: '+18% przychodów i -15% rotacji pracowników w okolicy.',
+        eff: { productionBonus: 0.18, workerReduction: 0.15 },
       },
       flagship: {
         name: 'Autonomiczna Sieć BRT Metropolii',
         desc: 'W pełni zautomatyzowany szybki transport autobusowy obsługujący cały region.',
-        trade: '+55% przychodu, maksymalny zasięg popytu i wpływ społeczny.',
-        eff: { productionBonus: 0.55, influenceBonus: 18, tariffBonus: 0.1 },
+        trade: '+24% przychodu, maksymalny zasięg popytu i wpływ społeczny.',
+        eff: { productionBonus: 0.24, influenceBonus: 18, tariffBonus: 0.1 },
         reqs: { requiredCorpLevel: 3, minWorkerSkill: 65 },
       },
     }),
@@ -260,7 +261,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Podziemna kolej miejska odporna na korki i blokady uliczne. Gwałtownie napędza ruch w Strefie Kupujących, Kasynach i Biurowcach.',
     strategyHint: 'Stawiaj w centrum biznesowym — generuje do +55% popytu pasażerskiego w promieniu 5 pól.',
-    baseCost: 390_000,
+    baseCost: 565_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'coastal'],
     maxWorkers: 22,
@@ -280,18 +281,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       '+42% Popytu Lokalnego w promieniu 5 pól (niezależne od korków)',
       'Silna synergia ze Strefą Kupujących, Kasynem i Biurowcem',
     ],
-    internalTechTree: makeFiveNodeTree('metro', 390_000, {
+    internalTechTree: makeFiveNodeTree('metro', 565_000, {
       n1: {
         name: 'Bramki Bezdotykowe NFC',
         desc: 'Przyspiesza przepływ pasażerów w godzinach szczytu.',
-        trade: '+24% zysków z biletów, mniej obsługi kasowej.',
-        eff: { productionBonus: 0.24, workerReduction: 0.15 },
+        trade: '+12% zysków z biletów, mniej obsługi kasowej.',
+        eff: { productionBonus: 0.12, workerReduction: 0.15 },
       },
       n2: {
         name: 'Węzeł Pasażów Podziemnych',
         desc: 'Podziemne butiki i punkty usługowe w hali stacji.',
-        trade: '+28% przychodu z najmu powierzchni stacyjnej.',
-        eff: { productionBonus: 0.28, tariffBonus: 0.1 },
+        trade: '+13% przychodu z najmu powierzchni stacyjnej.',
+        eff: { productionBonus: 0.13, tariffBonus: 0.1 },
       },
       n3: {
         name: 'Odzysk Energii Hamowania',
@@ -302,17 +303,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Ekspresowe Pociągi Co 90 Sekund',
         desc: 'Podwaja częstotliwość kursowania pociągów bezzałogowych.',
-        trade: '+38% przychodów, +20 wpływu społecznego.',
-        eff: { productionBonus: 0.38, influenceBonus: 20 },
+        trade: '+20% przychodów, +20 wpływu społecznego.',
+        eff: { productionBonus: 0.2, influenceBonus: 20 },
       },
       flagship: {
         name: 'Magistrala Pętli Ekspresowej',
         desc: 'Superszybka podziemna arteria łącząca wszystkie dzielnice handlowe miasta.',
-        trade: '+65% przychodów, ochrona przed black-outem i wysoki prestiż.',
-        eff: { productionBonus: 0.65, blackoutProtection: true, influenceBonus: 32 },
+        trade: '+26% przychodów, ochrona przed black-outem i wysoki prestiż.',
+        eff: { productionBonus: 0.26, blackoutProtection: true, influenceBonus: 32 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 72, requiredBuildings: ['university'] },
       },
-    }),
+    }, 3),
   },
   trainStation: {
     type: 'trainStation',
@@ -324,7 +325,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Międzyregionalny dworzec sprowadzający turystów, konsumentów i specjalistów spoza mapy.',
     strategyHint: 'Podnosi globalny popyt na hotele, kurorty, handel i atrakcje na całej mapie!',
-    baseCost: 430_000,
+    baseCost: 625_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'urban', 'desert', 'coastal'],
     maxWorkers: 26,
@@ -345,18 +346,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       '+16% globalnego popytu pasażerskiego w całym imperium',
       'Dodatkowa premia lokalna dla hoteli i galerii w promieniu 5 pól',
     ],
-    internalTechTree: makeFiveNodeTree('train', 430_000, {
+    internalTechTree: makeFiveNodeTree('train', 625_000, {
       n1: {
         name: 'Perony Dalekobieżne InterCity',
         desc: 'Obsługuje szybkie połączenia międzyregionalne.',
-        trade: '+25% ruchu pasażerów i przychodu z biletów.',
-        eff: { productionBonus: 0.25 },
+        trade: '+12% ruchu pasażerów i przychodu z biletów.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'Galeria Dworcowa i Parkingi',
         desc: 'Komercyjne zaplecze dla podróżnych i najemców.',
-        trade: '+26% przychodu stałego, -10% kosztów utrzymania.',
-        eff: { productionBonus: 0.26, costReduction: 0.1 },
+        trade: '+12% przychodu stałego, -10% kosztów utrzymania.',
+        eff: { productionBonus: 0.12, costReduction: 0.1 },
       },
       n3: {
         name: 'Składy Hybrydowo-Elektryczne',
@@ -367,17 +368,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Kolej Dużych Prędkości (KDP)',
         desc: 'Skraca dystans z sąsiednich metropolii o połowę.',
-        trade: '+40% przychodów i +20 wpływów politycznych.',
-        eff: { productionBonus: 0.4, influenceBonus: 20 },
+        trade: '+20% przychodów i +20 wpływów politycznych.',
+        eff: { productionBonus: 0.2, influenceBonus: 20 },
       },
       flagship: {
         name: 'Kontynentalny Węzeł Kolei Magnetycznej',
         desc: 'Terminal superszybkiego ruchu pasażerskiego klasy krajowej.',
-        trade: '+70% przychodu i potężny napływ konsumentów.',
-        eff: { productionBonus: 0.7, influenceBonus: 35, costReduction: 0.15 },
+        trade: '+26% przychodu i potężny napływ konsumentów.',
+        eff: { productionBonus: 0.26, influenceBonus: 35, costReduction: 0.15 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 72, requiredBuildings: ['university'] },
       },
-    }),
+    }, 3),
   },
   passengerTerminal: {
     type: 'passengerTerminal',
@@ -389,7 +390,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Międzynarodowy port lotniczy sprowadzający zamożnych turystów i klientów VIP z całego świata.',
     strategyHint: 'Potężna synergia z Kasynem, Kurortem, Salonem Jubilerskim Luksusowym i Areną.',
-    baseCost: 840_000,
+    baseCost: 1_300_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'desert', 'coastal', 'urban'],
     maxWorkers: 34,
@@ -410,18 +411,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       '+28% globalnego popytu pasażerskiego oraz ogromny boost klasy VIP (+50%)',
       'Synergia VIP z Kasynem, Kurortem i Luksusową Biżuterią',
     ],
-    internalTechTree: makeFiveNodeTree('viptrm', 840_000, {
+    internalTechTree: makeFiveNodeTree('viptrm', 1_300_000, {
       n1: {
         name: 'Strefa Duty-Free & VIP Lounge',
         desc: 'Ekskluzywne salony pasażerskie podnoszące wydatki gości.',
-        trade: '+28% przychodu komercyjnego.',
-        eff: { productionBonus: 0.28 },
+        trade: '+13% przychodu komercyjnego.',
+        eff: { productionBonus: 0.13},
       },
       n2: {
         name: 'Drugi Pas Startowy',
         desc: 'Podwaja przepustowość lotów międzynarodowych i czarterowych.',
-        trade: '+34% przychodu i większa odporność na przestoje.',
-        eff: { productionBonus: 0.34, wearRateDelta: -0.1 },
+        trade: '+13% przychodu i większa odporność na przestoje.',
+        eff: { productionBonus: 0.13, wearRateDelta: -0.1 },
       },
       n3: {
         name: 'Biopaliwo Lotnicze SAF',
@@ -432,17 +433,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Połączenia Transkontynentalne',
         desc: 'Stałe loty biznesowe ze światowych stolic finansowych.',
-        trade: '+42% przychodu i +25 wpływów finansowych.',
-        eff: { productionBonus: 0.42, influenceBonus: 25 },
+        trade: '+20% przychodu i +25 wpływów finansowych.',
+        eff: { productionBonus: 0.2, influenceBonus: 25 },
       },
       flagship: {
         name: 'Globalny Megahub Przesiadkowy',
         desc: 'Światowy punkt tranzytowy napędzający luksus i turystykę na całej mapie.',
-        trade: '+75% przychodu i +45 punktów prestiżu.',
-        eff: { productionBonus: 0.75, influenceBonus: 45, tariffBonus: 0.15 },
+        trade: '+28% przychodu i +45 punktów prestiżu.',
+        eff: { productionBonus: 0.28, influenceBonus: 45, tariffBonus: 0.15 },
         reqs: { requiredCorpLevel: 5, minWorkerSkill: 80, requiredBuildings: ['university', 'rdLab'] },
       },
-    }),
+    }, 4),
   },
 
   // ─── 2. Handel i Miasto (3 unikalne obiekty — Galeria i Biurowiec już są) ─
@@ -456,7 +457,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Nowoczesne dzielnice mieszkaniowe dostarczające wykwalifikowanych kadr HR i lokalnych kupujących. Wrażliwe na smog przemysłowy.',
     strategyHint: 'Stawiaj z dala od hut/kopalń lub w osłonie Parku Miejskiego — zasila popyt galerii i restauracji!',
-    baseCost: 235_000,
+    baseCost: 315_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'coastal'],
     maxWorkers: 12,
@@ -475,12 +476,12 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Zwiększa lokalną bazę konsumentów (+20%) dla sąsiedniego handlu i gastronomii',
       'Wzmacnia poparcie społeczne oraz podaż pracowników',
     ],
-    internalTechTree: makeFiveNodeTree('apt', 235_000, {
+    internalTechTree: makeFiveNodeTree('apt', 315_000, {
       n1: {
         name: 'Lokale Usługowe w Parterach',
         desc: 'Wynajem parterów pod kawiarnie i sklepy osiedlowe.',
-        trade: '+22% stałych czynszów.',
-        eff: { productionBonus: 0.22 },
+        trade: '+12% stałych czynszów.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'Smart-Home i Fotowoltaika Dachowa',
@@ -497,17 +498,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Penthouse Premium Tower',
         desc: 'Dobudowa apartamentów klasy executive dla kadry menedżerskiej.',
-        trade: '+38% przychodów i mniejsza podatność na spowolnienia.',
-        eff: { productionBonus: 0.38, costReduction: 0.1 },
+        trade: '+20% przychodów i mniejsza podatność na spowolnienia.',
+        eff: { productionBonus: 0.2, costReduction: 0.1 },
       },
       flagship: {
         name: 'Ekologiczna Dzielnica Przyszłości',
         desc: 'Samowystarczalny kwartał miejski klasy premium o zerowej emisyjności.',
-        trade: '+65% czynszów, ochrona na suszę i blackouty.',
-        eff: { productionBonus: 0.65, blackoutProtection: true, droughtProtection: true, influenceBonus: 25 },
+        trade: '+26% czynszów, ochrona na suszę i blackouty.',
+        eff: { productionBonus: 0.26, blackoutProtection: true, droughtProtection: true, influenceBonus: 25 },
         reqs: { requiredCorpLevel: 3, minWorkerSkill: 65, requiredBuildings: ['highSchool'] },
       },
-    }),
+    }, 2),
   },
   gastronomyBoulevard: {
     type: 'gastronomyBoulevard',
@@ -519,7 +520,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Modny pasaż restauracyjny tętniący życiem. Tworzy Strefę Kupujących obok Galerii, Hoteli, Apartamentów i Kasyn.',
     strategyHint: 'Doskonale mnoży przychody sąsiednich obiektów handlowych oraz korzysta z Zajezdni i Metra!',
-    baseCost: 165_000,
+    baseCost: 225_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'coastal', 'grass'],
     maxWorkers: 16,
@@ -538,18 +539,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Rdzeń Strefy Kupujących (+15%..+30% przychodu dla sąsiedniego handlu)',
       'Wysoka wrażliwość na Napływ Konsumentów z Zajezdni i Metra',
     ],
-    internalTechTree: makeFiveNodeTree('gastro', 165_000, {
+    internalTechTree: makeFiveNodeTree('gastro', 225_000, {
       n1: {
         name: 'Ogródki Całoroczne i Eventy',
         desc: 'Przyciąga gości także poza sezonem i w weekendy.',
-        trade: '+24% obrotu gastronomicznego.',
-        eff: { productionBonus: 0.24 },
+        trade: '+12% obrotu gastronomicznego.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'Centralna Kuchnia i Zakupy Grupowe',
         desc: 'Obniża marnowanie i koszty zaopatrzenia lokali.',
-        trade: '-22% kosztów operacyjnych.',
-        eff: { costReduction: 0.22 },
+        trade: '-14% kosztów operacyjnych.',
+        eff: { costReduction: 0.14},
       },
       n3: {
         name: 'Segregacja Bioodpadów i Filtry',
@@ -560,17 +561,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Restauracje z Gwiazdką VIP',
         desc: 'Ekskluzywna marka przyciągająca turystów i biznesmenów.',
-        trade: '+38% marży, silniejsza synergia z hotelami.',
-        eff: { productionBonus: 0.38, tariffBonus: 0.1 },
+        trade: '+20% marży, silniejsza synergia z hotelami.',
+        eff: { productionBonus: 0.2, tariffBonus: 0.1 },
       },
       flagship: {
         name: 'Międzynarodowa Aleja Kulinarna',
         desc: 'Najsłynniejszy pasaż kulinarny w kraju przyciągający tłumy całą dobę.',
-        trade: '+68% przychodów i +24 pkt wpływów społecznych.',
-        eff: { productionBonus: 0.68, influenceBonus: 24, crimeReductionBonus: 0.15 },
+        trade: '+26% przychodów i +24 pkt wpływów społecznych.',
+        eff: { productionBonus: 0.26, influenceBonus: 24, crimeReductionBonus: 0.15 },
         reqs: { requiredCorpLevel: 3, minWorkerSkill: 60 },
       },
-    }),
+    }, 2),
   },
   cityPark: {
     type: 'cityPark',
@@ -605,8 +606,8 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n1: {
         name: 'Aleje Biegowe i Amfiteatr',
         desc: 'Zwiększa przychody z biletów do palmiarni i wydarzeń.',
-        trade: '+30% wpływów i wyższe poparcie społeczne.',
-        eff: { productionBonus: 0.3, influenceBonus: 8 },
+        trade: '+13% wpływów i wyższe poparcie społeczne.',
+        eff: { productionBonus: 0.13, influenceBonus: 8 },
       },
       n2: {
         name: 'System Retencji Deszczówki',
@@ -623,14 +624,14 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Oranżeria Tropikalna i Kawiarnia',
         desc: 'Całoroczna atrakcja botaniczna przyciągająca turystów.',
-        trade: '+45% przychodu obiektu i +15 wpływów.',
-        eff: { productionBonus: 0.45, influenceBonus: 15 },
+        trade: '+22% przychodu obiektu i +15 wpływów.',
+        eff: { productionBonus: 0.22, influenceBonus: 15 },
       },
       flagship: {
         name: 'Królewski Ekopark & Arboretum',
         desc: 'Monumentalny kompleks zieleni podnoszący prestiż całej metropolii.',
-        trade: '+85% przychodu, +30 wpływów i silna tarcza przeciw smogowi.',
-        eff: { productionBonus: 0.85, influenceBonus: 30, pollutionDelta: -6 },
+        trade: '+28% przychodu, +30 wpływów i silna tarcza przeciw smogowi.',
+        eff: { productionBonus: 0.28, influenceBonus: 30, pollutionDelta: -6 },
         reqs: { requiredCorpLevel: 2, minWorkerSkill: 50 },
       },
     }),
@@ -647,7 +648,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Wielofunkcyjna hala koncertowo-sportowa generująca gigantyczne wpływy z biletów i synergii w Dzielnicy Rozrywki.',
     strategyHint: 'Obok Hoteli, Kurortów, Kasyna i Metra tworzy najzyskowniejszą Dzielnicę Rozrywki!',
-    baseCost: 690_000,
+    baseCost: 1_070_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'coastal'],
     maxWorkers: 24,
@@ -667,18 +668,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Rdzeń Dzielnicy Rozrywki i Turystyki (+24% dla hoteli i kasyn obok)',
       'Podbija poparcie wyborców i prestiż korporacji',
     ],
-    internalTechTree: makeFiveNodeTree('arena', 690_000, {
+    internalTechTree: makeFiveNodeTree('arena', 1_070_000, {
       n1: {
         name: 'Loże Biznesowe VIP',
         desc: 'Roczne pakiety sponsorskie dla innych korporacji.',
-        trade: '+26% stałych przychodów.',
-        eff: { productionBonus: 0.26, influenceBonus: 12 },
+        trade: '+12% stałych przychodów.',
+        eff: { productionBonus: 0.12, influenceBonus: 12 },
       },
       n2: {
         name: 'Rozsuwany Dach Całoroczny',
         desc: 'Pozwala organizować koncerty niezależnie od pogody.',
-        trade: '+30% frekwencji i brak strat w niepogodę.',
-        eff: { productionBonus: 0.3, blackoutProtection: true },
+        trade: '+13% frekwencji i brak strat w niepogodę.',
+        eff: { productionBonus: 0.13, blackoutProtection: true },
       },
       n3: {
         name: 'Oświetlenie LED i Segregacja',
@@ -689,17 +690,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Prawa Transmisji Multimedialnych',
         desc: 'Globalna dystrybucja koncertów i finałów sportowych.',
-        trade: '+40% przychodu i +25 wpływów medialnych.',
-        eff: { productionBonus: 0.4, influenceBonus: 25 },
+        trade: '+20% przychodu i +25 wpływów medialnych.',
+        eff: { productionBonus: 0.2, influenceBonus: 25 },
       },
       flagship: {
         name: 'Olimpijski Kompleks Widowiskowy',
         desc: 'Światowa arena mega-wydarzeń o najwyższej rentowności rozrywkowej.',
-        trade: '+72% przychodu i +45 wpływów społecznych.',
-        eff: { productionBonus: 0.72, influenceBonus: 45, costReduction: 0.15 },
+        trade: '+26% przychodu i +45 wpływów społecznych.',
+        eff: { productionBonus: 0.26, influenceBonus: 45, costReduction: 0.15 },
         reqs: { requiredCorpLevel: 5, minWorkerSkill: 75, requiredBuildings: ['university'] },
       },
-    }),
+    }, 4),
   },
   conventionCenter: {
     type: 'conventionCenter',
@@ -711,7 +712,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Międzynarodowe hale targowe łączące biznes B2B, turystykę konferencyjną i branżę technologiczną.',
     strategyHint: 'Świetna synergia zarówno z Hotelami/Biurowcami, jak i Dworcem Kolejowym oraz Lotniskiem VIP.',
-    baseCost: 440_000,
+    baseCost: 640_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'coastal', 'grass'],
     maxWorkers: 18,
@@ -731,17 +732,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Łączy Dzielnicę Rozrywki i Strefę Biznesu (+18% synergii sąsiedztwa)',
       'Zwiększa wpływy finansowe i zainteresowanie kontraktami B2B',
     ],
-    internalTechTree: makeFiveNodeTree('expo', 440_000, {
+    internalTechTree: makeFiveNodeTree('expo', 640_000, {
       n1: {
         name: 'Pawilony Targów Przemysłowych',
         desc: 'Przyciąga zagranicznych kupców na wystawy surowcowe.',
-        trade: '+24% zysków z wynajmu hal.',
-        eff: { productionBonus: 0.24 },
+        trade: '+12% zysków z wynajmu hal.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'System Transmisji Hybrydowej',
         desc: 'Kongresy transmitowane na żywo redukują koszty obsługi.',
-        trade: '-18% kosztów operacyjnych i +12 badań.',
+        trade: '-18% kosztów operacyjnych i +12% badań.',
         eff: { costReduction: 0.18, researchBonus: 0.12 },
       },
       n3: {
@@ -753,17 +754,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Światowy Szczyt Ekonomiczny',
         desc: 'Coroczne forum liderów biznesu podnosi wpływy w kraju.',
-        trade: '+36% zysku, +28 wpływów finansowych.',
-        eff: { productionBonus: 0.36, influenceBonus: 28 },
+        trade: '+20% zysku, +28 wpływów finansowych.',
+        eff: { productionBonus: 0.2, influenceBonus: 28 },
       },
       flagship: {
         name: 'Globalne Centrum Szczytów G20',
         desc: 'Prestiżowy ośrodek międzynarodowych targów i szczytów gospodarczych.',
-        trade: '+65% przychodu i +42 pkt wpływów.',
-        eff: { productionBonus: 0.65, influenceBonus: 42, tariffBonus: 0.15 },
+        trade: '+26% przychodu i +42 pkt wpływów.',
+        eff: { productionBonus: 0.26, influenceBonus: 42, tariffBonus: 0.15 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 72, requiredBuildings: ['university'] },
       },
-    }),
+    }, 3),
   },
   lawFirm: {
     type: 'lawFirm',
@@ -775,7 +776,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Wyspecjalizowana kancelaria fuzji, prawa podatkowego i antymonopolowego. Obniża kary, podatki CIT i chroni przed wrogim przejęciem.',
     strategyHint: 'Obniża podatki oraz utrudnia wrogie wykupy akcji i działek!',
-    baseCost: 225_000,
+    baseCost: 305_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'coastal'],
     maxWorkers: 14,
@@ -795,7 +796,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Zwiększa obronę prawną przed wrogim przejęciem i przymusowym wykupem',
       'Redukuje obciążenia CIT oraz ryzyko kar regulacyjnych',
     ],
-    internalTechTree: makeFiveNodeTree('law', 225_000, {
+    internalTechTree: makeFiveNodeTree('law', 305_000, {
       n1: {
         name: 'Dział Arbitrażu M&A',
         desc: 'Broni spółkę przed wrogimi przejęciami udziałów.',
@@ -805,8 +806,8 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n2: {
         name: 'Optymalizacja Umów Międzynarodowych',
         desc: 'Ułatwia negocjacje kontraktów i przetargów.',
-        trade: '+24% honorariów doradczych.',
-        eff: { productionBonus: 0.24 },
+        trade: '+12% honorariów doradczych.',
+        eff: { productionBonus: 0.12},
       },
       n3: {
         name: 'Tarcza Prawno-Środowiskowa',
@@ -817,17 +818,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Zespół Ochrony Patentowej',
         desc: 'Wzmacnia ochronę praw własności intelektualnej koncernu.',
-        trade: '+34% zysków i +22 wpływów finansowych.',
-        eff: { productionBonus: 0.34, influenceBonus: 22 },
+        trade: '+18% zysków i +22 wpływów finansowych.',
+        eff: { productionBonus: 0.18, influenceBonus: 22 },
       },
       flagship: {
         name: 'Elitarny Trybunał Korporacyjny',
         desc: 'Najpotężniejsza kancelaria prawna w państwie kształtująca standardy rynkowe.',
-        trade: '+58% zysków, +45% tarczy prawnej i +35 wpływów.',
-        eff: { productionBonus: 0.58, espionageDefenseBonus: 0.45, influenceBonus: 35 },
+        trade: '+26% zysków, +45% tarczy prawnej i +35 wpływów.',
+        eff: { productionBonus: 0.26, espionageDefenseBonus: 0.45, influenceBonus: 35 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 75, requiredBuildings: ['university'] },
       },
-    }),
+    }, 2),
   },
   prAgency: {
     type: 'prAgency',
@@ -839,7 +840,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Zarządza wizerunkiem korporacji, chroni przed bojkotami i strajkami oraz wzmacnia popyt na produkty i atrakcje.',
     strategyHint: 'Tania ochrona poparcia wyborców przed strajkami i wsparcie dla obiektów komercyjnych.',
-    baseCost: 195_000,
+    baseCost: 265_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'coastal'],
     maxWorkers: 14,
@@ -858,18 +859,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Chroni przed bojkotami i strajkami oraz stabilizuje poparcie społeczne',
       'Wzmacnia Strefę Kupujących i reputację marki',
     ],
-    internalTechTree: makeFiveNodeTree('pr', 195_000, {
+    internalTechTree: makeFiveNodeTree('pr', 265_000, {
       n1: {
         name: 'Kampanie Social Media Viral',
         desc: 'Szybka poprawa wizerunku marki wśród wyborców.',
-        trade: '+22% przychodu z kampanii i +10 wpływów społecznych.',
-        eff: { productionBonus: 0.22, influenceBonus: 10 },
+        trade: '+12% przychodu z kampanii i +10 wpływów społecznych.',
+        eff: { productionBonus: 0.12, influenceBonus: 10 },
       },
       n2: {
         name: 'Zarządzanie Kryzysowe 24/7',
         desc: 'Błyskawicznie gasi kryzysy PR i bojkoty.',
-        trade: '-20% kosztów kryzysowych i +15% obrony przed akcjami PR rywali.',
-        eff: { costReduction: 0.2, espionageDefenseBonus: 0.15 },
+        trade: '-14% kosztów kryzysowych i +15% obrony przed akcjami PR rywali.',
+        eff: { costReduction: 0.14, espionageDefenseBonus: 0.15 },
       },
       n3: {
         name: 'Greenwashing & Certyfikaty ESG',
@@ -880,17 +881,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Globalny Rebranding Luksusowy',
         desc: 'Podbija wartość marek detalicznych i atrakcji.',
-        trade: '+36% zysków i +12% marży taryfowej.',
-        eff: { productionBonus: 0.36, tariffBonus: 0.12 },
+        trade: '+20% zysków i +12% marży taryfowej.',
+        eff: { productionBonus: 0.2, tariffBonus: 0.12 },
       },
       flagship: {
         name: 'Dominium Wizerunku i Kampanii',
         desc: 'Kompleksowa agencja kształtująca nastroje konsumenckie i wyborcze.',
-        trade: '+62% przychodu, +40 pkt wpływów społecznych.',
-        eff: { productionBonus: 0.62, influenceBonus: 40, espionageDefenseBonus: 0.2 },
+        trade: '+26% przychodu, +40 pkt wpływów społecznych.',
+        eff: { productionBonus: 0.26, influenceBonus: 40, espionageDefenseBonus: 0.2 },
         reqs: { requiredCorpLevel: 3, minWorkerSkill: 68, requiredBuildings: ['highSchool'] },
       },
-    }),
+    }, 2),
   },
 
   // ─── 4. Technologia i Przemysł Specjalistyczny (4 unikalne obiekty) ───────
@@ -904,7 +905,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Ogromna serwerownia chmurowa AI. Pobiera potężne ilości MW i wody chłodzącej, generując wysokie przychody abonamentowe i punkty badań.',
     strategyHint: 'Obok Uniwersytetu lub Lab R&D tworzy Kampus Innowacji (+25% szybkości i mocy badań)!',
-    baseCost: 720_000,
+    baseCost: 1_115_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'desert', 'mountain'],
     maxWorkers: 20,
@@ -925,18 +926,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Generuje +7 pkt badań R&D / cykl oraz stały abonament B2B',
       'Tworzy Kampus Innowacji z Uniwersytetem i Lab R&D',
     ],
-    internalTechTree: makeFiveNodeTree('dc', 720_000, {
+    internalTechTree: makeFiveNodeTree('dc', 1_115_000, {
       n1: {
         name: 'Chłodzenie Cieczowe Immersyjne',
         desc: 'Drastycznie ogranicza zużycie wody chłodzącej w serwerowni.',
-        trade: '-40% poboru wody i +18% mocy obliczeniowej.',
-        eff: { waterDelta: -0.4, productionBonus: 0.18 },
+        trade: '-40% poboru wody i +10% mocy obliczeniowej.',
+        eff: { waterDelta: -0.4, productionBonus: 0.1},
       },
       n2: {
         name: 'Klastry AI Tensor-Grid',
         desc: 'Wynajem mocy obliczeniowej dla sektora finansowego i technologicznego.',
-        trade: '+34% przychodu chmurowego i +30% badań.',
-        eff: { productionBonus: 0.34, researchBonus: 0.3 },
+        trade: '+13% przychodu chmurowego i +14% badań.',
+        eff: { productionBonus: 0.13, researchBonus: 0.14},
       },
       n3: {
         name: 'Własny Odzysk Ciepła Sieciowego',
@@ -947,23 +948,23 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Szyfrowana Chmura Rządowa',
         desc: 'Kontrakty krytyczne oraz cyber-ochrona danych spółki.',
-        trade: '+40% przychodu i +45% obrony przed szpiegostwem.',
-        eff: { productionBonus: 0.4, espionageDefenseBonus: 0.45 },
+        trade: '+20% przychodu i +45% obrony przed szpiegostwem.',
+        eff: { productionBonus: 0.2, espionageDefenseBonus: 0.45 },
       },
       flagship: {
         name: 'Kwantowy Rdzeń Chmurowy Super-AI',
         desc: 'Najszybsze centrum obliczeniowe świata napędzające patenty koncernu.',
-        trade: '+75% przychodu, +85% badań i odporność blackout/susza.',
+        trade: '+28% przychodu, +28% badań i odporność blackout/susza.',
         eff: {
-          productionBonus: 0.75,
-          researchBonus: 0.85,
+          productionBonus: 0.28,
+          researchBonus: 0.28,
           blackoutProtection: true,
           droughtProtection: true,
           espionageDefenseBonus: 0.3,
         },
         reqs: { requiredCorpLevel: 5, minWorkerSkill: 84, requiredBuildings: ['university', 'rdLab'] },
       },
-    }),
+    }, 4),
   },
   biotechLab: {
     type: 'biotechLab',
@@ -975,7 +976,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Wysokomarżowa produkcja farmaceutyczna i biotechnologiczna z chemikaliów. Odciąża szpitale i zwiększa zdrowie załogi — ryzyko HAZMAT.',
     strategyHint: 'Zabezpiecz obiekt Bazą HAZMAT i postaw w Kampusie Innowacji obok Uniwersytetu/Lab R&D.',
-    baseCost: 590_000,
+    baseCost: 915_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass'],
     maxWorkers: 24,
@@ -996,18 +997,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Bardzo wysoka marża farmaceutyczna + wzrost poparcia wyborców',
       'Synergia z Kampusem Innowacji (Uniwersytet/Lab R&D)',
     ],
-    internalTechTree: makeFiveNodeTree('bio', 590_000, {
+    internalTechTree: makeFiveNodeTree('bio', 915_000, {
       n1: {
         name: 'Linie Syntezy Antybiotyków',
         desc: 'Zwiększa marżę oraz poprawia zdrowotność pracowników.',
-        trade: '+26% przychodu i szybsze badania medyczne.',
-        eff: { productionBonus: 0.26, researchBonus: 0.15 },
+        trade: '+12% przychodu i szybsze badania medyczne.',
+        eff: { productionBonus: 0.12, researchBonus: 0.15 },
       },
       n2: {
         name: 'Bioreaktory Wysokiej Czystości',
         desc: 'Większa wydajność z tej samej ilości chemikaliów.',
-        trade: '+30% produkcji, -15% zużycia wsadu.',
-        eff: { productionBonus: 0.3, costReduction: 0.15 },
+        trade: '+13% produkcji, -15% zużycia wsadu.',
+        eff: { productionBonus: 0.13, costReduction: 0.15 },
       },
       n3: {
         name: 'Śluzy Bezpieczeństwa BSL-4',
@@ -1018,17 +1019,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Terapie Genowe i Onkologia',
         desc: 'Elitarne leki biologiczne o gigantycznej wartości rynkowej.',
-        trade: '+44% zysków i +22 wpływów społecznych.',
-        eff: { productionBonus: 0.44, influenceBonus: 22 },
+        trade: '+20% zysków i +22 wpływów społecznych.',
+        eff: { productionBonus: 0.2, influenceBonus: 22 },
       },
       flagship: {
         name: 'Instytut Medycyny Regeneracyjnej',
         desc: 'Przełomowy kompleks farmaceutyczny wydłużający żywotność i podnoszący poparcie.',
-        trade: '+78% zysków, +35% badań i +35 pkt wpływów.',
-        eff: { productionBonus: 0.78, researchBonus: 0.35, influenceBonus: 35, wearRateDelta: -0.2 },
+        trade: '+28% zysków, +25% badań i +35 pkt wpływów.',
+        eff: { productionBonus: 0.28, researchBonus: 0.25, influenceBonus: 35, wearRateDelta: -0.2 },
         reqs: { requiredCorpLevel: 5, minWorkerSkill: 82, requiredBuildings: ['university', 'rdLab'] },
       },
-    }),
+    }, 4),
   },
   verticalFarm: {
     type: 'verticalFarm',
@@ -1040,7 +1041,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Wielopiętrowe uprawy hydroponiczne LED w zamkniętym obiegu wody. Bez emisyjności i bez smogu — wzmacnia atrakcyjność miast!',
     strategyHint: 'Świetnie łączy się z Bulwarem Gastronomicznym i Apartamentowcami; niemal zero strat na wodę!',
-    baseCost: 295_000,
+    baseCost: 430_000,
     buildConstructionInputs: {},
     requiredTerrain: ['urban', 'grass', 'desert'],
     maxWorkers: 18,
@@ -1061,12 +1062,12 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Czysta produkcja miejska (+10% dla pobliskiej gastronomii i apartamentów)',
       'Bardzo niskie zużycie wody i pozytywny odbiór wyborców',
     ],
-    internalTechTree: makeFiveNodeTree('vfarm', 295_000, {
+    internalTechTree: makeFiveNodeTree('vfarm', 430_000, {
       n1: {
         name: 'Spektrum LED Pełnego Wzrostu',
         desc: 'Zwiększa liczbę zbiorów w skali roku bez rozszerzania działki.',
-        trade: '+25% wydajności plonów.',
-        eff: { productionBonus: 0.25 },
+        trade: '+12% wydajności plonów.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'Obieg Zamknięty Mgły Wodnej',
@@ -1083,17 +1084,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Bezpośrednie Dostawy do Restauracji',
         desc: 'Świeże produkty trafiają prosto do strefy gastronomicznej.',
-        trade: '+38% przychodów i +14 wpływów społecznych.',
-        eff: { productionBonus: 0.38, influenceBonus: 14 },
+        trade: '+20% przychodów i +14 wpływów społecznych.',
+        eff: { productionBonus: 0.2, influenceBonus: 14 },
       },
       flagship: {
         name: 'Autonomiczna Wieża Agro-Ekologiczna',
         desc: 'Wielopoziomowy ekosystem żywnościowy zasilający całą metropolię.',
-        trade: '+70% plonów, odporność na susze/awarie i +25 wpływów.',
-        eff: { productionBonus: 0.7, droughtProtection: true, blackoutProtection: true, influenceBonus: 25 },
+        trade: '+26% plonów, odporność na susze/awarie i +25 wpływów.',
+        eff: { productionBonus: 0.26, droughtProtection: true, blackoutProtection: true, influenceBonus: 25 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 70, requiredBuildings: ['university'] },
       },
-    }),
+    }, 3),
   },
   compositeShipyard: {
     type: 'compositeShipyard',
@@ -1105,7 +1106,7 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Nadmorski kompleks budujący statki i lekkie materiały kompozytowe ze stali oraz chemikaliów.',
     strategyHint: 'Stawiaj na wybrzeżu w klastrze przemysłowym — generuje stalowe i high-tech kontrakty eksportowe.',
-    baseCost: 520_000,
+    baseCost: 755_000,
     buildConstructionInputs: {},
     requiredTerrain: ['coastal'],
     maxWorkers: 30,
@@ -1126,18 +1127,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Przetwarza Stal i Chemikalia na Prefabrykaty i Elektronikę morską',
       'Wzmacnia Klaster Przemysłowy i pobliskie Porty Towarowe',
     ],
-    internalTechTree: makeFiveNodeTree('shipyd', 520_000, {
+    internalTechTree: makeFiveNodeTree('shipyd', 755_000, {
       n1: {
         name: 'Suwnice Ciężkie i Suchy Dok',
         desc: 'Zwiększa tempo montażu kadłubów i paneli kompozytowych.',
-        trade: '+25% tempa produkcji.',
-        eff: { productionBonus: 0.25 },
+        trade: '+12% tempa produkcji.',
+        eff: { productionBonus: 0.12},
       },
       n2: {
         name: 'Autoklaw Włókna Węglowego',
         desc: 'Produkcja lekkich komponentów o wyższej wartości.',
-        trade: '+28% przychodu i marży.',
-        eff: { productionBonus: 0.28, tariffBonus: 0.1 },
+        trade: '+13% przychodu i marży.',
+        eff: { productionBonus: 0.13, tariffBonus: 0.1 },
       },
       n3: {
         name: 'Zamknięta Lakiernia Kompozytowa',
@@ -1154,11 +1155,11 @@ export const V6_BUILDING_DEFINITIONS: Record<
       flagship: {
         name: 'Krajowy Arsenał Okrętowo-Kompozytowy',
         desc: 'Potężna stocznia produkująca jednostki kontenerowe i zaawansowane kompozyty.',
-        trade: '+68% produkcji, +35 wpływów i pełna modernizacja.',
-        eff: { productionBonus: 0.68, influenceBonus: 35, costReduction: 0.15 },
+        trade: '+26% produkcji, +35 wpływów i pełna modernizacja.',
+        eff: { productionBonus: 0.26, influenceBonus: 35, costReduction: 0.15 },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 74, requiredBuildings: ['university'] },
       },
-    }),
+    }, 3),
   },
 
   // ─── 4. Rozbudowa: Ścieki i Odpady (4 unikalne obiekty) ──────────────────
@@ -1175,13 +1176,13 @@ export const V6_BUILDING_DEFINITIONS: Record<
     baseCost: 92_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'forest', 'desert'],
-    maxWorkers: 8,
+    maxWorkers: 2,
     minSkillRequired: 20,
-    baseMaintenance: 380,
-    baseRevenue: 240,
+    baseMaintenance: 45,
+    baseRevenue: 105,
     inputs: {},
     outputs: {},
-    electricityUsage: 4,
+    electricityUsage: 2,
     waterUsage: 2,
     sewageUsage: 2,
     wasteUsage: -80,
@@ -1196,14 +1197,14 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n1: {
         name: 'Prasy Kompaktujące Odpadów',
         desc: 'Zagęszcza frakcje stałe w kwaterach składowiska, zwiększając pojemność.',
-        trade: '+25% przepustowości śmieci.',
-        eff: { wasteProcessingBonus: 0.25 },
+        trade: '+16% przepustowości śmieci.',
+        eff: { wasteProcessingBonus: 0.16},
       },
       n2: {
         name: 'Wstępna Linia Sortująca',
         desc: 'Prosta segregacja tworzyw i złomu poprawia bilans placówki.',
-        trade: '+20% przepustowości odpadów, +18% przychodu.',
-        eff: { wasteProcessingBonus: 0.2, productionBonus: 0.18 },
+        trade: '+20% przepustowości odpadów, +10% przychodu.',
+        eff: { wasteProcessingBonus: 0.2, productionBonus: 0.1},
       },
       n3: {
         name: 'Folia Geomembranowa i Drenaż',
@@ -1220,8 +1221,8 @@ export const V6_BUILDING_DEFINITIONS: Record<
       flagship: {
         name: 'Kompleks Segregacji Surowców Wtórnych',
         desc: 'Przekształca podstawowe składowisko w zmechanizowany węzeł gospodarki odpadami.',
-        trade: '+45% utylizacji śmieci, +35% przychodu i niższe koszty.',
-        eff: { wasteProcessingBonus: 0.45, productionBonus: 0.35, costReduction: 0.15 },
+        trade: '+30% utylizacji śmieci, +22% przychodu i niższe koszty.',
+        eff: { wasteProcessingBonus: 0.3, productionBonus: 0.22, costReduction: 0.15 },
         reqs: { requiredCorpLevel: 2, minWorkerSkill: 55 },
       },
     }),
@@ -1237,16 +1238,16 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Nowoczesna oczyszczalnia średniego etapu wykorzystująca osad czynny i złoża biologiczne. Wysoka wydajność (+280 m³ ścieków) bez kar zapachowych ani spadku poparcia społecznego.',
     strategyHint: 'Bezpieczna dla sąsiedztwa miejskiego — świetna alternatywa rozwojowa dla małej Oczyszczalni.',
-    baseCost: 265_000,
+    baseCost: 360_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'forest', 'coastal', 'urban'],
-    maxWorkers: 14,
+    maxWorkers: 8,
     minSkillRequired: 48,
-    baseMaintenance: 1_050,
-    baseRevenue: 1_250,
+    baseMaintenance: 280,
+    baseRevenue: 500,
     inputs: {},
     outputs: { water: 24 },
-    electricityUsage: 22,
+    electricityUsage: 10,
     waterUsage: -28,
     sewageUsage: -280,
     wasteUsage: 2,
@@ -1256,18 +1257,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Oczyszcza +280 m³ ścieków / cykl i zwraca +28 m³ wody',
       'Zero emisji i brak ujemnego wpływu na atrakcyjność sąsiedztwa',
     ],
-    internalTechTree: makeFiveNodeTree('biosew', 265_000, {
+    internalTechTree: makeFiveNodeTree('biosew', 360_000, {
       n1: {
         name: 'Złoża Bakterii Nitryfikacyjnych',
         desc: 'Przyspiesza biologiczny rozkład związków azotu i fosforu.',
-        trade: '+25% przepustowości ścieków.',
-        eff: { sewageTreatmentBonus: 0.25 },
+        trade: '+16% przepustowości ścieków.',
+        eff: { sewageTreatmentBonus: 0.16},
       },
       n2: {
         name: 'Stawy Trzcinowo-Korzeniowe',
         desc: 'Naturalne doczyszczanie trzeciego stopnia podnosi odzysk wody.',
-        trade: '+22% odzysku wody i +20% przepustowości ścieków.',
-        eff: { productionBonus: 0.22, sewageTreatmentBonus: 0.2 },
+        trade: '+12% odzysku wody i +20% przepustowości ścieków.',
+        eff: { productionBonus: 0.12, sewageTreatmentBonus: 0.2 },
       },
       n3: {
         name: 'Kogeneracja Biogazu z Osadów',
@@ -1278,17 +1279,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Bioreaktory Membranowe MBR',
         desc: 'Zagęszcza objętość oczyszczanych ścieków na tej samej powierzchni.',
-        trade: '+35% przerobu ścieków, -15% kosztów utrzymania.',
-        eff: { sewageTreatmentBonus: 0.35, costReduction: 0.15 },
+        trade: '+22% przerobu ścieków, -15% kosztów utrzymania.',
+        eff: { sewageTreatmentBonus: 0.22, costReduction: 0.15 },
       },
       flagship: {
         name: 'Automatyczna Bio-Rafineria Ścieków',
         desc: 'W pełni zautomatyzowany układ oczyszczania biologicznego klasy metropolitalnej.',
-        trade: '+55% oczyszczania ścieków, +35% produkcji wody i +20 wpływów.',
-        eff: { sewageTreatmentBonus: 0.55, productionBonus: 0.35, influenceBonus: 20 },
+        trade: '+30% oczyszczania ścieków, +22% produkcji wody i +20 wpływów.',
+        eff: { sewageTreatmentBonus: 0.3, productionBonus: 0.22, influenceBonus: 20 },
         reqs: { requiredCorpLevel: 3, minWorkerSkill: 66, requiredBuildings: ['highSchool'] },
       },
-    }),
+    }, 2),
   },
 
   closedLoopSewagePlant: {
@@ -1301,13 +1302,13 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'Endgame-owy kompleks membranowy klasy przemysłowej. Utylizuje ogromne wolumeny ścieków (+500 m³) i odzyskuje do sieci +120 m³ ultra-czystej wody procesowej!',
     strategyHint: 'Wymaga Uniwersytetu oraz Retencji. Zabezpiecza potężny koncern przed suszą i kryzysem sanitarnym.',
-    baseCost: 680_000,
+    baseCost: 1_055_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'forest', 'coastal', 'urban'],
     maxWorkers: 16,
     minSkillRequired: 72,
-    baseMaintenance: 1_850,
-    baseRevenue: 5_400,
+    baseMaintenance: 1_250,
+    baseRevenue: 1_750,
     inputs: {},
     outputs: { water: 95 },
     electricityUsage: 38,
@@ -1325,18 +1326,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Przepustowość +500 m³ ścieków / cykl i +120 m³ odzysku czystej wody do sieci',
       'Ochrona przed deficytami wody i suszą bez żadnych emisji',
     ],
-    internalTechTree: makeFiveNodeTree('closedsew', 680_000, {
+    internalTechTree: makeFiveNodeTree('closedsew', 1_055_000, {
       n1: {
         name: 'Moduły Ultrafiltracji Ciśnieniowej',
         desc: 'Zwiększa objętość filtrowanych ścieków przemysłowych w pierwszym obiegu.',
-        trade: '+30% przepustowości ścieków.',
-        eff: { sewageTreatmentBonus: 0.3 },
+        trade: '+16% przepustowości ścieków.',
+        eff: { sewageTreatmentBonus: 0.16},
       },
       n2: {
         name: 'Kaskady Ozonowania i Węgla Aktywnego',
         desc: 'Zwiększa czystość odzyskiwanej wody dla zakładów półprzewodnikowych i chemicznych.',
-        trade: '+30% przychodów i +25% oczyszczania ścieków.',
-        eff: { productionBonus: 0.3, sewageTreatmentBonus: 0.25 },
+        trade: '+13% przychodów i +16% oczyszczania ścieków.',
+        eff: { productionBonus: 0.13, sewageTreatmentBonus: 0.16},
       },
       n3: {
         name: 'Rekuperacja Ciśnienia Pomp',
@@ -1347,17 +1348,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Analityka AI Jakości Wody',
         desc: 'Automatyczna kontrola stężeń pozwala zmniejszyć obsadę laboratoryjną.',
-        trade: '-22% załogi i +35% przerobu ścieków.',
-        eff: { workerReduction: 0.22, sewageTreatmentBonus: 0.35 },
+        trade: '-22% załogi i +22% przerobu ścieków.',
+        eff: { workerReduction: 0.22, sewageTreatmentBonus: 0.22},
       },
       flagship: {
         name: 'Cyfrowa Sieć Odwróconej Osmozy Zero-Loss',
         desc: 'Szczytowa technologia zamkniętego obiegu hydrologicznego o niemal stuprocentowym odzysku.',
-        trade: '+70% przerobu ścieków, +55% przychodu i +30 wpływów ekologicznych.',
-        eff: { sewageTreatmentBonus: 0.7, productionBonus: 0.55, influenceBonus: 30, droughtProtection: true },
+        trade: '+30% przerobu ścieków, +24% przychodu i +30 wpływów ekologicznych.',
+        eff: { sewageTreatmentBonus: 0.3, productionBonus: 0.24, influenceBonus: 30, droughtProtection: true },
         reqs: { requiredCorpLevel: 4, minWorkerSkill: 76, requiredBuildings: ['university'] },
       },
-    }),
+    }, 4),
   },
 
   plasmaGasificationPlant: {
@@ -1370,13 +1371,13 @@ export const V6_BUILDING_DEFINITIONS: Record<
     description:
       'High-tech zakład Zero-Waste rozkładający odpady w temperaturze łuku plazmowego (+400 t utylizacji). Zero emisji i kar poparcia; generuje czysty prąd (+65 MW) oraz odzyskuje metale rzadkie, miedź i stal!',
     strategyHint: 'Wymaga Laboratorium R&D oraz Recyklingu — zastępuje dymiące spalarnie w gospodarce endgame.',
-    baseCost: 960_000,
+    baseCost: 1_490_000,
     buildConstructionInputs: {},
     requiredTerrain: ['grass', 'forest', 'urban', 'desert', 'mountain'],
-    maxWorkers: 20,
+    maxWorkers: 12,
     minSkillRequired: 78,
-    baseMaintenance: 2_400,
-    baseRevenue: 6_200,
+    baseMaintenance: 1_150,
+    baseRevenue: 1_950,
     inputs: {},
     outputs: { rareMetals: 2.2, copper: 2.4, steel: 3.2, electricity: 32 },
     electricityUsage: -85,
@@ -1394,18 +1395,18 @@ export const V6_BUILDING_DEFINITIONS: Record<
       'Utylizuje +400 t odpadów / cykl przy zerowych emisjach i pełnej akceptacji wyborców',
       'Generuje +85 MW czystego prądu i odzyskuje Metale Rzadkie, Miedź oraz Stal',
     ],
-    internalTechTree: makeFiveNodeTree('plasma', 960_000, {
+    internalTechTree: makeFiveNodeTree('plasma', 1_490_000, {
       n1: {
         name: 'Palniki Plazmowe Wysokiego Łuku',
         desc: 'Zwiększa szybkość gazyfikacji najtrudniejszych frakcji przemysłowych.',
-        trade: '+30% przerobu odpadów.',
-        eff: { wasteProcessingBonus: 0.3 },
+        trade: '+16% przerobu odpadów.',
+        eff: { wasteProcessingBonus: 0.16},
       },
       n2: {
         name: 'Turbiny Cyklu Kombinowanego Syngazu',
         desc: 'Sprawniej zamienia gaz syntezowy w czystą energię elektryczną i odzysk surowców.',
-        trade: '+30% produkcji energii i surowców.',
-        eff: { productionBonus: 0.3, recyclesResources: true },
+        trade: '+13% produkcji energii i surowców.',
+        eff: { productionBonus: 0.13, recyclesResources: true },
       },
       n3: {
         name: 'Witryfikacja Żużla Plazmowego',
@@ -1416,17 +1417,17 @@ export const V6_BUILDING_DEFINITIONS: Record<
       n4: {
         name: 'Magnetyczna Ekstrakcja Pierwiastków',
         desc: 'Wyłapuje dodatkowe ślady metali rzadkich i miedzi z komory plazmy.',
-        trade: '+35% odzysku surowców, -20% załogi.',
-        eff: { productionBonus: 0.35, workerReduction: 0.2, recyclesResources: true },
+        trade: '+20% odzysku surowców, -20% załogi.',
+        eff: { productionBonus: 0.2, workerReduction: 0.2, recyclesResources: true },
       },
       flagship: {
         name: 'Reaktor Plazmowy Zamkniętej Materii',
         desc: 'Autonomiczny kompleks Zero-Waste zamieniający hałdy śmieci w prąd i pierwiastki strategiczne.',
-        trade: '+65% utylizacji śmieci, +50% produkcji i +40 wpływów.',
-        eff: { wasteProcessingBonus: 0.65, productionBonus: 0.5, influenceBonus: 40, recyclesResources: true },
+        trade: '+30% utylizacji śmieci, +24% produkcji i +40 wpływów.',
+        eff: { wasteProcessingBonus: 0.3, productionBonus: 0.24, influenceBonus: 40, recyclesResources: true },
         reqs: { requiredCorpLevel: 5, minWorkerSkill: 82, requiredBuildings: ['rdLab', 'university'] },
       },
-    }),
+    }, 4),
   },
   monumentFountain: makeDecorativeMonumentDef({
     type: 'monumentFountain',
