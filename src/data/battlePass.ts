@@ -9,7 +9,7 @@ import { getIsoWeekAndYear } from './weeklyChallenge';
 
 export const BATTLE_PASS_MAX_LEVEL = 30;
 export const BATTLE_PASS_XP_PER_LEVEL = 250;
-export const PRESTIGE_REQUIRED_ACCOUNT_LEVEL = 20;
+export const PRESTIGE_REQUIRED_ACCOUNT_LEVEL = 100;
 
 export interface BattlePassRewardTier {
   level: number;

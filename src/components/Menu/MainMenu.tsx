@@ -5,7 +5,7 @@ import {
   computeBattlePassLevel,
   computePvPDivision,
 } from '../../data/battlePass';
-import { xpNeededForLevel } from '../../engine/profileManager';
+import { getLevelProgressFromXp } from '../../engine/profileManager';
 import {
   localizeAchievement,
   localizePvPDivisionLabel,
@@ -64,8 +64,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const { lang, t } = useI18n();
   const rawTitleObj = TITLES_CATALOG.find((x) => x.id === activeProfile.titleId) ?? TITLES_CATALOG[0];
   const titleObj = localizeTitle(rawTitleObj, lang);
-  const nextXp = xpNeededForLevel(activeProfile.level);
-  const xpPct = Math.min(100, Math.round((activeProfile.xp / Math.max(1, nextXp)) * 100));
+  const xpProg = getLevelProgressFromXp(activeProfile.xp);
+  const xpPct = xpProg.xpPercent;
   const division = computePvPDivision(
     activeProfile.pvpMatches,
     activeProfile.pvpWins,
@@ -318,7 +318,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                         {activeProfile.nick}
                       </span>
                       <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[11px]">
-                        {t('common.lvl')} {activeProfile.level}
+                        {t('common.lvl')} {xpProg.level}
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded border text-[11px] font-semibold ${division.badgeClass}`}
@@ -344,7 +344,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <div className="flex items-center justify-between gap-2.5 pt-1">
                   <div className="flex-1 space-y-1">
                     <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                      <span>XP {activeProfile.xp}</span>
+                      <span>
+                        {xpProg.isMaxLevel
+                          ? `XP ${activeProfile.xp} (MAX)`
+                          : `XP ${xpProg.currentLevelXp} / ${xpProg.nextLevelXp}`}
+                      </span>
                       <span className="text-emerald-300">{xpPct}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-[#151c28] overflow-hidden">

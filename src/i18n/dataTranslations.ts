@@ -950,7 +950,7 @@ const TITLES_EN: Record<string, { label: string; unlockHint: string }> = {
   title_high_stakes: { label: 'High-Stakes Leader', unlockHint: 'Battle Pass Season 1 (Tier 8)' },
   title_bp_tycoon: { label: 'Wall Street Baron', unlockHint: 'Battle Pass Season 1 (Tier 18)' },
   title_season_one: { label: 'Season 1 Architect', unlockHint: 'Complete Tier 30 Battle Pass S1' },
-  title_prestige_star: { label: 'Prestige Veteran ★', unlockHint: 'Activate Prestige at Level 20+' },
+  title_prestige_star: { label: 'Prestige Veteran ★', unlockHint: 'Activate Prestige at Level 100' },
 };
 
 export function localizeTitle<

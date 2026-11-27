@@ -17,9 +17,9 @@ import { UI_THEME_META } from '../../data/shopCatalog';
 import {
   activatePrestige,
   exportProfileTransferCode,
+  getLevelProgressFromXp,
   importProfileTransferCode,
   updateProfileCosmetics,
-  xpNeededForLevel,
 } from '../../engine/profileManager';
 import type { AchievementCategory, HQVariantId, UiThemeId, UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney } from '../../utils/formatters';
@@ -93,12 +93,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 ? 'frame-anim-crimson'
                 : 'border-[#334155]';
 
-  let xpIntoLevel = profile.xp;
-  for (let l = 1; l < profile.level; l++) {
-    xpIntoLevel = Math.max(0, xpIntoLevel - xpNeededForLevel(l));
-  }
-  const xpNext = xpNeededForLevel(profile.level);
-  const xpPct = Math.min(100, Math.round((xpIntoLevel / Math.max(1, xpNext)) * 100));
+  const xpProg = getLevelProgressFromXp(profile.xp);
+  const xpIntoLevel = xpProg.currentLevelXp;
+  const xpNext = xpProg.nextLevelXp;
+  const xpPct = xpProg.xpPercent;
 
   const earnedBadges = ACHIEVEMENTS.filter((a) => profile.unlockedAchievements.includes(a.id));
 
@@ -273,11 +271,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] text-slate-400">
                     <span>
-                      {lang === 'en'
-                        ? `Level Progress ${profile.level} → ${profile.level + 1}`
-                        : `Postęp Poziomu ${profile.level} → ${profile.level + 1}`}
+                      {xpProg.isMaxLevel
+                        ? lang === 'en'
+                          ? `Max Account Level Reached (Lvl ${xpProg.level})`
+                          : `Maksymalny Poziom Konta Osiągnięty (Poz. ${xpProg.level})`
+                        : lang === 'en'
+                          ? `Level Progress ${xpProg.level} → ${xpProg.level + 1}`
+                          : `Postęp Poziomu ${xpProg.level} → ${xpProg.level + 1}`}
                     </span>
-                    <span className="font-mono text-emerald-300">{xpIntoLevel} / {xpNext} XP ({xpPct}%)</span>
+                    <span className="font-mono text-emerald-300">
+                      {xpProg.isMaxLevel
+                        ? `MAX · ${profile.xp} XP (100%)`
+                        : `${xpIntoLevel} / ${xpNext} XP (${xpPct}%)`}
+                    </span>
                   </div>
                   <div className="h-2 rounded-full bg-[#0b0f17] border border-[#243044] overflow-hidden">
                     <div className="h-full bg-emerald-500 transition-all" style={{ width: `${xpPct}%` }} />

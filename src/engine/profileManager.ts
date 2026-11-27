@@ -67,20 +67,45 @@ function ensureQuestStateUpToDate(existing?: ProfileQuestState, now = new Date()
   };
 }
 
+export const MAX_ACCOUNT_LEVEL = 100;
+
 export function xpNeededForLevel(level: number): number {
-  return Math.round(250 * Math.pow(level, 1.35));
+  if (level >= MAX_ACCOUNT_LEVEL) return 0;
+  const clamped = Math.max(1, Math.floor(level));
+  return Math.round(180 + (clamped - 1) * 55 + Math.pow(clamped - 1, 1.45) * 3.5);
 }
 
-export function computeLevelFromXp(xp: number): number {
+export function getLevelProgressFromXp(xp: number): {
+  level: number;
+  currentLevelXp: number;
+  nextLevelXp: number;
+  xpPercent: number;
+  isMaxLevel: boolean;
+} {
   let lvl = 1;
-  let remaining = Math.max(0, xp);
-  while (lvl < 99) {
+  let remaining = Math.max(0, Math.floor(xp));
+  while (lvl < MAX_ACCOUNT_LEVEL) {
     const req = xpNeededForLevel(lvl);
-    if (remaining < req) break;
+    if (req <= 0 || remaining < req) break;
     remaining -= req;
     lvl++;
   }
-  return lvl;
+  const isMaxLevel = lvl >= MAX_ACCOUNT_LEVEL;
+  const nextLevelXp = isMaxLevel ? 0 : xpNeededForLevel(lvl);
+  const xpPercent = isMaxLevel
+    ? 100
+    : Math.min(99, Math.max(0, Math.floor((remaining / Math.max(1, nextLevelXp)) * 100)));
+  return {
+    level: lvl,
+    currentLevelXp: isMaxLevel ? 0 : remaining,
+    nextLevelXp,
+    xpPercent,
+    isMaxLevel,
+  };
+}
+
+export function computeLevelFromXp(xp: number): number {
+  return getLevelProgressFromXp(xp).level;
 }
 
 function simplePinHash(pin: string): string {
@@ -157,7 +182,18 @@ export function loadAccountsDatabase(): UserAccountProfile[] {
       const guest = createGuestProfile();
       return [guest];
     }
-    return parsed.map(normalizeAccount);
+    let needsSave = false;
+    const normalizedList = parsed.map((acc) => {
+      const normalized = normalizeAccount(acc);
+      if (normalized.level !== acc.level) {
+        needsSave = true;
+      }
+      return normalized;
+    });
+    if (needsSave) {
+      saveAccountsDatabase(normalizedList);
+    }
+    return normalizedList;
   } catch {
     return [createGuestProfile()];
   }

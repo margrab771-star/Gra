@@ -152,7 +152,7 @@ export const TITLES_CATALOG: { id: string; label: string; unlockHint: string }[]
   { id: 'title_high_stakes', label: 'Lider Wysokich Stawek', unlockHint: 'Karnet Sezon 1 (Poziom 8)' },
   { id: 'title_bp_tycoon', label: 'Baron Wall Street', unlockHint: 'Karnet Sezon 1 (Poziom 18)' },
   { id: 'title_season_one', label: 'Architekt Rynku S1', unlockHint: 'Ukończ Poziom 30 Karnetu Sezon 1' },
-  { id: 'title_prestige_star', label: 'Weteran Prestiżu ★', unlockHint: 'Aktywuj Prestiż na Poziomie 20+' },
+  { id: 'title_prestige_star', label: 'Weteran Prestiżu ★', unlockHint: 'Aktywuj Prestiż na Poziomie 100' },
 ];
 
 export const ACHIEVEMENT_CATEGORIES: { key: AchievementCategory; label: string; icon: string }[] = [
