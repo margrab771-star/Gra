@@ -398,6 +398,7 @@ export function sanitizeStateForNetwork(state: GameState): GameState {
     fuelDeliveries: (state.fuelDeliveries ?? []).slice(0, 14),
     b2bRoutes: (state.b2bRoutes ?? []).slice(0, 12),
     stocks: compactStocks,
+    cashTransfers: (state.cashTransfers ?? []).slice(-40),
     plotOffers: state.plotOffers.slice(-30),
     transportLines: state.transportLines.slice(0, 40),
     matchStatsHistory: (state.matchStatsHistory ?? []).slice(-48),

@@ -6,6 +6,9 @@ import {
 } from '../../config/gameConfig';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import {
+  getExpansionPriceMultiplier,
+  getPlayerOwnedPlotCount,
+  getPlotPurchasePrice,
   getRoadBuildCostForPlot,
   getSuggestedPlotBuyoutValuation,
   hasPlayerDiscoveredPlot,
@@ -61,6 +64,12 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
   }) => {
     const owner = plot.ownerId ? gameState.players.find((p) => p.id === plot.ownerId) : null;
     const isMine = plot.ownerId === currentPlayer.id;
+    const ownedPlotsCount = getPlayerOwnedPlotCount(gameState, currentPlayer.id);
+    const expansionMult = getExpansionPriceMultiplier(ownedPlotsCount);
+    const purchasePrice =
+      plot.purchasable && plot.ownerId === null
+        ? getPlotPurchasePrice(plot, currentPlayer, gameState)
+        : plot.price;
     const hasGeoTech = currentPlayer.globalTech['ind_geology']?.status === 'done';
     const localRoadCost = getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'local');
     const highwayRoadCost = getRoadBuildCostForPlot(gameState, currentPlayer, plot, 'highway');
@@ -108,10 +117,17 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
 
         <div className="grid grid-cols-2 gap-2">
           <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
-            <div className="text-[11px] text-slate-400">Wartość Rynkowa</div>
-            <div className="font-mono font-bold text-amber-300 text-sm">
-              {plot.terrain === 'water' ? 'Niedostępna' : formatMoney(plot.price)}
+            <div className="text-[11px] text-slate-400">
+              {plot.purchasable && plot.ownerId === null ? 'Cena Zakupu Działki' : 'Wartość Rynkowa'}
             </div>
+            <div className="font-mono font-bold text-amber-300 text-sm">
+              {plot.terrain === 'water' ? 'Niedostępna' : formatMoney(purchasePrice)}
+            </div>
+            {plot.purchasable && plot.ownerId === null && plot.terrain !== 'water' && (
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                Cena z mnożnikiem ekspansji (×{expansionMult.toFixed(2)})
+              </div>
+            )}
           </div>
           <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
             <div className="text-[11px] text-slate-400">Atrakcyjność / Ryzyko</div>
@@ -253,14 +269,19 @@ export const PlotPanel: React.FC<PlotPanelProps> = React.memo(
         {/* Panel własności / budowy / dróg / autostrad / myta */}
         <div className="space-y-2 pt-1">
           {plot.purchasable && plot.ownerId === null && (
-            <button
-              type="button"
-              onClick={() => onBuyPlot(plot.id)}
-              disabled={currentPlayer.cash < plot.price}
-              className="w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm disabled:opacity-40 transition-colors shadow-lg shadow-emerald-950/50"
-            >
-              Kup Działkę · {formatMoney(plot.price)}
-            </button>
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => onBuyPlot(plot.id)}
+                disabled={currentPlayer.cash < purchasePrice}
+                className="w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm disabled:opacity-40 transition-colors shadow-lg shadow-emerald-950/50"
+              >
+                Kup Działkę · {formatMoney(purchasePrice)}
+              </button>
+              <div className="text-[11px] text-slate-400 text-center">
+                Mnożnik ekspansji: <span className="font-mono text-amber-300">×{expansionMult.toFixed(2)}</span> ({ownedPlotsCount} posiadanych działek)
+              </div>
+            </div>
           )}
 
           {isMine && !plot.building && (

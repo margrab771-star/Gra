@@ -22,7 +22,9 @@ interface ContractsMarketPanelProps {
     }
   ) => void;
   onAccept: (contractId: string) => void;
+  onReject: (contractId: string) => void;
   onCancel: (contractId: string) => void;
+  onTransferCash: (recipientId: string, amount: number, note?: string) => void;
   onSubmitTender?: (tenderId: string) => void;
   onRespondPlotOffer: (
     offerId: string,
@@ -37,7 +39,9 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
   currentPlayer,
   onPropose,
   onAccept,
+  onReject,
   onCancel,
+  onTransferCash,
   onSubmitTender,
   onRespondPlotOffer,
   onClose,
@@ -53,8 +57,30 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
   );
   const openTenders = (gameState.tenders ?? []).filter((t) => t.status === 'open');
 
-  const [activeTab, setActiveTab] = useState<'b2b' | 'tenders' | 'plot_offers'>(
-    incomingPlotOffers.length > 0 ? 'plot_offers' : 'b2b'
+  const myContracts = gameState.contracts.filter(
+    (c) => c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id
+  );
+  const openListings = gameState.contracts.filter((c) => c.status === 'open_listing');
+  const incomingPending = myContracts.filter(
+    (c) =>
+      (c.status === 'pending' || c.status === 'proposed') &&
+      (c.responderId
+        ? c.responderId === currentPlayer.id
+        : c.proposerId !== currentPlayer.id)
+  );
+  const outgoingPending = myContracts.filter(
+    (c) =>
+      (c.status === 'pending' || c.status === 'proposed') &&
+      c.proposerId === currentPlayer.id
+  );
+  const activeContracts = myContracts.filter((c) => c.status === 'active');
+  const recentClosedContracts = myContracts
+    .filter((c) => c.status === 'rejected' || c.status === 'cancelled' || c.status === 'completed')
+    .slice(-6)
+    .reverse();
+
+  const [activeTab, setActiveTab] = useState<'b2b' | 'pending_b2b' | 'tenders' | 'plot_offers'>(
+    incomingPending.length > 0 ? 'pending_b2b' : incomingPlotOffers.length > 0 ? 'plot_offers' : 'b2b'
   );
   const [counterDrafts, setCounterDrafts] = useState<Record<string, number>>({});
   const [partnerId, setPartnerId] = useState(rivals[0]?.id ?? 'OPEN');
@@ -69,12 +95,14 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
   const [duration, setDuration] = useState(30);
   const [isSelling, setIsSelling] = useState(true);
 
-  const myContracts = gameState.contracts.filter(
-    (c) => c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id
-  );
-  const openListings = gameState.contracts.filter((c) => c.status === 'open_listing');
-  const incomingProposals = myContracts.filter((c) => c.status === 'proposed');
-  const activeContracts = myContracts.filter((c) => c.status === 'active');
+  const [transferRecipientId, setTransferRecipientId] = useState(rivals[0]?.id ?? '');
+  const [transferAmount, setTransferAmount] = useState(100_000);
+  const [transferNote, setTransferNote] = useState('');
+
+  const myTransfers = (gameState.cashTransfers ?? [])
+    .filter((t) => t.fromPlayerId === currentPlayer.id || t.toPlayerId === currentPlayer.id)
+    .slice(-10)
+    .reverse();
 
   const isMpClosed = gameState.settings.mode === 'mp_fast' || gameState.settings.mode === 'mp_long';
 
@@ -111,7 +139,20 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
             }`}
           >
-            🤝 Rynek B2B ({incomingProposals.length + activeContracts.length + openListings.length})
+            🤝 Rynek B2B ({activeContracts.length + openListings.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('pending_b2b')}
+            className={`px-3 py-1.5 rounded-lg font-semibold border transition-colors ${
+              activeTab === 'pending_b2b'
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                : incomingPending.length > 0
+                  ? 'bg-amber-950/35 border-amber-400/60 text-amber-200 animate-pulse'
+                  : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            ⏳ Oczekujące Oferty B2B ({incomingPending.length}{outgoingPending.length > 0 ? ` / ${outgoingPending.length} wysł.` : ''})
           </button>
           <button
             type="button"
@@ -359,9 +400,179 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
             </div>
           )}
 
+          {/* ZAKŁADKA OCZEKUJĄCE OFERTY B2B */}
+          {activeTab === 'pending_b2b' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="font-semibold text-amber-300 uppercase tracking-wide">
+                  Odebrane Oferty Kontraktów do Zatwierdzenia ({incomingPending.length})
+                </div>
+                {incomingPending.length === 0 ? (
+                  <div className="p-5 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
+                    Brak przychodzących ofert B2B oczekujących na Twoją decyzję.
+                  </div>
+                ) : (
+                  incomingPending.map((c) => {
+                    const rd = RESOURCE_DEFINITIONS[c.resource];
+                    const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                    const senderName = c.proposerId === c.sellerId ? c.sellerName : c.buyerName;
+                    const roleText =
+                      c.buyerId === currentPlayer.id ? '📥 Kupujesz surowiec' : '📤 Sprzedajesz surowiec';
+                    const estTotal =
+                      c.kind === 'barter'
+                        ? null
+                        : c.quantityPerTick * c.pricePerUnit * (c.kind === 'spot' ? 1 : c.durationTicks);
+                    return (
+                      <div
+                        key={c.id}
+                        className="p-3.5 rounded-lg bg-amber-950/20 border border-amber-500/45 flex flex-wrap items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="font-semibold text-slate-100 text-sm">
+                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}
+                            {c.kind === 'spot' ? ' (Spot 1×)' : '/T'} ·{' '}
+                            {c.kind === 'barter' && brd
+                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name} (Barter)`
+                              : `${formatMoney(c.pricePerUnit)}/j`}
+                          </div>
+                          <div className="text-slate-300 flex flex-wrap items-center gap-2">
+                            <span>
+                              Od: <strong className="text-amber-200">{senderName}</strong>
+                            </span>
+                            <span>·</span>
+                            <span>{roleText}</span>
+                            <span>·</span>
+                            <span>
+                              Czas: <strong>{c.kind === 'spot' ? 'Jednorazowo (Spot)' : `${c.durationTicks} cykli`}</strong>
+                            </span>
+                            {estTotal !== null && (
+                              <>
+                                <span>·</span>
+                                <span className="font-mono text-emerald-300">
+                                  Łącznie: {formatMoney(estTotal)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onAccept(c.id)}
+                            className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                          >
+                            ✓ Zatwierdź Umowę
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onReject(c.id)}
+                            className="px-3.5 py-2 rounded-lg bg-rose-600/35 hover:bg-rose-600/55 border border-rose-500/45 text-rose-200 font-semibold"
+                          >
+                            ✕ Odrzuć
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="font-semibold text-sky-300 uppercase tracking-wide">
+                  Wysłane Oferty Oczekujące na Partnera ({outgoingPending.length})
+                </div>
+                {outgoingPending.length === 0 ? (
+                  <div className="p-4 rounded-lg bg-[#0b0f17] border border-[#243044] text-center text-slate-500">
+                    Nie masz aktualnie wysłanych ofert czekających na odpowiedź.
+                  </div>
+                ) : (
+                  outgoingPending.map((c) => {
+                    const rd = RESOURCE_DEFINITIONS[c.resource];
+                    const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
+                    const recipientName = c.proposerId === c.sellerId ? c.buyerName : c.sellerName;
+                    return (
+                      <div
+                        key={c.id}
+                        className="p-3 rounded-lg bg-[#0b0f17] border border-sky-500/35 flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div>
+                          <div className="font-semibold text-slate-100">
+                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}{' '}
+                            {c.kind === 'barter' && brd
+                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name}`
+                              : `po ${formatMoney(c.pricePerUnit)}/j`}
+                          </div>
+                          <div className="text-slate-400">
+                            Odbiorca: <strong className="text-slate-200">{recipientName}</strong> ·{' '}
+                            {c.kind === 'spot' ? 'Spot 1×' : `${c.durationTicks} cykli`} ·{' '}
+                            <span className="text-amber-300">⏳ Oczekuje na akceptację</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onCancel(c.id)}
+                          className="px-3 py-1.5 rounded bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/40 text-rose-200 font-semibold"
+                        >
+                          Anuluj Ofertę
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {recentClosedContracts.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="font-semibold text-slate-400 uppercase tracking-wide">
+                    Historia Odrzuconych i Zakończonych ({recentClosedContracts.length})
+                  </div>
+                  {recentClosedContracts.map((c) => {
+                    const rd = RESOURCE_DEFINITIONS[c.resource];
+                    return (
+                      <div
+                        key={c.id}
+                        className="px-3 py-2 rounded bg-[#0b0f17]/70 border border-[#243044] flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="text-slate-300">
+                          {rd.emoji} {rd.name} · {c.sellerName} → {c.buyerName} ({c.quantityPerTick}/T)
+                        </span>
+                        <span
+                          className={`font-semibold ${
+                            c.status === 'completed'
+                              ? 'text-emerald-400'
+                              : c.status === 'rejected'
+                                ? 'text-rose-400'
+                                : 'text-slate-400'
+                          }`}
+                        >
+                          {c.status === 'completed'
+                            ? '✓ Zrealizowany'
+                            : c.status === 'rejected'
+                              ? '✕ Odrzucony'
+                              : 'Anulowany'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ZAKŁADKA B2B */}
           {activeTab === 'b2b' && (
             <>
+              {incomingPending.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pending_b2b')}
+                  className="w-full p-2.5 rounded-lg bg-amber-950/35 hover:bg-amber-950/55 border border-amber-400/60 text-amber-200 font-semibold flex items-center justify-between"
+                >
+                  <span>⏳ Masz {incomingPending.length} oczekujące oferty B2B do zatwierdzenia lub odrzucenia</span>
+                  <span className="text-amber-300 underline">Otwórz Oczekujące Oferty →</span>
+                </button>
+              )}
+
               {/* Tablica Publicznych Ofert Otwartych */}
               {openListings.length > 0 && (
                 <div className="space-y-2">
@@ -411,53 +622,6 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                       );
                     })}
                   </div>
-                </div>
-              )}
-
-              {/* Oczekujące propozycje prywatne */}
-              {incomingProposals.length > 0 && (
-                <div className="space-y-2">
-                  <div className="font-semibold text-amber-300 uppercase tracking-wide">
-                    Oczekujące Oferty Kontraktów ({incomingProposals.length})
-                  </div>
-                  {incomingProposals.map((c) => {
-                    const rd = RESOURCE_DEFINITIONS[c.resource];
-                    const brd = c.barterResource ? RESOURCE_DEFINITIONS[c.barterResource] : null;
-                    return (
-                      <div
-                        key={c.id}
-                        className="p-3 rounded-lg bg-amber-950/20 border border-amber-500/40 flex flex-wrap items-center justify-between gap-2"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-100">
-                            {rd.emoji} {rd.name} · {c.quantityPerTick} {rd.unit}{' '}
-                            {c.kind === 'barter' && brd
-                              ? `↔ ${c.barterQtyPerTick} ${brd.unit} ${brd.name} (Barter)`
-                              : `po ${formatMoney(c.pricePerUnit)}`}
-                          </div>
-                          <div className="text-slate-400">
-                            {c.sellerName} → {c.buyerName} ({c.kind === 'spot' ? 'Spot 1×' : `${c.durationTicks} cykli`})
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => onAccept(c.id)}
-                            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-                          >
-                            Akceptuj
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onCancel(c.id)}
-                            className="px-3 py-1.5 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200"
-                          >
-                            Odrzuć
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               )}
 
@@ -588,10 +752,121 @@ export const ContractsMarketPanel: React.FC<ContractsMarketPanelProps> = ({
                     }
                     className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                   >
-                    {partnerId === 'OPEN' ? '📢 Wystaw na Tablicę B2B' : 'Wyślij Propozycję B2B'}
+                    {partnerId === 'OPEN' ? '📢 Wystaw na Tablicę B2B' : '📤 Wyślij Ofertę do Akceptacji'}
                   </button>
                 </div>
               </div>
+
+              {/* Przelew Gotówki B2B między graczami */}
+              {rivals.length > 0 && (
+                <div className="p-3.5 rounded-lg bg-[#0b0f17] border border-emerald-500/35 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-semibold text-emerald-300 text-sm">💸 Przelew Gotówki B2B</div>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      Dostępne środki: {formatMoney(currentPlayer.cash)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select
+                      value={transferRecipientId}
+                      onChange={(e) => setTransferRecipientId(e.target.value)}
+                      className="bg-[#151c28] border border-[#2d3b52] rounded px-2 py-2 text-slate-100"
+                    >
+                      {rivals.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.companyName}
+                        </option>
+                      ))}
+                    </select>
+                    <DarkNumberInput
+                      value={transferAmount}
+                      onChange={(val) => setTransferAmount(Math.max(0, val))}
+                      min={1}
+                      step={25_000}
+                    />
+                    <input
+                      type="text"
+                      value={transferNote}
+                      onChange={(e) => setTransferNote(e.target.value)}
+                      maxLength={64}
+                      placeholder="Tytuł przelewu (opcjonalny)"
+                      className="bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-2 text-slate-100 placeholder:text-slate-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: '+50 tys.', add: 50_000 },
+                        { label: '+250 tys.', add: 250_000 },
+                        { label: '+1 mln', add: 1_000_000 },
+                      ].map((btn) => (
+                        <button
+                          key={btn.add}
+                          type="button"
+                          onClick={() =>
+                            setTransferAmount((prev) =>
+                              Math.min(Math.max(0, Math.floor(currentPlayer.cash)), Math.max(0, prev) + btn.add)
+                            )
+                          }
+                          className="px-2.5 py-1 rounded bg-[#151c28] hover:bg-[#1e293d] border border-[#2d3b52] text-slate-200 font-mono text-[11px]"
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={
+                        !transferRecipientId ||
+                        transferAmount <= 0 ||
+                        transferAmount > currentPlayer.cash
+                      }
+                      onClick={() => {
+                        onTransferCash(transferRecipientId, transferAmount, transferNote);
+                        setTransferNote('');
+                      }}
+                      className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold"
+                    >
+                      💸 Wyślij Przelew ({formatMoney(Math.max(0, transferAmount))})
+                    </button>
+                  </div>
+
+                  {myTransfers.length > 0 && (
+                    <div className="pt-2 border-t border-[#1e293b] space-y-1">
+                      <div className="text-[10px] text-slate-400 uppercase font-semibold">
+                        Ostatnie Przelewy B2B
+                      </div>
+                      <div className="space-y-1 max-h-28 overflow-y-auto">
+                        {myTransfers.map((tr) => {
+                          const isOut = tr.fromPlayerId === currentPlayer.id;
+                          return (
+                            <div
+                              key={tr.id}
+                              className="px-2.5 py-1.5 rounded bg-[#131b2b] flex items-center justify-between gap-2 text-[11px]"
+                            >
+                              <span className="text-slate-300 truncate">
+                                {isOut ? `→ ${tr.toCompanyName}` : `← Od ${tr.fromCompanyName}`}
+                                {tr.note ? ` · "${tr.note}"` : ''} · {tr.dateLabel}
+                              </span>
+                              <span
+                                className={`font-mono font-semibold shrink-0 ${
+                                  isOut ? 'text-rose-300' : 'text-emerald-300'
+                                }`}
+                              >
+                                {isOut ? '−' : '+'}
+                                {formatMoney(tr.amount)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Aktywne kontrakty */}
               <div className="space-y-2">

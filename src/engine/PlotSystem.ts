@@ -544,24 +544,66 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
   }
 }
 
-export function buyPlotForPlayer(
+export function getPlayerOwnedPlotCount(state: GameState, playerId: string): number {
+  let count = 0;
+  for (let i = 0; i < state.plots.length; i++) {
+    if (state.plots[i].ownerId === playerId) count++;
+  }
+  return count;
+}
+
+export function getExpansionPriceMultiplier(ownedCount: number): number {
+  return Math.pow(1.075, Math.max(0, ownedCount));
+}
+
+export function getPlotPurchasePrice(
+  plot: Plot,
+  playerOrOwnedCount: Player | number,
+  state?: GameState
+): number {
+  if (plot.terrain === 'water') return 0;
+  const ownedCount =
+    typeof playerOrOwnedCount === 'number'
+      ? playerOrOwnedCount
+      : state
+        ? getPlayerOwnedPlotCount(state, playerOrOwnedCount.id)
+        : (playerOrOwnedCount.ownedPlotCount ?? 0);
+  return Math.round(plot.price * getExpansionPriceMultiplier(ownedCount));
+}
+
+function executeSinglePlotBuyCore(
   state: GameState,
   player: Player,
-  plot: Plot
-): { ok: boolean; error?: string } {
-  if (plot.terrain === 'water') return { ok: false, error: 'Nie można kupić akwenu wodnego.' };
+  plot: Plot,
+  refreshRoads = true
+): { ok: boolean; pricePaid: number; error?: string } {
+  if (plot.terrain === 'water') {
+    return { ok: false, pricePaid: 0, error: 'Nie można kupić akwenu wodnego.' };
+  }
   if ((plot.irradiatedTicks ?? 0) > 0) {
     return {
       ok: false,
+      pricePaid: 0,
       error: `Działka znajduje się w strefie skażenia nuklearnego (jeszcze ${plot.irradiatedTicks} tur).`,
     };
   }
-  if (plot.ownerId !== null) return { ok: false, error: 'Działka ma już właściciela.' };
-  if (player.cash < plot.price) return { ok: false, error: 'Niewystarczająca gotówka na zakup działki.' };
+  if (plot.ownerId !== null) {
+    return { ok: false, pricePaid: 0, error: 'Działka ma już właściciela.' };
+  }
 
-  player.cash -= plot.price;
+  const purchasePrice = getPlotPurchasePrice(plot, player, state);
+  if (player.cash < purchasePrice) {
+    return {
+      ok: false,
+      pricePaid: 0,
+      error: `Niewystarczająca gotówka na zakup działki (${purchasePrice.toLocaleString('pl-PL')} zł).`,
+    };
+  }
+
+  player.cash -= purchasePrice;
   plot.ownerId = player.id;
   plot.purchasable = false;
+  player.ownedPlotCount = getPlayerOwnedPlotCount(state, player.id);
 
   for (const neighbor of state.plots) {
     if (neighbor.id === plot.id || neighbor.terrain === 'water') continue;
@@ -572,8 +614,69 @@ export function buyPlotForPlayer(
   }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
-  refreshBuildingsRoadStatus(state);
-  return { ok: true };
+  if (refreshRoads) {
+    refreshBuildingsRoadStatus(state);
+  }
+  return { ok: true, pricePaid: purchasePrice };
+}
+
+export function estimateBatchPlotsPurchaseCost(
+  state: GameState,
+  player: Player,
+  candidatePlots: Plot[]
+): { count: number; totalCost: number; perPlotPrices: number[] } {
+  if (candidatePlots.length === 0) {
+    return { count: 0, totalCost: 0, perPlotPrices: [] };
+  }
+  const simPlots = state.plots.map((p) => ({
+    ...p,
+    deposits: p.deposits,
+  }));
+  const simPlotById = new Map<string, Plot>();
+  for (const p of simPlots) simPlotById.set(p.id, p);
+
+  let ownedCount = getPlayerOwnedPlotCount(state, player.id);
+  let totalCost = 0;
+  const perPlotPrices: number[] = [];
+
+  for (const orig of candidatePlots) {
+    const plot = simPlotById.get(orig.id);
+    if (
+      !plot ||
+      !plot.purchasable ||
+      plot.ownerId !== null ||
+      plot.terrain === 'water' ||
+      (plot.irradiatedTicks ?? 0) > 0
+    ) {
+      continue;
+    }
+    const price = getPlotPurchasePrice(plot, ownedCount);
+    perPlotPrices.push(price);
+    totalCost += price;
+    plot.ownerId = player.id;
+    plot.purchasable = false;
+    ownedCount++;
+
+    for (const neighbor of simPlots) {
+      if (neighbor.id === plot.id || neighbor.terrain === 'water') continue;
+      const d = Math.hypot(neighbor.gridX - plot.gridX, neighbor.gridY - plot.gridY);
+      if (d <= 2.5) {
+        neighbor.basePrice = Math.round(neighbor.basePrice * 1.03);
+      }
+    }
+    recalculateSpatialNetwork(simPlots);
+  }
+
+  return { count: perPlotPrices.length, totalCost, perPlotPrices };
+}
+
+export function buyPlotForPlayer(
+  state: GameState,
+  player: Player,
+  plot: Plot
+): { ok: boolean; error?: string } {
+  const res = executeSinglePlotBuyCore(state, player, plot, true);
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 export function sellPlotForPlayer(
@@ -594,6 +697,7 @@ export function sellPlotForPlayer(
   plot.blockedPlayers = [];
   plot.isPlayerRoad = false;
   plot.purchasable = plot.terrain !== 'water' && (plot.irradiatedTicks ?? 0) <= 0;
+  player.ownedPlotCount = getPlayerOwnedPlotCount(state, player.id);
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   refreshBuildingsRoadStatus(state);
@@ -1052,11 +1156,9 @@ export function batchBuyPlotsForPlayer(
   let boughtCount = 0;
   let totalSpent = 0;
   for (const plot of candidates) {
-    if (player.cash < plot.price) break;
-    player.cash -= plot.price;
-    totalSpent += plot.price;
-    plot.ownerId = player.id;
-    plot.purchasable = false;
+    const bought = executeSinglePlotBuyCore(state, player, plot, false);
+    if (!bought.ok) break;
+    totalSpent += bought.pricePaid;
     boughtCount++;
   }
 
@@ -1064,8 +1166,7 @@ export function batchBuyPlotsForPlayer(
     return { ok: false, boughtCount: 0, totalSpent: 0, error: 'Niewystarczająca gotówka na zakup zaznaczonych działek.' };
   }
 
-  state.networkRevision = (state.networkRevision ?? 0) + 1;
-  recalculateSpatialNetwork(state.plots);
+  refreshBuildingsRoadStatus(state);
   return { ok: true, boughtCount, totalSpent };
 }
 
@@ -1170,11 +1271,11 @@ export function batchBuildRoadForPlayer(
     // LUB budować bezpośrednio na własnych działkach bez budynku
     if (plot.ownerId === null && plot.purchasable && plot.terrain !== 'water') {
       const roadCost = getRoadBuildCostForPlot(state, player, plot, effectiveClass);
-      if (player.cash < plot.price + roadCost) break;
-      player.cash -= plot.price;
-      totalCost += plot.price;
-      plot.ownerId = player.id;
-      plot.purchasable = false;
+      const landPrice = getPlotPurchasePrice(plot, player, state);
+      if (player.cash < landPrice + roadCost) break;
+      const bought = executeSinglePlotBuyCore(state, player, plot, false);
+      if (!bought.ok) break;
+      totalCost += bought.pricePaid;
     }
     if (plot.ownerId !== player.id || plot.building || plot.terrain === 'water') {
       continue;

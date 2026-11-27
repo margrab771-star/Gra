@@ -326,7 +326,11 @@ export function App() {
 
   const unreadNewsCount = gameState.news.filter((n) => !n.read).length;
   const pendingContractsCount = gameState.contracts.filter(
-    (c) => c.status === 'proposed' && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id)
+    (c) =>
+      (c.status === 'pending' || c.status === 'proposed') &&
+      (c.responderId
+        ? c.responderId === currentPlayer.id
+        : c.proposerId !== currentPlayer.id && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id))
   ).length;
   const pendingPlotOffersCount = gameState.plotOffers.filter(
     (o) =>
@@ -377,6 +381,10 @@ export function App() {
         onApplyAutoRepairTemplate={actions.applyAutoRepairTemplate}
         onBuyMissingResource={actions.buyWarehouseStock}
         onToggleStockpile={actions.toggleStockpile}
+        onSetStockpileAllocation={actions.setStockpileAllocation}
+        onAcceptContract={actions.acceptContract}
+        onRejectContract={actions.rejectContract}
+        onCancelContract={actions.cancelContract}
         onBuyServiceVehicle={actions.buyServiceVehicle}
         onDemolish={actions.demolishBuilding}
         onCloneBuilding={(bType) => {
@@ -565,7 +573,7 @@ export function App() {
                 <span>{item.icon}</span>
                 <span className="hidden sm:inline">{item.label}</span>
                 {item.badge && item.badge > 0 ? (
-                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold">
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold animate-pulse">
                     {item.badge}
                   </span>
                 ) : null}
@@ -680,7 +688,9 @@ export function App() {
           currentPlayer={currentPlayer}
           onPropose={actions.proposeContract}
           onAccept={actions.acceptContract}
+          onReject={actions.rejectContract}
           onCancel={actions.cancelContract}
+          onTransferCash={actions.transferCashB2B}
           onSubmitTender={actions.submitTenderDelivery}
           onRespondPlotOffer={actions.respondPlotOffer}
           onClose={() => actions.setActiveModal('none')}

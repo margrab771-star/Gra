@@ -22,6 +22,7 @@ import { executeInfluenceAction } from './InfluenceSystem';
 import {
   buildPlayerRoadOnPlot,
   buyPlotForPlayer,
+  getPlotPurchasePrice,
   getRoadBuildCostForPlot,
   getSuggestedPlotBuyoutValuation,
   hasPlayerDiscoveredPlot,
@@ -750,13 +751,13 @@ function ensureUtilitiesSurvival(
               (p.irradiatedTicks ?? 0) <= 0 &&
               def.requiredTerrain.includes(p.terrain) &&
               (!localOnlyDeficit || plotTouchesDeficitCluster(p, grpDeficitClusters)) &&
-              ai.cash >= p.price + buildCost + (hasRoadAccess(state, p, ai.id) ? 0 : 35_000)
+              ai.cash >= getPlotPurchasePrice(p, ai, state) + buildCost + (hasRoadAccess(state, p, ai.id) ? 0 : 35_000)
           )
           .sort((a, b) => {
             const adjOwnA = ownedPlots.some((op) => Math.abs(op.gridX - a.gridX) + Math.abs(op.gridY - a.gridY) <= 2) ? 24 : 0;
             const adjOwnB = ownedPlots.some((op) => Math.abs(op.gridX - b.gridX) + Math.abs(op.gridY - b.gridY) <= 2) ? 24 : 0;
-            const scoreA = rankPlotForUtility(a, bType) + adjOwnA - a.price / 8_000;
-            const scoreB = rankPlotForUtility(b, bType) + adjOwnB - b.price / 8_000;
+            const scoreA = rankPlotForUtility(a, bType) + adjOwnA - getPlotPurchasePrice(a, ai, state) / 8_000;
+            const scoreB = rankPlotForUtility(b, bType) + adjOwnB - getPlotPurchasePrice(b, ai, state) / 8_000;
             return scoreB - scoreA;
           });
 
@@ -1247,7 +1248,8 @@ function ensureContinuousRoads(
             ? 'highway'
             : 'local';
         const roadCost = getRoadBuildCostForPlot(state, ai, stepPlot, roadClass);
-        const totalStepCost = (!isBridgeStep && stepPlot.ownerId === null ? stepPlot.price : 0) + roadCost;
+        const totalStepCost =
+          (!isBridgeStep && stepPlot.ownerId === null ? getPlotPurchasePrice(stepPlot, ai, state) : 0) + roadCost;
 
         if (
           ai.cash < totalStepCost &&
@@ -1310,11 +1312,17 @@ function ensureContinuousRoads(
           }
         }
       }
-      roadCandidates.sort((a, b) => (a.ownerId === ai.id ? -1 : b.ownerId === ai.id ? 1 : a.price - b.price));
+      roadCandidates.sort((a, b) =>
+        a.ownerId === ai.id
+          ? -1
+          : b.ownerId === ai.id
+            ? 1
+            : getPlotPurchasePrice(a, ai, state) - getPlotPurchasePrice(b, ai, state)
+      );
       const starter = roadCandidates[0];
       if (starter) {
         const roadCost = getRoadBuildCostForPlot(state, ai, starter, 'local');
-        const totalCost = (starter.ownerId === null ? starter.price : 0) + roadCost;
+        const totalCost = (starter.ownerId === null ? getPlotPurchasePrice(starter, ai, state) : 0) + roadCost;
         if (ai.cash >= totalCost + Math.min(40_000, cashReserve * 0.4)) {
           if (starter.ownerId !== ai.id) {
             buyPlotForPlayer(state, ai, starter);
@@ -1450,7 +1458,7 @@ function pickBestPlotForAI(
       p.ownerId === null &&
       p.terrain !== 'water' &&
       (p.irradiatedTicks ?? 0) <= 0 &&
-      p.price <= maxSpend * 0.72
+      getPlotPurchasePrice(p, ai, state) <= maxSpend * 0.72
   );
   if (candidates.length === 0) return null;
 
@@ -1479,7 +1487,7 @@ function pickBestPlotForAI(
         else depBonus += 18;
       }
       score += depBonus;
-    } else if (!roadAdjacent && p.price + 60_000 > maxSpend * 0.72) {
+    } else if (!roadAdjacent && getPlotPurchasePrice(p, ai, state) + 60_000 > maxSpend * 0.72) {
       // Jeśli brak dostępu do drogi i brak złoża, a budżet ledwo wystarcza — unikaj bezdroży
       score -= 35;
     } else if (
@@ -1505,7 +1513,7 @@ function pickBestPlotForAI(
       score += ((p.passengerDemandPercent ?? 100) - 100) * 0.45;
     }
 
-    score -= p.price / 30_000;
+    score -= getPlotPurchasePrice(p, ai, state) / 30_000;
     if (score > bestScore) {
       bestScore = score;
       best = p;
@@ -1833,7 +1841,10 @@ function handleDiplomacyMarketAndAuctions(
   // 3. Przychodzące kontrakty B2B oraz inteligentne proponowanie nadwyżek
   if (difficulty >= 2) {
     const incomingB2B = state.contracts.find(
-      (c) => c.status === 'proposed' && (c.buyerId === ai.id || c.sellerId === ai.id)
+      (c) =>
+        (c.status === 'pending' || c.status === 'proposed') &&
+        c.proposerId !== ai.id &&
+        (c.responderId ? c.responderId === ai.id : c.buyerId === ai.id || c.sellerId === ai.id)
     );
     if (incomingB2B) {
       const mktPrice = getResourcePrice(state, incomingB2B.resource);

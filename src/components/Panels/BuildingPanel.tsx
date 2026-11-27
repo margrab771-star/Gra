@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { SERVICE_VEHICLE_COST } from '../../config/gameConfig';
-import { RESOURCE_DEFINITIONS } from '../../data/resources';
+import { RESOURCE_DEFINITIONS, TRADEABLE_RESOURCE_LIST } from '../../data/resources';
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import {
   getInsurancePremiumPerTick,
+  getPlayerWarehouseCapacitySummary,
   getPowerPlantFuelSpec,
   getRepairCost,
+  getResourceStorageSplitPercent,
 } from '../../engine/BuildingSystem';
 import { getSafetyCoverageForPlot, getStationEffectiveMaxFleet } from '../../engine/HazardSystem';
 import { calculateZUSBreakdown, getTrainingCost } from '../../engine/HRSystem';
@@ -33,6 +35,14 @@ interface BuildingPanelProps {
   onApplyAutoRepairTemplate: (enabled: boolean, threshold: number, setAsDefault: boolean) => void;
   onBuyMissingResource: (resource: ResourceType, amount: number) => void;
   onToggleStockpile: (buildingId: string) => void;
+  onSetStockpileAllocation?: (opts: {
+    globalPercent?: number;
+    resource?: ResourceType;
+    resourcePercent?: number | null;
+  }) => void;
+  onAcceptContract?: (contractId: string) => void;
+  onRejectContract?: (contractId: string) => void;
+  onCancelContract?: (contractId: string) => void;
   onBuyServiceVehicle?: (buildingId: string) => void;
   onDemolish: (plotId: string) => void;
   onCloneBuilding?: (buildingType: BuildingType) => void;
@@ -57,7 +67,7 @@ interface BuildingPanelProps {
   onClose: () => void;
 }
 
-type TabKey = 'finance' | 'tech' | 'hr' | 'b2b';
+type TabKey = 'finance' | 'logistics' | 'tech' | 'hr' | 'b2b';
 
 export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
   ({
@@ -74,6 +84,10 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     onApplyAutoRepairTemplate,
     onBuyMissingResource,
     onToggleStockpile,
+    onSetStockpileAllocation,
+    onAcceptContract,
+    onRejectContract,
+    onCancelContract,
     onBuyServiceVehicle,
     onDemolish,
     onCloneBuilding,
@@ -110,6 +124,53 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
     const [isSelling, setIsSelling] = useState<boolean>(true);
 
     const isMine = building.ownerId === currentPlayer.id;
+    const isWarehouse = building.type === 'warehouse';
+    const warehouseSummary = isWarehouse && isMine ? getPlayerWarehouseCapacitySummary(gameState, currentPlayer) : null;
+    const thisWhSummary = warehouseSummary?.warehouses.find((w) => w.plot.id === plot.id);
+    const [customSplitRes, setCustomSplitRes] = useState<ResourceType>('steel');
+
+    const producedPerTickByRes: Partial<Record<ResourceType, number>> = {};
+    if (isWarehouse && isMine) {
+      for (const pl of gameState.plots) {
+        if (pl.ownerId !== currentPlayer.id || !pl.building || pl.building.destroyedRuins) continue;
+        for (const [rk, amt] of Object.entries(pl.building.productionPerTick ?? {})) {
+          if (rk === 'electricity' || rk === 'water' || RESOURCE_DEFINITIONS[rk as ResourceType]?.tradeable === false) {
+            continue;
+          }
+          const r = rk as ResourceType;
+          producedPerTickByRes[r] = (producedPerTickByRes[r] ?? 0) + (amt ?? 0);
+        }
+        const defOut = BUILDING_DEFINITIONS[pl.building.type]?.outputs ?? {};
+        for (const rk of Object.keys(defOut)) {
+          if (rk === 'electricity' || rk === 'water' || RESOURCE_DEFINITIONS[rk as ResourceType]?.tradeable === false) {
+            continue;
+          }
+          const r = rk as ResourceType;
+          if (producedPerTickByRes[r] === undefined) producedPerTickByRes[r] = 0;
+        }
+      }
+      for (const rk of Object.keys(currentPlayer.stockpileAllocation?.byResource ?? {})) {
+        if (rk === 'electricity' || rk === 'water' || RESOURCE_DEFINITIONS[rk as ResourceType]?.tradeable === false) {
+          continue;
+        }
+        const r = rk as ResourceType;
+        if (producedPerTickByRes[r] === undefined) producedPerTickByRes[r] = 0;
+      }
+      for (const [rk, amt] of Object.entries(currentPlayer.warehouseStockpile ?? {})) {
+        if (
+          rk === 'electricity' ||
+          rk === 'water' ||
+          RESOURCE_DEFINITIONS[rk as ResourceType]?.tradeable === false ||
+          (amt ?? 0) <= 0.05
+        ) {
+          continue;
+        }
+        const r = rk as ResourceType;
+        if (producedPerTickByRes[r] === undefined) producedPerTickByRes[r] = 0;
+      }
+    }
+    const warehouseResourceList = Object.keys(producedPerTickByRes) as ResourceType[];
+    const globalStorePct = currentPlayer.stockpileAllocation?.globalPercent ?? 30;
     const owner = gameState.players.find((p) => p.id === building.ownerId);
     const trainingCost = getTrainingCost(building);
     const zusDetails = calculateZUSBreakdown(building.costs.wages, gameState.zusMultiplier);
@@ -627,9 +688,12 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
         </div>
 
         {/* Zakładki */}
-        <div className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-[#0b0f17] border border-[#243044] text-[11px]">
+        <div
+          className={`grid ${isWarehouse && isMine ? 'grid-cols-5' : 'grid-cols-4'} gap-1 p-1 rounded-lg bg-[#0b0f17] border border-[#243044] text-[11px]`}
+        >
           {[
             { key: 'finance', label: 'Finanse' },
+            ...(isWarehouse && isMine ? [{ key: 'logistics', label: 'Logistyka i Podział' }] : []),
             { key: 'tech', label: 'Drzewko' },
             { key: 'hr', label: 'Kadry HR' },
             { key: 'b2b', label: 'B2B' },
@@ -638,7 +702,7 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
               key={t.key}
               type="button"
               onClick={() => setTab(t.key as TabKey)}
-              className={`py-1.5 px-1 rounded font-medium transition-all ${
+              className={`py-1.5 px-1 rounded font-medium transition-all truncate ${
                 tab === t.key
                   ? 'bg-[#1c2638] text-amber-300 border border-amber-500/30 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -648,6 +712,194 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
             </button>
           ))}
         </div>
+
+        {/* ── SEKCJA ZARZĄDZANIA ZAPASAMI I PODZIAŁEM MAGAZYNU (LOGISTYKA / FINANSE MAGAZYNU) ── */}
+        {isWarehouse && isMine && warehouseSummary && (tab === 'logistics' || tab === 'finance') && (
+          <div className="p-3 rounded-lg bg-[#0b0f17] border border-amber-500/35 space-y-3 text-xs animate-fadeIn">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-amber-300">
+                📦 Logistyka i Podział Produkcji (Magazyn vs Eksport)
+              </span>
+              <span className="font-mono font-bold text-slate-100">
+                {warehouseSummary.totalUsed.toFixed(1)} / {warehouseSummary.totalCapacity} t
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <div className="h-2 w-full rounded-full bg-[#151c28] border border-[#243044] overflow-hidden">
+                <div
+                  className="h-full bg-amber-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, (warehouseSummary.totalUsed / Math.max(1, warehouseSummary.totalCapacity)) * 100)}%`,
+                  }}
+                />
+              </div>
+              {thisWhSummary && warehouseSummary.warehouses.length > 1 && (
+                <div className="text-[10px] text-slate-400 flex justify-between">
+                  <span>Ten magazyn ({plot.gridX},{plot.gridY}):</span>
+                  <span className="font-mono text-slate-300">
+                    {thisWhSummary.used.toFixed(1)} / {thisWhSummary.capacity} t
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {onSetStockpileAllocation && (
+              <div className="p-2.5 rounded-lg bg-[#131b2b] border border-[#243044] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-200 font-semibold">Globalny podział firmy</span>
+                  <span className="font-mono text-[11px]">
+                    <span className="text-amber-300">📦 {globalStorePct}%</span>
+                    <span className="text-slate-500"> / </span>
+                    <span className="text-emerald-300">💹 {100 - globalStorePct}%</span>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={globalStorePct}
+                  onChange={(e) => onSetStockpileAllocation({ globalPercent: Number(e.target.value) })}
+                  className="w-full accent-amber-400 cursor-pointer"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Magazynuj {globalStorePct}%</span>
+                  <span>Eksportuj (Sprzedaj) {100 - globalStorePct}%</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {[0, 25, 50, 75, 100].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => onSetStockpileAllocation({ globalPercent: pct })}
+                      className={`py-1 rounded border text-[10px] font-mono transition-colors ${
+                        globalStorePct === pct
+                          ? 'bg-amber-500/25 border-amber-400 text-amber-200 font-bold'
+                          : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wide">
+                  Podział wg surowca ({warehouseResourceList.length})
+                </span>
+                {onSetStockpileAllocation && (
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={customSplitRes}
+                      onChange={(e) => setCustomSplitRes(e.target.value as ResourceType)}
+                      className="bg-[#151c28] border border-[#2d3b52] rounded px-1.5 py-0.5 text-[10px] text-slate-200"
+                    >
+                      {TRADEABLE_RESOURCE_LIST.map((rk) => (
+                        <option key={rk} value={rk}>
+                          {RESOURCE_DEFINITIONS[rk].emoji} {RESOURCE_DEFINITIONS[rk].name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSetStockpileAllocation({ resource: customSplitRes, resourcePercent: globalStorePct })
+                      }
+                      className="px-1.5 py-0.5 rounded bg-sky-600/25 border border-sky-400/40 text-[10px] text-sky-200"
+                      title="Dodaj własny suwak dla wybranego surowca"
+                    >
+                      + Dodaj
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {warehouseResourceList.length === 0 ? (
+                <div className="p-2 rounded bg-[#131b2b] border border-[#243044] text-slate-400 text-[11px]">
+                  Brak produkowanych surowców w sieci — zbuduj kopalnię lub fabrykę połączoną z magazynem albo dodaj regułę powyżej.
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
+                  {warehouseResourceList.map((rk) => {
+                    const rd = RESOURCE_DEFINITIONS[rk];
+                    const customVal = currentPlayer.stockpileAllocation?.byResource?.[rk];
+                    const effPct = getResourceStorageSplitPercent(currentPlayer, rk);
+                    const stockAmt = currentPlayer.warehouseStockpile[rk] ?? 0;
+                    const rate = producedPerTickByRes[rk] ?? 0;
+                    return (
+                      <div key={rk} className="p-2 rounded bg-[#131b2b] border border-[#243044] space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-100">
+                            {rd.emoji} {rd.name}
+                            <span className="ml-1.5 font-mono text-[10px] text-slate-400">
+                              ({stockAmt.toFixed(1)} {rd.unit} · +{rate.toFixed(1)}/T)
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-[10px] text-amber-300">
+                              {effPct}% mag / {100 - effPct}% exp
+                            </span>
+                            {customVal !== undefined && onSetStockpileAllocation && (
+                              <button
+                                type="button"
+                                onClick={() => onSetStockpileAllocation({ resource: rk, resourcePercent: null })}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-600 text-[9px] text-slate-300"
+                                title="Przywróć globalny procent"
+                              >
+                                Globalny
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {onSetStockpileAllocation && (
+                          <>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={5}
+                              value={effPct}
+                              onChange={(e) =>
+                                onSetStockpileAllocation({
+                                  resource: rk,
+                                  resourcePercent: Number(e.target.value),
+                                })
+                              }
+                              className="w-full accent-amber-400 cursor-pointer"
+                            />
+                            <div className="grid grid-cols-5 gap-1">
+                              {[0, 25, 50, 75, 100].map((pct) => (
+                                <button
+                                  key={pct}
+                                  type="button"
+                                  onClick={() => onSetStockpileAllocation({ resource: rk, resourcePercent: pct })}
+                                  className={`py-0.5 rounded border text-[10px] font-mono ${
+                                    effPct === pct
+                                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 font-bold'
+                                      : 'bg-[#0b0f17] border-[#243044] text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {pct}%
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="text-[10px] text-slate-400">
+                Nadwyżka po zapełnieniu magazynu ({warehouseSummary.totalCapacity} t) jest automatycznie eksportowana na rynek.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── ZAKŁADKA FINANSE I AUTONAPRAWA ── */}
         {tab === 'finance' && (
@@ -700,12 +952,20 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(building.productionPerTick).map(([res, amt]) => {
                     const rdef = RESOURCE_DEFINITIONS[res as ResourceType];
+                    const splitPct = building.stockpileOutput
+                      ? 100
+                      : getResourceStorageSplitPercent(currentPlayer, res as ResourceType);
                     return (
                       <span
                         key={res}
                         className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 font-mono"
                       >
                         {rdef.emoji} +{amt} {rdef.unit}/T
+                        {res !== 'electricity' && res !== 'water' && RESOURCE_DEFINITIONS[res as ResourceType]?.tradeable !== false && isMine && (
+                          <span className="ml-1.5 text-[10px] text-amber-300">
+                            ({splitPct}% mag / {100 - splitPct}% exp)
+                          </span>
+                        )}
                       </span>
                     );
                   })}
@@ -1277,6 +1537,67 @@ export const BuildingPanel: React.FC<BuildingPanelProps> = React.memo(
                 >
                   🤝 Zaproponuj Kontrakt B2B
                 </button>
+              </div>
+            )}
+
+            {gameState.contracts.some(
+              (c) =>
+                (c.status === 'pending' || c.status === 'proposed') &&
+                (c.responderId
+                  ? c.responderId === currentPlayer.id
+                  : c.proposerId !== currentPlayer.id && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id))
+            ) && (
+              <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/40 space-y-1.5">
+                <div className="font-semibold text-amber-300">Oczekujące Oferty B2B do Zatwierdzenia</div>
+                {gameState.contracts
+                  .filter(
+                    (c) =>
+                      (c.status === 'pending' || c.status === 'proposed') &&
+                      (c.responderId
+                        ? c.responderId === currentPlayer.id
+                        : c.proposerId !== currentPlayer.id && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id))
+                  )
+                  .map((c) => (
+                    <div key={c.id} className="p-2 rounded bg-[#151c28] flex justify-between items-center gap-2">
+                      <div>
+                        <div className="text-slate-100 font-medium">
+                          {RESOURCE_DEFINITIONS[c.resource].emoji} {RESOURCE_DEFINITIONS[c.resource].name} · {c.quantityPerTick}/T
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {c.sellerName} → {c.buyerName} · {formatMoney(c.pricePerUnit)}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        {onAcceptContract && (
+                          <button
+                            type="button"
+                            onClick={() => onAcceptContract(c.id)}
+                            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                          >
+                            ✓
+                          </button>
+                        )}
+                        {onRejectContract && (
+                          <button
+                            type="button"
+                            onClick={() => onRejectContract(c.id)}
+                            className="px-2 py-1 rounded bg-rose-600/40 hover:bg-rose-600/60 text-rose-200"
+                          >
+                            ✕
+                          </button>
+                        )}
+                        {onCancelContract && !onRejectContract && (
+                          <button
+                            type="button"
+                            onClick={() => onCancelContract(c.id)}
+                            className="px-2 py-1 rounded bg-rose-600/40 text-rose-200"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
               </div>
             )}
 

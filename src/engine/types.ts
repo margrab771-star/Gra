@@ -684,12 +684,15 @@ export interface B2BContract {
   buyerId: string;
   sellerName: string;
   buyerName: string;
+  proposerId?: string;
+  responderId?: string;
+  createdTick?: number;
   resource: ResourceType;
   quantityPerTick: number;
   pricePerUnit: number;
   durationTicks: number;
   remainingTicks: number;
-  status: 'proposed' | 'open_listing' | 'active' | 'cancelled' | 'completed';
+  status: 'pending' | 'proposed' | 'open_listing' | 'active' | 'rejected' | 'cancelled' | 'completed';
   totalValueDelivered: number;
   kind?: 'recurring' | 'spot' | 'barter';
   barterResource?: ResourceType;
@@ -697,6 +700,23 @@ export interface B2BContract {
   listingSide?: 'sell' | 'buy';
   blockedReason?: string;
   transportMode?: 'road' | 'sea' | 'air' | 'blocked';
+}
+
+export interface CashTransferRecord {
+  id: string;
+  fromPlayerId: string;
+  fromCompanyName: string;
+  toPlayerId: string;
+  toCompanyName: string;
+  amount: number;
+  note?: string;
+  tick: number;
+  dateLabel: string;
+}
+
+export interface StockpileAllocationConfig {
+  globalPercent: number;
+  byResource: Partial<Record<ResourceType, number>>;
 }
 
 // ─── Global Tech & Entrepreneur Trees ─────────────────────────────────────────
@@ -1239,6 +1259,8 @@ export interface Player {
   inspectionRisk: number;
   warehouseStockpile: Partial<Record<ResourceType, number>>;
   stockLocations?: Record<string, Partial<Record<ResourceType, number>>>;
+  stockpileAllocation?: StockpileAllocationConfig;
+  ownedPlotCount?: number;
   defaultAutoRepair: { enabled: boolean; threshold: number };
   activeTaxReliefTicks: number;
   spiedPlayers: Record<string, number>;
@@ -1341,6 +1363,7 @@ export interface GameState {
   pendingForecasts: GameEvent[];
   news: NewsArticle[];
   contracts: B2BContract[];
+  cashTransfers?: CashTransferRecord[];
   plotOffers: PlotOffer[];
   vehicles: Vehicle[];
   transportLines: TransportRouteLine[];
@@ -1483,7 +1506,16 @@ export type PlayerAction =
       openListing?: boolean;
     }
   | { type: 'acceptContract'; playerId: string; contractId: string }
+  | { type: 'rejectContract'; playerId: string; contractId: string }
   | { type: 'cancelContract'; playerId: string; contractId: string }
+  | { type: 'transferCashB2B'; playerId: string; recipientId: string; amount: number; note?: string }
+  | {
+      type: 'setStockpileAllocation';
+      playerId: string;
+      globalPercent?: number;
+      resource?: ResourceType;
+      resourcePercent?: number | null;
+    }
   | {
       type: 'executeInfluence';
       playerId: string;

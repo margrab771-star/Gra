@@ -1,3 +1,4 @@
+import { formatGameDate } from '../utils/formatters';
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { hasActiveEmbargo } from './CoalitionSystem';
@@ -9,7 +10,7 @@ import {
   consumeReachableWarehouseStock,
   getCargoTransportModeBetweenPlayers,
 } from './TransportSystem';
-import type { B2BContract, GameState, Player, ResourceType } from './types';
+import type { B2BContract, CashTransferRecord, GameState, Player, ResourceType } from './types';
 
 export interface B2BFuelReceipt {
   contractId: string;
@@ -65,6 +66,8 @@ export function proposeB2BContract(
       buyerId: isSelling ? '' : proposer.id,
       sellerName: isSelling ? proposer.companyName : 'Otwarte zlecenie kupna',
       buyerName: isSelling ? 'Otwarta oferta sprzedaży' : proposer.companyName,
+      proposerId: proposer.id,
+      createdTick: state.time.tick,
       resource,
       quantityPerTick,
       pricePerUnit: kind === 'barter' ? 0 : pricePerUnit,
@@ -92,7 +95,7 @@ export function proposeB2BContract(
   const seller = isSelling ? proposer : partner;
   const buyer = isSelling ? partner : proposer;
 
-  const initialStatus = partner.isAI
+  const initialStatus: B2BContract['status'] = partner.isAI
     ? evaluateAIContractAcceptance(
         state,
         partner,
@@ -104,7 +107,7 @@ export function proposeB2BContract(
         opts.barterResource,
         opts.barterQtyPerTick
       )
-    : 'proposed';
+    : 'pending';
 
   const contract: B2BContract = {
     id: `ctr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
@@ -112,6 +115,9 @@ export function proposeB2BContract(
     buyerId: buyer.id,
     sellerName: seller.companyName,
     buyerName: buyer.companyName,
+    proposerId: proposer.id,
+    responderId: partner.id,
+    createdTick: state.time.tick,
     resource,
     quantityPerTick,
     pricePerUnit: kind === 'barter' ? 0 : pricePerUnit,
@@ -244,9 +250,14 @@ export function acceptB2BContract(
     }
     c.status = 'active';
   } else {
-    if (c.status !== 'proposed') return { ok: false, error: 'Kontrakt nie oczekuje na akceptację.' };
+    if (c.status !== 'pending' && c.status !== 'proposed') {
+      return { ok: false, error: 'Kontrakt nie oczekuje na akceptację.' };
+    }
     if (c.sellerId !== player.id && c.buyerId !== player.id) {
       return { ok: false, error: 'Ten kontrakt Cię nie dotyczy.' };
+    }
+    if (c.proposerId === player.id || (c.responderId && c.responderId !== player.id)) {
+      return { ok: false, error: 'Tylko odbiorca oferty może zatwierdzić tę umowę B2B.' };
     }
     if (hasActiveEmbargo(state, c.sellerId, c.buyerId)) {
       return { ok: false, error: 'Aktywne embargo blokuje aktywację tej umowy.' };
@@ -277,6 +288,26 @@ export function acceptB2BContract(
   return { ok: true };
 }
 
+export function rejectB2BContract(
+  state: GameState,
+  player: Player,
+  contractId: string
+): { ok: boolean; error?: string } {
+  const c = state.contracts.find((ct) => ct.id === contractId);
+  if (!c) return { ok: false, error: 'Nie znaleziono oferty kontraktu.' };
+  if (c.status !== 'pending' && c.status !== 'proposed') {
+    return { ok: false, error: 'Ta oferta nie oczekuje już na odpowiedź.' };
+  }
+  if (c.sellerId !== player.id && c.buyerId !== player.id) {
+    return { ok: false, error: 'Brak uprawnień do odrzucenia oferty.' };
+  }
+  if (c.proposerId === player.id) {
+    return { ok: false, error: 'Własną ofertę możesz anulować, a nie odrzucić.' };
+  }
+  c.status = 'rejected';
+  return { ok: true };
+}
+
 export function cancelB2BContract(
   state: GameState,
   player: Player,
@@ -293,6 +324,45 @@ export function cancelB2BContract(
   }
   c.status = 'cancelled';
   return { ok: true };
+}
+
+export function executeCashTransferB2B(
+  state: GameState,
+  sender: Player,
+  recipientId: string,
+  amount: number,
+  note?: string
+): { ok: boolean; error?: string; record?: CashTransferRecord } {
+  const recipient = state.players.find((p) => p.id === recipientId && !p.isEliminated);
+  if (!recipient || recipient.id === sender.id) {
+    return { ok: false, error: 'Wybierz aktywnego odbiorcę przelewu.' };
+  }
+  const cleanAmount = Math.round(amount);
+  if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
+    return { ok: false, error: 'Kwota przelewu musi być dodatnia.' };
+  }
+  if (sender.cash < cleanAmount) {
+    return { ok: false, error: 'Niewystarczająca gotówka na wykonanie przelewu.' };
+  }
+
+  sender.cash -= cleanAmount;
+  recipient.cash += cleanAmount;
+
+  const trimmedNote = note?.trim().slice(0, 64);
+  const record: CashTransferRecord = {
+    id: `trf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    fromPlayerId: sender.id,
+    fromCompanyName: sender.companyName,
+    toPlayerId: recipient.id,
+    toCompanyName: recipient.companyName,
+    amount: cleanAmount,
+    note: trimmedNote || undefined,
+    tick: state.time.tick,
+    dateLabel: formatGameDate(state.time),
+  };
+
+  state.cashTransfers = [...(state.cashTransfers ?? []), record].slice(-40);
+  return { ok: true, record };
 }
 
 function executeContractSettlement(

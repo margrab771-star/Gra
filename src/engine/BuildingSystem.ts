@@ -29,6 +29,91 @@ import {
 import type { B2BFuelReceipt } from './ContractSystem';
 export { hasRoadAccess, isRoadExemptBuilding } from './TransportSystem';
 
+export interface WarehousePlotSummary {
+  plot: Plot;
+  building: Building;
+  capacity: number;
+  used: number;
+}
+
+export interface PlayerWarehouseSummary {
+  warehouses: WarehousePlotSummary[];
+  totalCapacity: number;
+  totalUsed: number;
+  totalStockpileUsed: number;
+}
+
+export function getResourceStorageSplitPercent(
+  player: Player,
+  resource: ResourceType
+): number {
+  if (
+    resource === 'electricity' ||
+    resource === 'water' ||
+    RESOURCE_DEFINITIONS[resource]?.tradeable === false
+  ) {
+    return 0;
+  }
+  const alloc = player.stockpileAllocation;
+  if (!alloc) return 0;
+  const raw = alloc.byResource?.[resource] ?? alloc.globalPercent ?? 0;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function getPlotLocationStockUsed(player: Player, plotId: string): number {
+  const locMap = player.stockLocations?.[plotId];
+  if (!locMap) return 0;
+  let sum = 0;
+  for (const v of Object.values(locMap)) {
+    if ((v ?? 0) > 0) sum += v ?? 0;
+  }
+  return sum;
+}
+
+export function getPlayerWarehouseCapacitySummary(
+  state: GameState,
+  player: Player
+): PlayerWarehouseSummary {
+  const warehouses: WarehousePlotSummary[] = [];
+  let totalCapacity = 0;
+  let totalUsed = 0;
+
+  for (let i = 0; i < state.plots.length; i++) {
+    const p = state.plots[i];
+    if (
+      p.ownerId !== player.id ||
+      !p.building ||
+      p.building.destroyedRuins ||
+      p.building.type !== 'warehouse'
+    ) {
+      continue;
+    }
+    const used = getPlotLocationStockUsed(player, p.id);
+    const capacity = Math.max(1, p.building.storageCapacity || 600);
+    totalCapacity += capacity;
+    totalUsed += used;
+    warehouses.push({
+      plot: p,
+      building: p.building,
+      capacity,
+      used: Number(used.toFixed(1)),
+    });
+  }
+
+  let totalStockpileUsed = 0;
+  for (const [k, v] of Object.entries(player.warehouseStockpile ?? {})) {
+    if (k === 'electricity' || k === 'water') continue;
+    if ((v ?? 0) > 0) totalStockpileUsed += v ?? 0;
+  }
+
+  return {
+    warehouses,
+    totalCapacity,
+    totalUsed: Number(totalUsed.toFixed(1)),
+    totalStockpileUsed: Number(totalStockpileUsed.toFixed(1)),
+  };
+}
+
 export interface PowerPlantFuelSpec {
   primaryResource: ResourceType;
   acceptedResources: ResourceType[];
@@ -360,6 +445,12 @@ export function constructBuildingOnPlot(
   };
 
   plot.building = building;
+  if (buildingType === 'warehouse' && !player.stockpileAllocation) {
+    player.stockpileAllocation = {
+      globalPercent: player.isAI ? 15 : 30,
+      byResource: {},
+    };
+  }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);
   refreshBuildingsRoadStatus(state);
@@ -1300,6 +1391,37 @@ export function processBuildingTick(
     productionPerTick.electricity = 0;
   }
 
+  const reachableWarehouses = state.plots.filter(
+    (whPlot) =>
+      whPlot.ownerId === player.id &&
+      whPlot.building &&
+      !whPlot.building.destroyedRuins &&
+      whPlot.building.type === 'warehouse' &&
+      (() => {
+        const route = canTransportGoodsBetweenPlots(state, plot, whPlot, player.id);
+        return route.reachable && route.mode !== 'blocked';
+      })()
+  );
+
+  const deliverToReachableWarehouses = (resType: ResourceType, desiredQty: number): number => {
+    if (desiredQty <= 0.0001 || reachableWarehouses.length === 0) return 0;
+    let remainingToStore = desiredQty;
+    let storedTotal = 0;
+    for (const whPlot of reachableWarehouses) {
+      if (remainingToStore <= 0.0001) break;
+      const whCap = Math.max(1, whPlot.building?.storageCapacity ?? 600);
+      const whUsed = getPlotLocationStockUsed(player, whPlot.id);
+      const whFree = Math.max(0, whCap - whUsed);
+      if (whFree <= 0.001) continue;
+      const putQty = Number(Math.min(remainingToStore, whFree).toFixed(2));
+      if (putQty <= 0.0001) continue;
+      addPlotWarehouseStock(player, whPlot.id, resType, putQty);
+      remainingToStore = Math.max(0, Number((remainingToStore - putQty).toFixed(4)));
+      storedTotal += putQty;
+    }
+    return Number(storedTotal.toFixed(2));
+  };
+
   for (const [resKey, baseOut] of Object.entries(def.outputs)) {
     const res = resKey as ResourceType;
     const produced =
@@ -1318,7 +1440,10 @@ export function processBuildingTick(
       building.type === 'recyclingPlant' ||
       building.type === 'plasmaGasificationPlant'
     ) {
-      addPlotWarehouseStock(player, plot.id, res, produced);
+      const recovered = deliverToReachableWarehouses(res, produced);
+      if (recovered < produced - 0.001) {
+        addPlotWarehouseStock(player, plot.id, res, Number((produced - recovered).toFixed(2)));
+      }
       utilitySnapshot?.producedLots?.push({
         resource: res,
         plotId: plot.id,
@@ -1346,30 +1471,29 @@ export function processBuildingTick(
           revCat,
         });
       } else {
-        const hasWarehouse = state.plots.some(
-          (p) => p.ownerId === player.id && p.building?.type === 'warehouse'
-        );
-        if (hasWarehouse || isMpClosedEconomy) {
-          addPlotWarehouseStock(player, plot.id, res, produced);
+        const overflowStored = deliverToReachableWarehouses(res, produced);
+        if (overflowStored > 0.001) {
           building.status.storageFull = false;
           utilitySnapshot?.producedLots?.push({
             resource: res,
             plotId: plot.id,
             playerId: player.id,
-            qty: produced,
+            qty: overflowStored,
             unitPrice: 0,
             storedInWarehouse: true,
             revCat,
           });
-        } else {
+        }
+        const marketRemainder = Math.max(0, Number((produced - overflowStored).toFixed(2)));
+        if (marketRemainder > 0.001) {
           building.status.storageFull = true;
           const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus) * 0.85;
-          grossRevenue += produced * unitPrice;
+          grossRevenue += marketRemainder * unitPrice;
           utilitySnapshot?.producedLots?.push({
             resource: res,
             plotId: plot.id,
             playerId: player.id,
-            qty: produced,
+            qty: marketRemainder,
             unitPrice,
             storedInWarehouse: false,
             revCat,
@@ -1378,10 +1502,37 @@ export function processBuildingTick(
       }
     } else {
       building.status.storageFull = false;
-      const needB2B = res !== 'electricity' ? (utilitySnapshot?.b2bDivertRemaining?.[res] ?? 0) : 0;
-      const diverted = needB2B > 0.001 ? Math.min(produced, needB2B) : 0;
+      const splitPct = res !== 'electricity' ? getResourceStorageSplitPercent(player, res) : 0;
+      let storedInWarehouse = 0;
+      if (splitPct > 0 && reachableWarehouses.length > 0) {
+        const desiredStore = produced * (splitPct / 100);
+        storedInWarehouse = deliverToReachableWarehouses(res, desiredStore);
+        if (storedInWarehouse > 0.001) {
+          utilitySnapshot?.producedLots?.push({
+            resource: res,
+            plotId: plot.id,
+            playerId: player.id,
+            qty: storedInWarehouse,
+            unitPrice: 0,
+            storedInWarehouse: true,
+            revCat,
+          });
+        }
+      }
+
+      const afterWarehouse = Math.max(0, produced - storedInWarehouse);
+      const rawNeedB2B = res !== 'electricity' ? (utilitySnapshot?.b2bDivertRemaining?.[res] ?? 0) : 0;
+      const needB2BAfterWh = Math.max(0, rawNeedB2B - storedInWarehouse);
+      if (rawNeedB2B > 0 && storedInWarehouse > 0 && utilitySnapshot?.b2bDivertRemaining) {
+        utilitySnapshot.b2bDivertRemaining[res] = Math.max(
+          0,
+          Number((rawNeedB2B - Math.min(rawNeedB2B, storedInWarehouse)).toFixed(2))
+        );
+      }
+
+      const diverted = needB2BAfterWh > 0.001 ? Math.min(afterWarehouse, needB2BAfterWh) : 0;
       if (diverted > 0.001 && utilitySnapshot?.b2bDivertRemaining) {
-        utilitySnapshot.b2bDivertRemaining[res] = Math.max(0, Number((needB2B - diverted).toFixed(2)));
+        utilitySnapshot.b2bDivertRemaining[res] = Math.max(0, Number((needB2BAfterWh - diverted).toFixed(2)));
         addPlotWarehouseStock(player, plot.id, res, diverted);
         utilitySnapshot.producedLots?.push({
           resource: res,
@@ -1393,7 +1544,7 @@ export function processBuildingTick(
           revCat,
         });
       }
-      const marketSold = Math.max(0, produced - diverted);
+      const marketSold = Math.max(0, Number((afterWarehouse - diverted).toFixed(2)));
       if (marketSold > 0.001) {
         const unitPrice = getResourcePrice(state, res) * (1 + entMods.sellPriceBonus + bMods.tariffBonus);
         grossRevenue += marketSold * unitPrice;

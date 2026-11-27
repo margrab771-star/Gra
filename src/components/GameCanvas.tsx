@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   GAME_CONFIG,
   HEATMAP_MODE_OPTIONS,
@@ -8,6 +8,10 @@ import {
 import { BUILDING_DEFINITIONS } from '../data/buildings';
 import { computeCloneBlueprint } from '../engine/BuildingSystem';
 import {
+  estimateBatchPlotsPurchaseCost,
+  getExpansionPriceMultiplier,
+  getPlayerOwnedPlotCount,
+  getPlotPurchasePrice,
   getRoadBuildCostForPlot,
   hasPlayerSurveyedPlot,
   isPlotBuildingVisibleToViewer,
@@ -320,8 +324,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
             ? ' · Złoże odkryte!'
             : ' · Zbadano: pusto'
           : '';
+        const viewer = stateRef.current.players.find((p) => p.id === curPid);
+        const ownedCnt = viewer ? getPlayerOwnedPlotCount(stateRef.current, viewer.id) : 0;
+        const effectivePrice = getPlotPurchasePrice(plot, ownedCnt);
+        const expMult = getExpansionPriceMultiplier(ownedCnt);
         subEl.className = 'text-amber-400 font-mono mt-0.5';
-        subEl.textContent = `Cena: ${formatCompactMoney(plot.price)}${surveyedTxt}`;
+        subEl.textContent = `Cena: ${formatCompactMoney(effectivePrice)}${ownedCnt > 0 ? ` (×${expMult.toFixed(2)})` : ''}${surveyedTxt}`;
       }
     };
 
@@ -371,13 +379,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
           const cls: 'local' | 'highway' | 'bridge' =
             mode === 'road_bridge' ? 'bridge' : mode === 'road_highway' ? 'highway' : 'local';
           const totalCost = lp
-            ? pathIds.reduce((s, pid) => {
-                const pl = st.plots.find((q) => q.id === pid);
-                if (!pl) return s;
-                const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
-                if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
-                return s + getRoadBuildCostForPlot(st, lp, pl, effCls);
-              }, 0)
+            ? (() => {
+                let ownedStep = getPlayerOwnedPlotCount(st, lp.id);
+                return pathIds.reduce((s, pid) => {
+                  const pl = st.plots.find((q) => q.id === pid);
+                  if (!pl) return s;
+                  const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
+                  if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
+                  const buyStep =
+                    effCls !== 'bridge' && pl.ownerId === null && pl.purchasable && pl.terrain !== 'water'
+                      ? getPlotPurchasePrice(pl, ownedStep++)
+                      : 0;
+                  return s + buyStep + getRoadBuildCostForPlot(st, lp, pl, effCls);
+                }, 0);
+              })()
             : 0;
           setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
           return;
@@ -412,13 +427,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
         const cls: 'local' | 'highway' | 'bridge' =
           isBridgeMode ? 'bridge' : mapToolModeRef.current === 'road_highway' ? 'highway' : 'local';
         const totalCost = lp
-          ? pathIds.reduce((s, pid) => {
-              const pl = st.plots.find((q) => q.id === pid);
-              if (!pl) return s;
-              const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
-              if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
-              return s + getRoadBuildCostForPlot(st, lp, pl, effCls);
-            }, 0)
+          ? (() => {
+              let ownedStep = getPlayerOwnedPlotCount(st, lp.id);
+              return pathIds.reduce((s, pid) => {
+                const pl = st.plots.find((q) => q.id === pid);
+                if (!pl) return s;
+                const effCls = cls === 'bridge' && pl.terrain !== 'water' ? 'local' : cls;
+                if (pl.hasRoad && (effCls === 'local' || effCls === 'bridge' || pl.roadType === 'highway')) return s;
+                const buyStep =
+                  effCls !== 'bridge' && pl.ownerId === null && pl.purchasable && pl.terrain !== 'water'
+                    ? getPlotPurchasePrice(pl, ownedStep++)
+                    : 0;
+                return s + buyStep + getRoadBuildCostForPlot(st, lp, pl, effCls);
+              }, 0);
+            })()
           : 0;
         setRoadPreviewInfo({ count: pathIds.length, cost: totalCost });
         return;
@@ -486,7 +508,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = React.memo(
     const buyableAreaPlots = selectedPlotsObjs.filter(
       (p) => p.purchasable && p.ownerId === null && (p.irradiatedTicks ?? 0) <= 0
     );
-    const buyAreaTotalCost = buyableAreaPlots.reduce((s, p) => s + p.price, 0);
+    const buyAreaEstimate = useMemo(
+      () => estimateBatchPlotsPurchaseCost(gameState, localPlayer, buyableAreaPlots),
+      [gameState, localPlayer, buyableAreaPlots]
+    );
+    const buyAreaTotalCost = buyAreaEstimate.totalCost;
     const surveyableAreaPlots = selectedPlotsObjs.filter(
       (p) =>
         p.terrain !== 'water' &&

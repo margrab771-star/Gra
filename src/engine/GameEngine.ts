@@ -42,7 +42,14 @@ import {
   respondToCoalitionInvite,
   toggleCoalitionGeology,
 } from './CoalitionSystem';
-import { acceptB2BContract, cancelB2BContract, processContractsTick, proposeB2BContract } from './ContractSystem';
+import {
+  acceptB2BContract,
+  cancelB2BContract,
+  executeCashTransferB2B,
+  processContractsTick,
+  proposeB2BContract,
+  rejectB2BContract,
+} from './ContractSystem';
 import {
   calculateCoalitionNetWorthSum,
   calculatePlayerNetWorth,
@@ -89,6 +96,7 @@ import {
   buildPlayerRoadOnPlot,
   buyPlotForPlayer,
   generateMap,
+  getPlayerOwnedPlotCount,
   proposePlotOfferForPlayer,
   recalculateSpatialNetwork,
   respondPlotOfferForPlayer,
@@ -573,6 +581,7 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
       },
     ],
     contracts: [],
+    cashTransfers: [],
     plotOffers: [],
     vehicles: [],
     transportLines: [],
@@ -866,6 +875,7 @@ export function stepGameSimulation(state: GameState): void {
     player.expensesPerMin = Math.round(totalCosts * 60);
     player.cashFlowPerMin = Math.round(netTick * 60);
     player.netWorth = calculatePlayerNetWorth(player, state);
+    player.ownedPlotCount = getPlayerOwnedPlotCount(state, player.id);
     player.dominantStrategy = detectDominantStrategy(state, player);
 
     const prevLevel = player.corporationLevel;
@@ -1204,6 +1214,28 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
       b.stockpileOutput = !b.stockpileOutput;
       return { ok: true, message: b.stockpileOutput ? 'Tryb magazynowania włączony.' : 'Tryb sprzedaży bieżącej włączony.' };
     }
+    case 'setStockpileAllocation': {
+      const hasWh = state.plots.some(
+        (pl) => pl.ownerId === player.id && pl.building?.type === 'warehouse' && !pl.building.destroyedRuins
+      );
+      if (!player.stockpileAllocation) {
+        player.stockpileAllocation = { globalPercent: hasWh && !player.isAI ? 30 : 0, byResource: {} };
+      }
+      if (action.globalPercent !== undefined) {
+        player.stockpileAllocation.globalPercent = Math.max(0, Math.min(100, Math.round(action.globalPercent)));
+      }
+      if (action.resource) {
+        if (action.resourcePercent === null || action.resourcePercent === undefined) {
+          delete player.stockpileAllocation.byResource[action.resource];
+        } else {
+          player.stockpileAllocation.byResource[action.resource] = Math.max(
+            0,
+            Math.min(100, Math.round(action.resourcePercent))
+          );
+        }
+      }
+      return { ok: true };
+    }
     case 'sellWarehouseStock': {
       const stock = player.warehouseStockpile[action.resource] ?? 0;
       const qty = Math.min(stock, action.amount);
@@ -1388,15 +1420,42 @@ export function applyPlayerAction(state: GameState, action: PlayerAction): { ok:
           openListing: action.openListing,
         }
       );
-      return { ok: r.ok, message: r.error ?? 'Wysłano ofertę kontraktu B2B.' };
+      const statusMsg =
+        r.contract?.status === 'pending'
+          ? 'Wysłano ofertę B2B — oczekuje na akceptację drugiej strony.'
+          : r.contract?.status === 'cancelled'
+            ? 'Partner odrzucił złożoną propozycję B2B.'
+            : r.contract?.status === 'open_listing'
+              ? 'Wystawiono ofertę na Tablicę B2B.'
+              : 'Kontrakt B2B zawarty!';
+      return { ok: r.ok, message: r.error ?? statusMsg };
     }
     case 'acceptContract': {
       const r = acceptB2BContract(state, player, action.contractId);
       return { ok: r.ok, message: r.error ?? 'Kontrakt B2B podpisany!' };
     }
+    case 'rejectContract': {
+      const r = rejectB2BContract(state, player, action.contractId);
+      return { ok: r.ok, message: r.error ?? 'Odrzucono ofertę kontraktu B2B.' };
+    }
     case 'cancelContract': {
       const r = cancelB2BContract(state, player, action.contractId);
       return { ok: r.ok, message: r.error ?? 'Kontrakt anulowany.' };
+    }
+    case 'transferCashB2B': {
+      const r = executeCashTransferB2B(
+        state,
+        player,
+        action.recipientId,
+        action.amount,
+        action.note
+      );
+      return {
+        ok: r.ok,
+        message:
+          r.error ??
+          `Przelano ${r.record?.amount.toLocaleString('pl-PL')} zł do ${r.record?.toCompanyName}.`,
+      };
     }
     case 'executeInfluence': {
       const r = executeInfluenceAction(
@@ -1845,7 +1904,15 @@ export function migrateGameStateInPlace(state: GameState): void {
   }
   state.fuelDeliveries = state.fuelDeliveries ?? [];
   state.b2bRoutes = state.b2bRoutes ?? [];
+  state.cashTransfers = state.cashTransfers ?? [];
   for (const p of state.players) {
+    p.ownedPlotCount = getPlayerOwnedPlotCount(state, p.id);
+    if (!p.stockpileAllocation) {
+      const hasWh = state.plots.some(
+        (pl) => pl.ownerId === p.id && pl.building?.type === 'warehouse' && !pl.building.destroyedRuins
+      );
+      p.stockpileAllocation = { globalPercent: hasWh && !p.isAI ? 30 : 0, byResource: {} };
+    }
     if (!p.stockLocations) {
       p.stockLocations = {};
       const anchor =

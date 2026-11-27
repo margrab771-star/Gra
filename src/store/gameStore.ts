@@ -198,6 +198,11 @@ interface GameStoreState {
   setAutoRepair: (buildingId: string, enabled: boolean, threshold: number) => void;
   applyAutoRepairTemplate: (enabled: boolean, threshold: number, setAsDefault: boolean) => void;
   toggleStockpile: (buildingId: string) => void;
+  setStockpileAllocation: (opts: {
+    globalPercent?: number;
+    resource?: ResourceType;
+    resourcePercent?: number | null;
+  }) => void;
   sellWarehouseStock: (resource: ResourceType, amount: number) => void;
   buyWarehouseStock: (resource: ResourceType, amount: number) => void;
   researchBuildingTech: (buildingId: string, nodeId: string) => void;
@@ -223,7 +228,9 @@ interface GameStoreState {
     }
   ) => void;
   acceptContract: (contractId: string) => void;
+  rejectContract: (contractId: string) => void;
   cancelContract: (contractId: string) => void;
+  transferCashB2B: (recipientId: string, amount: number, note?: string) => void;
   executeInfluence: (
     actionId: string,
     targetPlayerId?: string,
@@ -617,8 +624,50 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       },
       onStateSync: (remoteState, assignedId) => {
         const localId = assignedId || get().localPlayerId;
+        const prevGs = get().gameState;
         const synced = structuredClone(remoteState);
         synced.currentPlayerId = localId;
+
+        if (prevGs) {
+          const prevTransferIds = new Set((prevGs.cashTransfers ?? []).map((t) => t.id));
+          const incomingTransfer = (synced.cashTransfers ?? []).find(
+            (t) => t.toPlayerId === localId && !prevTransferIds.has(t.id)
+          );
+          if (incomingTransfer) {
+            get().showToast(
+              true,
+              `💸 Przelew B2B +${incomingTransfer.amount.toLocaleString('pl-PL')} zł od ${incomingTransfer.fromCompanyName}${incomingTransfer.note ? ` (${incomingTransfer.note})` : ''}!`
+            );
+          } else {
+            const prevPendingIds = new Set(
+              prevGs.contracts
+                .filter(
+                  (c) =>
+                    (c.status === 'pending' || c.status === 'proposed') &&
+                    (c.responderId
+                      ? c.responderId === localId
+                      : c.proposerId !== localId && (c.sellerId === localId || c.buyerId === localId))
+                )
+                .map((c) => c.id)
+            );
+            const newIncomingB2B = synced.contracts.find(
+              (c) =>
+                (c.status === 'pending' || c.status === 'proposed') &&
+                !prevPendingIds.has(c.id) &&
+                (c.responderId
+                  ? c.responderId === localId
+                  : c.proposerId !== localId && (c.sellerId === localId || c.buyerId === localId))
+            );
+            if (newIncomingB2B) {
+              const senderName =
+                newIncomingB2B.proposerId === newIncomingB2B.sellerId
+                  ? newIncomingB2B.sellerName
+                  : newIncomingB2B.buyerName;
+              get().showToast(true, `🤝 Nowa oferta kontraktu B2B od ${senderName}!`);
+            }
+          }
+        }
+
         const showVic = Boolean(
           synced.winnerId || (synced.challengeCompleted && !get().showVictoryModal)
         );
@@ -663,8 +712,19 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       onClientAction: (action) => {
         const gs = get().gameState;
         if (!gs || !get().isHost) return;
+        const hostId = get().localPlayerId;
         const next = structuredClone(gs);
         const res = applyPlayerAction(next, action);
+        if (res.ok && action.type === 'transferCashB2B' && action.recipientId === hostId) {
+          const sender = next.players.find((p) => p.id === action.playerId);
+          get().showToast(
+            true,
+            `💸 Przelew B2B +${Math.round(action.amount).toLocaleString('pl-PL')} zł od ${sender?.companyName ?? 'partnera'}!`
+          );
+        } else if (res.ok && action.type === 'proposeContract' && action.partnerId === hostId) {
+          const sender = next.players.find((p) => p.id === action.playerId);
+          get().showToast(true, `🤝 Nowa oferta kontraktu B2B od ${sender?.companyName ?? 'partnera'}!`);
+        }
         multiplayerManager.sendActionFeedbackToClient(
           action.playerId,
           res.ok,
@@ -1099,6 +1159,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   toggleStockpile: (buildingId) => {
     get().dispatchAction({ type: 'toggleStockpile', playerId: get().localPlayerId, buildingId });
   },
+  setStockpileAllocation: (opts) => {
+    get().dispatchAction({
+      type: 'setStockpileAllocation',
+      playerId: get().localPlayerId,
+      globalPercent: opts.globalPercent,
+      resource: opts.resource,
+      resourcePercent: opts.resourcePercent,
+    });
+  },
   sellWarehouseStock: (resource, amount) => {
     get().dispatchAction({
       type: 'sellWarehouseStock',
@@ -1163,8 +1232,20 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   acceptContract: (contractId) => {
     get().dispatchAction({ type: 'acceptContract', playerId: get().localPlayerId, contractId });
   },
+  rejectContract: (contractId) => {
+    get().dispatchAction({ type: 'rejectContract', playerId: get().localPlayerId, contractId });
+  },
   cancelContract: (contractId) => {
     get().dispatchAction({ type: 'cancelContract', playerId: get().localPlayerId, contractId });
+  },
+  transferCashB2B: (recipientId, amount, note) => {
+    get().dispatchAction({
+      type: 'transferCashB2B',
+      playerId: get().localPlayerId,
+      recipientId,
+      amount,
+      note,
+    });
   },
   executeInfluence: (actionId, targetPlayerId, targetPlotId, targetBuildingId) => {
     get().dispatchAction({

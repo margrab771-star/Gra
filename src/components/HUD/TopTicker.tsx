@@ -124,6 +124,14 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
         (o.status === 'pending' || o.status === 'countered')
     ).length;
 
+    const pendingB2BCount = gameState.contracts.filter(
+      (c) =>
+        (c.status === 'pending' || c.status === 'proposed') &&
+        (c.responderId
+          ? c.responderId === currentPlayer.id
+          : c.proposerId !== currentPlayer.id && (c.sellerId === currentPlayer.id || c.buyerId === currentPlayer.id))
+    ).length;
+
     const utilityReport = useMemo(
       () =>
         showUtilityPopover
@@ -249,6 +257,17 @@ export const TopTicker: React.FC<TopTickerProps> = React.memo(
                   🗑️{wasteBalance >= 0 ? `+${wasteBalance}` : wasteBalance}
                 </span>
               </button>
+
+              {pendingB2BCount > 0 && (
+                <button
+                  type="button"
+                  onClick={onOpenOffersModal}
+                  className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-400/55 text-emerald-200 text-[11px] font-semibold animate-pulse shrink-0"
+                  title="Masz oczekujące oferty kontraktów B2B wymagające Twojej decyzji"
+                >
+                  🤝 {pendingB2BCount} B2B
+                </button>
+              )}
 
               {pendingOffersCount > 0 && (
                 <button
