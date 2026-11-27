@@ -392,17 +392,31 @@ export class BuildingRenderer {
 
   private drawMiningBuilding(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (12 + level * 1.8) * scale;
-    this.drawIsoBox(ctx, -2 * scale, 1 * scale, 19 * scale, 15 * scale, h, pal.primary, pal.secondary);
+    // Główny budynek szybu + okienka dyspozytorni
+    this.drawIsoBox(ctx, -3 * scale, 1 * scale, 18 * scale, 14 * scale, h, pal.primary, pal.secondary);
+    ctx.fillStyle = '#fde68a';
+    for (const wx of [-8, -4, 0]) {
+      ctx.fillRect(wx * scale, -h * 0.52, 2.2 * scale, 2.2 * scale);
+    }
+    // Stożek urobku i zsuwnia taśmociągu
+    this.drawIsoBox(ctx, 8 * scale, 3 * scale, 7 * scale, 6 * scale, 4.5 * scale, pal.secondary, '#1e293b');
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.6 * scale;
+    ctx.beginPath();
+    ctx.moveTo(2 * scale, -h * 0.55);
+    ctx.lineTo(9 * scale, -1 * scale);
+    ctx.stroke();
+    // Wieża wyciągowa z kołem linowym i światłem ostrzegawczym
     ctx.strokeStyle = pal.accent;
     ctx.lineWidth = 1.5 * scale;
     ctx.beginPath();
-    ctx.moveTo(4 * scale, 0);
-    ctx.lineTo(6 * scale, -h - 11 * scale);
-    ctx.lineTo(9 * scale, 0);
+    ctx.moveTo(3 * scale, 0);
+    ctx.lineTo(5.5 * scale, -h - 11 * scale);
+    ctx.lineTo(8.5 * scale, 0);
     ctx.stroke();
     ctx.fillStyle = pal.accent;
     ctx.beginPath();
-    ctx.arc(6 * scale, -h - 11 * scale, 2.2 * scale, 0, Math.PI * 2);
+    ctx.arc(5.5 * scale, -h - 11 * scale, 2.2 * scale, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -425,26 +439,58 @@ export class BuildingRenderer {
   }
 
   private drawWaterPlant(ctx: CanvasRenderingContext2D, scale: number): void {
-    this.drawIsoBox(ctx, -4 * scale, 2 * scale, 16 * scale, 14 * scale, 10 * scale, '#38bdf8', '#0284c7');
+    // Stacja pomp + bliźniacze zbiorniki filtracyjne
+    this.drawIsoBox(ctx, -5 * scale, 2 * scale, 15 * scale, 13 * scale, 10 * scale, '#38bdf8', '#0284c7');
+    ctx.fillStyle = '#e0f2fe';
+    for (const wx of [-9, -5]) {
+      ctx.fillRect(wx * scale, -6.5 * scale, 2.4 * scale, 2.2 * scale);
+    }
+    this.drawIsoBox(ctx, -7 * scale, -8 * scale, 5 * scale, 5 * scale, 4 * scale, '#7dd3fc', '#0369a1');
+    this.drawIsoBox(ctx, -1 * scale, -8 * scale, 5 * scale, 5 * scale, 4 * scale, '#7dd3fc', '#0369a1');
+    // Basen osadnika z rurociągiem i kratownicą
     ctx.fillStyle = '#0ea5e9';
     ctx.beginPath();
-    ctx.ellipse(6 * scale, -2 * scale, 6 * scale, 3 * scale, 0, 0, Math.PI * 2);
+    ctx.ellipse(6.5 * scale, -1.5 * scale, 6 * scale, 3.2 * scale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = '#e0f2fe';
-    ctx.lineWidth = 0.8 * scale;
+    ctx.lineWidth = 0.9 * scale;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1.5 * scale, -1.5 * scale);
+    ctx.lineTo(11.5 * scale, -1.5 * scale);
     ctx.stroke();
   }
 
   private drawProcessingBuilding(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (16 + level * 2) * scale;
     this.drawIsoBox(ctx, 0, 1 * scale, 24 * scale, 18 * scale, h, pal.primary, pal.secondary);
-    // Przemysłowe świetliki dachowe
-    ctx.fillStyle = 'rgba(186, 230, 253, 0.45)';
-    ctx.fillRect(-8 * scale, -h + 3 * scale, 6 * scale, 2.5 * scale);
-    const sx = 7 * scale;
+    // Rząd świetlików dachowych (szklane pasma)
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.55)';
+    for (const sx of [-9, -3, 3]) {
+      ctx.fillRect(sx * scale, -h + 2.5 * scale, 4.5 * scale, 2.5 * scale);
+    }
+    // Podświetlane okna hali i doki załadunkowe
+    ctx.fillStyle = '#fde68a';
+    for (const wx of [-9, -5, -1, 3]) {
+      ctx.fillRect(wx * scale, -h * 0.58, 2.5 * scale, 2 * scale);
+    }
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-8 * scale, -4.5 * scale, 4 * scale, 4.5 * scale);
+    ctx.fillRect(-2 * scale, -4.5 * scale, 4 * scale, 4.5 * scale);
+    // Panele solarne dla rozbudowanych fabryk
+    if (level >= 4) {
+      ctx.fillStyle = '#1e40af';
+      ctx.fillRect(-10 * scale, -h - 1.5 * scale, 9 * scale, 2 * scale);
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 0.6 * scale;
+      ctx.strokeRect(-10 * scale, -h - 1.5 * scale, 9 * scale, 2 * scale);
+    }
+    const sx = 7.5 * scale;
     const sh = h + 13 * scale;
     ctx.fillStyle = '#475569';
     ctx.fillRect(sx - 2 * scale, -sh, 4 * scale, sh - h + 3 * scale);
+    ctx.fillStyle = pal.accent;
+    ctx.fillRect(sx - 2 * scale, -sh + 2 * scale, 4 * scale, 1.5 * scale);
     this.drawSmoke(ctx, sx, -sh, scale);
   }
 
@@ -546,20 +592,63 @@ export class BuildingRenderer {
 
   private drawCoalPlant(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (15 + level * 1.8) * scale;
-    this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, h, pal.primary, pal.secondary);
-    for (const sx of [-5, 5]) {
+    // Zsyp węgla i pochylnia podajnika po lewej stronie
+    this.drawIsoBox(ctx, -9 * scale, 3 * scale, 8 * scale, 7 * scale, 5 * scale, '#1e293b', '#0f172a');
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-10 * scale, -1 * scale);
+    ctx.lineTo(-4 * scale, -h * 0.65);
+    ctx.stroke();
+
+    // Główna hala kotłów i turbin z podświetlanymi oknami oraz żaluzjami chłodzącymi
+    this.drawIsoBox(ctx, 1 * scale, 1 * scale, 21 * scale, 15 * scale, h, pal.primary, pal.secondary);
+    ctx.fillStyle = '#fbbf24';
+    for (const wx of [-5, -1, 3, 7]) {
+      ctx.fillRect(wx * scale, -h * 0.48, 2.2 * scale, 2.2 * scale);
+    }
+    ctx.fillStyle = '#f97316';
+    ctx.fillRect(-5 * scale, -3.5 * scale, 8 * scale, 1.8 * scale);
+
+    // Bliźniacze kominy z biało-czerwonymi pasami ostrzegawczymi
+    for (const sx of [-4, 5.5]) {
       const stackH = h + 12 * scale;
       ctx.fillStyle = '#52525b';
-      ctx.fillRect((sx - 1.5) * scale, -stackH, 3 * scale, stackH - h + 3 * scale);
+      ctx.fillRect((sx - 1.6) * scale, -stackH, 3.2 * scale, stackH - h + 3 * scale);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect((sx - 1.6) * scale, -stackH + 2 * scale, 3.2 * scale, 1.8 * scale);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect((sx - 1.6) * scale, -stackH + 3.8 * scale, 3.2 * scale, 1.4 * scale);
       this.drawSmoke(ctx, sx * scale, -stackH, scale * 0.8);
     }
   }
 
   private drawWarehouse(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (10 + level * 1.4) * scale;
-    this.drawIsoBox(ctx, 0, 1 * scale, 24 * scale, 20 * scale, h, pal.primary, pal.secondary);
+    this.drawIsoBox(ctx, -1 * scale, 1 * scale, 22 * scale, 18 * scale, h, pal.primary, pal.secondary);
+    // Prążkowany pas korporacyjny i świetliki dachowe
     ctx.fillStyle = pal.accent;
-    ctx.fillRect(-8 * scale, -h + 2 * scale, 16 * scale, 2 * scale);
+    ctx.fillRect(-9 * scale, -h + 2 * scale, 16 * scale, 2 * scale);
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.5)';
+    for (const rx of [-7, -2, 3]) {
+      ctx.fillRect(rx * scale, -h + 5 * scale, 3.5 * scale, 1.6 * scale);
+    }
+    // 3 bramy doków rozładunkowych z żółtymi odbojami
+    for (const dx of [-7.5, -2.5, 2.5]) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(dx * scale, -4.5 * scale, 3.2 * scale, 4.5 * scale);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(dx * scale, -4.8 * scale, 3.2 * scale, 0.9 * scale);
+    }
+    // Kontener cargo na placu manewrowym
+    this.drawIsoBox(ctx, 9 * scale, 3 * scale, 5 * scale, 4 * scale, 3.5 * scale, pal.accent, '#334155');
+    if (level >= 3) {
+      ctx.fillStyle = '#1e40af';
+      ctx.fillRect(-9 * scale, -h - 1.4 * scale, 10 * scale, 1.8 * scale);
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 0.5 * scale;
+      ctx.strokeRect(-9 * scale, -h - 1.4 * scale, 10 * scale, 1.8 * scale);
+    }
   }
 
   private drawCorporateHQ(
@@ -852,6 +941,16 @@ export class BuildingRenderer {
   private drawEducationBuilding(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (12 + level * 1.8) * scale;
     this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, h, pal.primary, pal.secondary);
+    // Szereg okien kampusu oraz klasyczne kolumny wejściowe
+    ctx.fillStyle = '#bae6fd';
+    for (const wx of [-8, -4, 0, 4, 8]) {
+      ctx.fillRect(wx * scale, -h * 0.65, 2 * scale, 2.2 * scale);
+    }
+    ctx.fillStyle = '#e2e8f0';
+    for (const cx of [-6, -2, 2, 6]) {
+      ctx.fillRect(cx * scale, -5 * scale, 1.4 * scale, 5 * scale);
+    }
+    // Fronton dachowy i wieżyczka zegarowa
     ctx.fillStyle = lightenColor(pal.primary, 0.15);
     ctx.beginPath();
     ctx.moveTo(-9 * scale, -h);
@@ -859,22 +958,59 @@ export class BuildingRenderer {
     ctx.lineTo(9 * scale, -h);
     ctx.closePath();
     ctx.fill();
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(0, -h - 2.6 * scale, 1.3 * scale, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawInfluenceBuilding(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (16 + level * 1.8) * scale;
     this.drawIsoBox(ctx, 0, 1 * scale, 20 * scale, 16 * scale, h, pal.primary, pal.secondary);
+    // Pionowe przeszklenia atrium i kolumnada marmurowa
+    ctx.fillStyle = '#bae6fd';
+    for (const wx of [-6, -2, 2, 6]) {
+      ctx.fillRect(wx * scale, -h + 3 * scale, 1.6 * scale, h * 0.45);
+    }
+    ctx.fillStyle = '#f8fafc';
+    for (const cx of [-5, -1, 3]) {
+      ctx.fillRect(cx * scale, -5 * scale, 1.4 * scale, 5 * scale);
+    }
+    // Kopuła reprezentacyjna z iglicą nadawczą
     ctx.fillStyle = pal.accent;
     ctx.beginPath();
-    ctx.arc(0, -h - 3 * scale, 3 * scale, 0, Math.PI * 2);
+    ctx.arc(0, -h - 3 * scale, 3.2 * scale, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 1.1 * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, -h - 6 * scale);
+    ctx.lineTo(0, -h - 11 * scale);
+    ctx.stroke();
   }
 
   private drawMilitaryBuilding(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette, level: number): void {
     const h = (13 + level * 1.8) * scale;
     this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 18 * scale, h, pal.primary, pal.secondary);
+    // Wzmocniona brama bunkrowa i szczeliny strzelniczo-obserwacyjne
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-4.5 * scale, -5.5 * scale, 6 * scale, 5.5 * scale);
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(-4.5 * scale, -6 * scale, 6 * scale, 0.9 * scale);
+    ctx.fillStyle = '#38bdf8';
+    for (const sx of [-7, -2, 3]) {
+      ctx.fillRect(sx * scale, -h * 0.65, 3 * scale, 1.3 * scale);
+    }
+    // Wieżyczka łączności + ruchomy talerz radarowy
     ctx.fillStyle = pal.accent;
     ctx.fillRect(7 * scale, -h - 7 * scale, 3 * scale, 7 * scale);
+    const sweep = Math.sin(this.frameCount * 0.08) * 2.4 * scale;
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1.3 * scale;
+    ctx.beginPath();
+    ctx.moveTo(8.5 * scale, -h - 7 * scale);
+    ctx.lineTo((8.5 + sweep / scale) * scale, -h - 10 * scale);
+    ctx.stroke();
   }
 
   private drawCargoPort(ctx: CanvasRenderingContext2D, scale: number, pal: BuildingPalette): void {
@@ -1229,7 +1365,23 @@ export class BuildingRenderer {
   }
 
   private drawSewagePlant(ctx: CanvasRenderingContext2D, scale: number): void {
+    // Stacja pomp z okienkami i kopuła biogazowni
     this.drawIsoBox(ctx, -6 * scale, 1 * scale, 11 * scale, 10 * scale, 9 * scale, '#475569', '#334155');
+    ctx.fillStyle = '#bae6fd';
+    ctx.fillRect(-9 * scale, -5.5 * scale, 4 * scale, 2 * scale);
+    ctx.fillStyle = '#0d9488';
+    ctx.beginPath();
+    ctx.arc(-8 * scale, -9 * scale, 3 * scale, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Mostek rurowy do zbiorników napowietrzania z obracającym się zgarniaczem
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1.1 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-1 * scale, -5 * scale);
+    ctx.lineTo(5.5 * scale, -2 * scale);
+    ctx.stroke();
+    const angle = this.frameCount * 0.035;
     for (const [cx, cy] of [
       [5, -2],
       [6, 3],
@@ -1241,17 +1393,38 @@ export class BuildingRenderer {
       ctx.strokeStyle = '#99f6e4';
       ctx.lineWidth = 0.8 * scale;
       ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx * scale, cy * scale);
+      ctx.lineTo((cx + Math.cos(angle) * 4.2) * scale, (cy + Math.sin(angle) * 2.1) * scale);
+      ctx.stroke();
     }
   }
 
   private drawWasteIncinerator(ctx: CanvasRenderingContext2D, scale: number): void {
+    // Rampa wyładowcza śmieciarek
+    this.drawIsoBox(ctx, -9 * scale, 3 * scale, 7 * scale, 6 * scale, 4 * scale, '#475569', '#334155');
+    // Główny blok spalarni z żarem paleniska i skruberem spalin
     this.drawIsoBox(ctx, -2 * scale, 1 * scale, 18 * scale, 14 * scale, 11 * scale, '#78350f', '#451a03');
+    ctx.fillStyle = '#f97316';
+    ctx.fillRect(-6 * scale, -5 * scale, 6 * scale, 2 * scale);
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(-5 * scale, -4.6 * scale, 3 * scale, 1.1 * scale);
     this.drawIsoBox(ctx, 5 * scale, -1 * scale, 5 * scale, 5 * scale, 20 * scale, '#57534e', '#292524');
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(3.2 * scale, -18 * scale, 3.6 * scale, 1.6 * scale);
     this.drawSmoke(ctx, 5 * scale, -21 * scale, scale * 1.15);
   }
 
   private drawRecyclingPlant(ctx: CanvasRenderingContext2D, scale: number): void {
+    // Sortownia z przenośnikiem taśmowym i belami surowców
+    this.drawIsoBox(ctx, -9 * scale, 3 * scale, 6 * scale, 5 * scale, 3 * scale, '#22c55e', '#15803d');
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-10.5 * scale, -2 * scale, 2.5 * scale, 2 * scale);
     this.drawIsoBox(ctx, 0, 1 * scale, 20 * scale, 15 * scale, 11 * scale, '#15803d', '#166534');
+    ctx.fillStyle = '#bbf7d0';
+    for (const wx of [-6, -2, 2, 6]) {
+      ctx.fillRect(wx * scale, -6 * scale, 2.2 * scale, 2.2 * scale);
+    }
     this.drawIsoBox(ctx, 0, -10 * scale, 12 * scale, 9 * scale, 4 * scale, '#22c55e', '#15803d');
     ctx.fillStyle = '#ecfccb';
     ctx.font = `700 ${Math.max(6, Math.round(7 * scale))}px sans-serif`;
@@ -1269,9 +1442,23 @@ export class BuildingRenderer {
 
   private drawColdStorage(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
     const h = (11 + level) * scale;
-    this.drawIsoBox(ctx, 0, 1 * scale, 22 * scale, 16 * scale, h, '#e0f2fe', '#7dd3fc');
+    // Zewnętrzny zbiornik kriogeniczny ciekłego azotu
+    this.drawIsoBox(ctx, -9 * scale, 2 * scale, 5 * scale, 5 * scale, (h + 2) / scale * scale, '#bae6fd', '#0284c7');
+    this.drawIsoBox(ctx, 1 * scale, 1 * scale, 20 * scale, 15 * scale, h, '#e0f2fe', '#7dd3fc');
+    // Chłodnicze agregaty dachowe i bramy mroźni z uszczelką termiczną
     ctx.fillStyle = '#0284c7';
-    ctx.fillRect(-6 * scale, -h - 2 * scale, 12 * scale, 2 * scale);
+    ctx.fillRect(-5 * scale, -h - 2.2 * scale, 12 * scale, 2.2 * scale);
+    ctx.fillStyle = '#38bdf8';
+    for (const ax of [-3, 1, 5]) {
+      ctx.fillRect(ax * scale, -h - 3.6 * scale, 2.4 * scale, 1.4 * scale);
+    }
+    for (const dx of [-4, 2]) {
+      ctx.fillStyle = '#0369a1';
+      ctx.fillRect(dx * scale, -5 * scale, 4 * scale, 5 * scale);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 0.7 * scale;
+      ctx.strokeRect(dx * scale, -5 * scale, 4 * scale, 5 * scale);
+    }
   }
 
   private drawSpecializedMine(
@@ -1566,13 +1753,24 @@ export class BuildingRenderer {
   }
 
   private drawWasteLandfill(ctx: CanvasRenderingContext2D, scale: number, level: number): void {
-    // Ziemne nasypy + niska hala sortowni + żółta ładowarka
+    // Ziemne nasypy + hala sortowni z oknami + pochodnia biogazu + bariera placu + ładowarka
     this.drawIsoBox(ctx, -3 * scale, 2 * scale, 22 * scale, 16 * scale, 4 * scale, '#78716c', '#57534e');
     const moundH = Math.min(11, 5 + level * 1.1) * scale;
-    this.drawIsoBox(ctx, -4 * scale, -2 * scale, 10 * scale, 8 * scale, moundH, '#a8a29e', '#78716c');
+    this.drawIsoBox(ctx, -5 * scale, -2 * scale, 10 * scale, 8 * scale, moundH, '#a8a29e', '#78716c');
+    this.drawIsoBox(ctx, -3 * scale, -5 * scale, 6 * scale, 5 * scale, Math.max(2, moundH * 0.45), '#d6d3d1', '#a8a29e');
     this.drawIsoBox(ctx, 6 * scale, 0, 9 * scale, 8 * scale, 8 * scale, '#94a3b8', '#475569');
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(3.5 * scale, -5.5 * scale, 4.5 * scale, 2 * scale);
+    // Pochodnia spalanego metanu na stoku wysypiska
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(10 * scale, -14 * scale, 1.3 * scale, 8 * scale);
+    ctx.fillStyle = Math.floor(this.frameCount / 6) % 2 === 0 ? '#f97316' : '#fde047';
+    ctx.beginPath();
+    ctx.arc(10.65 * scale, -15 * scale, 1.8 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    // Żółty spychacz kompaktora
     ctx.fillStyle = '#eab308';
-    ctx.fillRect(-1 * scale, -2 * scale, 4 * scale, 2.5 * scale);
+    ctx.fillRect(-1 * scale, -2 * scale, 4.2 * scale, 2.5 * scale);
   }
 
   private drawBioSewagePlant(ctx: CanvasRenderingContext2D, scale: number, level: number): void {

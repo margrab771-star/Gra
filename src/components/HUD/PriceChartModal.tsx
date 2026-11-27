@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RESOURCE_DEFINITIONS } from '../../data/resources';
 import type { ResourcePrice } from '../../engine/types';
 import { formatMoney, formatPercent } from '../../utils/formatters';
@@ -15,8 +15,21 @@ export const PriceChartModal: React.FC<PriceChartModalProps> = ({ resource, onCl
   const isUp = resource.changePercent >= 0;
   const spreadFromBase = ((resource.price - resource.basePrice) / resource.basePrice) * 100;
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3">
+    <div
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-2xl rounded-xl bg-[#111827] border border-[#243044] shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-[#243044] flex items-center justify-between bg-[#0d131f]">
           <div className="flex items-center gap-2.5">

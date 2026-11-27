@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface TutorialModalProps {
   onClose: () => void;
@@ -212,8 +212,21 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
   const [activeIdx, setActiveIdx] = useState(0);
   const chapter = CHAPTERS[activeIdx];
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 md:p-6">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 md:p-6"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-5xl max-h-[92vh] rounded-2xl bg-[#0e1420] border border-sky-500/40 shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-4 md:px-6 py-3.5 bg-[#0b0f17] border-b border-[#243044] flex items-center justify-between gap-3">

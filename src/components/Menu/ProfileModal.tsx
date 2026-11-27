@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ACHIEVEMENT_CATEGORIES,
   ACHIEVEMENTS,
@@ -49,6 +49,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [prestigeMsg, setPrestigeMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const curTitle = TITLES_CATALOG.find((t) => t.id === profile.titleId)?.label ?? 'Pionier Rynku';
   const division = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
   const bp = computeBattlePassLevel(profile.battlePassXp);
@@ -94,7 +102,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     achCat === 'all' ? ACHIEVEMENTS : ACHIEVEMENTS.filter((a) => a.category === achCat);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-4 animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-[#111827] border border-[#243044] shadow-2xl overflow-hidden">
         {/* Nagłówek */}
         <div className="px-4 py-3 border-b border-[#243044] bg-[#0b0f17] flex flex-wrap items-center justify-between gap-2">

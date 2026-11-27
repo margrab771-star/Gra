@@ -1,5 +1,9 @@
 import type { BuildingDefinition, BuildingTechNode, BuildingType } from '../engine/types';
 import { V6_BUILDING_DEFINITIONS } from './buildingsV6';
+import {
+  NODE_GRAPH_POS_OVERRIDES,
+  SUPPLEMENTAL_BUILDING_NODES,
+} from './buildingsSupplementalTech';
 
 type TechSeed = Omit<BuildingTechNode, 'progress' | 'status'>;
 
@@ -3709,10 +3713,21 @@ export const BUILDING_DEFINITIONS: Record<BuildingType, BuildingDefinition> = Ob
       // keep undefined if empty
     }
     const { sewage, waste } = computeDefaultSewageWaste(def);
+    const supplemental = SUPPLEMENTAL_BUILDING_NODES[key] ?? [];
+    const posOverrides = NODE_GRAPH_POS_OVERRIDES[key];
+    const baseAndSupp = [
+      ...def.internalTechTree,
+      ...supplemental.filter((sn) => !def.internalTechTree.some((dn) => dn.id === sn.id)),
+    ];
     const extraApex = APEX_EXTRA_NODES[key];
-    const hasApexAlready = def.internalTechTree.some((n) => n.isApex || n.effects.isApex);
-    const rawTree =
-      !hasApexAlready && extraApex ? [...def.internalTechTree, extraApex] : def.internalTechTree;
+    const hasApexAlready = baseAndSupp.some((n) => n.isApex || n.effects.isApex);
+    const rawTreeUnpositioned =
+      !hasApexAlready && extraApex ? [...baseAndSupp, extraApex] : baseAndSupp;
+    const rawTree = posOverrides
+      ? rawTreeUnpositioned.map((node) =>
+          posOverrides[node.id] ? { ...node, graphPos: posOverrides[node.id] } : node
+        )
+      : rawTreeUnpositioned;
 
     // Dla struktur Poziomu 1–2 zamień zablokowane na start zasoby high-tech (elektronika/półprzewodniki/chemikalia/broń) na stal/miedź/prefabrykaty
     const nextTree = rawTree.map((node) => {

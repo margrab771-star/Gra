@@ -1900,6 +1900,43 @@ export function migrateGameStateInPlace(state: GameState): void {
         pl.building.fuelSourceMode = pl.building.fuelSourceMode ?? 'none';
         pl.building.emergencyMarketImport = pl.building.emergencyMarketImport ?? false;
       }
+      const bDef = BUILDING_DEFINITIONS[pl.building.type];
+      if (bDef && Array.isArray(pl.building.techTree)) {
+        const existingMap = new Map(pl.building.techTree.map((n) => [n.id, n]));
+        const syncedTree = bDef.internalTechTree.map((defNode) => {
+          const prev = existingMap.get(defNode.id);
+          if (prev) {
+            return {
+              ...defNode,
+              progress: prev.progress ?? 0,
+              status: prev.status,
+            };
+          }
+          return {
+            ...defNode,
+            progress: 0,
+            status: (defNode.prerequisites.length === 0 ? 'available' : 'locked') as
+              | 'available'
+              | 'locked',
+          };
+        });
+        for (const node of syncedTree) {
+          if (node.status === 'locked') {
+            const prereqMet = node.prerequisites.every(
+              (pid) => syncedTree.find((x) => x.id === pid)?.status === 'done'
+            );
+            const excludedByDone = node.exclusiveWith?.some(
+              (eid) => syncedTree.find((x) => x.id === eid)?.status === 'done'
+            );
+            if (excludedByDone) {
+              node.status = 'excluded';
+            } else if (prereqMet) {
+              node.status = 'available';
+            }
+          }
+        }
+        pl.building.techTree = syncedTree;
+      }
     }
     pl.synergyPercent = pl.synergyPercent ?? 0;
     pl.passengerDemandPercent = pl.passengerDemandPercent ?? 100;

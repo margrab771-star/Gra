@@ -110,6 +110,7 @@ interface GameStoreState {
     mCoinsEarned: number;
     bpXpEarned: number;
     rewardMultiplier: number;
+    tooShortForCoins?: boolean;
     completedQuests: PlayerQuestProgress[];
     newlyUnlocked: AchievementDefinition[];
   } | null;
@@ -708,6 +709,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 mCoinsEarned: reward.mCoinsEarned,
                 bpXpEarned: reward.bpXpEarned,
                 rewardMultiplier: reward.rewardMultiplier,
+                tooShortForCoins: reward.tooShortForCoins,
                 completedQuests: reward.completedQuests,
                 newlyUnlocked: reward.newlyUnlocked,
               },
@@ -956,6 +958,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
           mCoinsEarned: reward.mCoinsEarned,
           bpXpEarned: reward.bpXpEarned,
           rewardMultiplier: reward.rewardMultiplier,
+          tooShortForCoins: reward.tooShortForCoins,
           completedQuests: reward.completedQuests,
           newlyUnlocked: reward.newlyUnlocked,
         },
@@ -1029,6 +1032,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 mCoinsEarned: reward.mCoinsEarned,
                 bpXpEarned: reward.bpXpEarned,
                 rewardMultiplier: reward.rewardMultiplier,
+                tooShortForCoins: reward.tooShortForCoins,
                 completedQuests: reward.completedQuests,
                 newlyUnlocked: reward.newlyUnlocked,
               },

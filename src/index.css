@@ -72,6 +72,47 @@ html[data-ui-theme]:not([data-ui-theme="theme_fintech"]) .border-\[\#243044\] {
   animation: pulseCrimson 2.2s infinite ease-in-out;
 }
 
+@keyframes dashDraw {
+  from {
+    stroke-dasharray: 2200;
+    stroke-dashoffset: 2200;
+  }
+  to {
+    stroke-dasharray: 2200;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes progressFill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes slowDrift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-18px, -12px, 0);
+  }
+}
+
+.splash-chart-draw {
+  animation: dashDraw 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.splash-progress-fill {
+  animation: progressFill 1.85s ease-out forwards;
+}
+
+.menu-grid-drift {
+  animation: slowDrift 18s ease-in-out infinite;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: thin;

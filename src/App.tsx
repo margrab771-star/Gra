@@ -13,6 +13,8 @@ import { PauseSaveModal } from './components/Menu/PauseSaveModal';
 import { ProfileModal } from './components/Menu/ProfileModal';
 import { QuickStart } from './components/Menu/QuickStart';
 import { ShopModal } from './components/Menu/ShopModal';
+import { SplashIntro } from './components/Menu/SplashIntro';
+import { shouldShowSplashIntro } from './utils/splashStorage';
 import { TutorialModal } from './components/Menu/TutorialModal';
 import { VictoryModal } from './components/Menu/VictoryModal';
 import { WeeklyChallengeModal } from './components/Menu/WeeklyChallengeModal';
@@ -79,6 +81,7 @@ export function App() {
   const [quickJoinRoomCode, setQuickJoinRoomCode] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [seenChatCount, setSeenChatCount] = useState(0);
+  const [showSplash, setShowSplash] = useState(() => shouldShowSplashIntro());
 
   const actions = useGameStore.getState();
   const { isMobile } = useResponsive();
@@ -187,6 +190,7 @@ export function App() {
   if (phase === 'MainMenu') {
     return (
       <>
+        {showSplash && <SplashIntro onFinish={() => setShowSplash(false)} />}
         <MainMenu
           activeProfile={activeProfile}
           hasSavedGame={savedAvailable}
@@ -213,7 +217,12 @@ export function App() {
           onStartTutorial={() => actions.setShowTutorialModal(true)}
         />
         {activeModal === 'leaderboard' && (
-          <LeaderboardPanel gameState={null} onClose={() => actions.setActiveModal('none')} />
+          <LeaderboardPanel
+            gameState={null}
+            activeProfile={activeProfile}
+            onOpenAuth={() => actions.setShowAuthModal(true)}
+            onClose={() => actions.setActiveModal('none')}
+          />
         )}
         {showTutorialModal && (
           <TutorialModal
@@ -812,7 +821,12 @@ export function App() {
       )}
 
       {activeModal === 'leaderboard' && (
-        <LeaderboardPanel gameState={gameState} onClose={() => actions.setActiveModal('none')} />
+        <LeaderboardPanel
+          gameState={gameState}
+          activeProfile={activeProfile}
+          onOpenAuth={() => actions.setShowAuthModal(true)}
+          onClose={() => actions.setActiveModal('none')}
+        />
       )}
 
       {showTutorial && (

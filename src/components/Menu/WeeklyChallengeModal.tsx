@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { getWeeklyChallengeSpec } from '../../data/weeklyChallenge';
 import type { UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney, formatMoney } from '../../utils/formatters';
@@ -20,8 +20,21 @@ export const WeeklyChallengeModal: React.FC<WeeklyChallengeModalProps> = ({
       ? profile.records.weeklyBestScore
       : null;
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-xl rounded-2xl bg-[#111827] border border-amber-500/50 p-5 md:p-6 shadow-2xl space-y-4">
         <div className="flex items-start justify-between border-b border-[#243044] pb-3 gap-2">
           <div>

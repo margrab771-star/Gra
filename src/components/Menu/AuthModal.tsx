@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PROFILE_AVATARS } from '../../data/achievements';
 import {
   importProfileTransferCode,
@@ -6,7 +6,9 @@ import {
   registerAccount,
   switchToGuestAccount,
 } from '../../engine/profileManager';
+import { useI18n } from '../../i18n/useI18n';
 import type { UserAccountProfile } from '../../engine/types';
+import { LanguageSwitcher } from '../HUD/LanguageSwitcher';
 
 interface AuthModalProps {
   currentProfile: UserAccountProfile;
@@ -19,6 +21,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onAuthenticated,
   onClose,
 }) => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<'login' | 'register' | 'import'>('login');
   const [nick, setNick] = useState('');
   const [pin, setPin] = useState('');
@@ -26,12 +29,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [transferCode, setTransferCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     const res = loginAccount(nick, pin);
     if (!res.ok || !res.profile) {
-      setError(res.error ?? 'Błąd logowania.');
+      setError(res.error ?? t('auth.loginError'));
       return;
     }
     onAuthenticated(res.profile);
@@ -43,7 +57,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     const res = registerAccount(nick, pin, avatar);
     if (!res.ok || !res.profile) {
-      setError(res.error ?? 'Błąd rejestracji.');
+      setError(res.error ?? t('auth.registerError'));
       return;
     }
     onAuthenticated(res.profile);
@@ -55,7 +69,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     const res = importProfileTransferCode(transferCode);
     if (!res.ok || !res.profile) {
-      setError(res.error ?? 'Nieprawidłowy kod przenoszenia profilu.');
+      setError(res.error ?? t('auth.importError'));
       return;
     }
     onAuthenticated(res.profile);
@@ -63,22 +77,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-md rounded-2xl bg-[#111827] border border-[#243044] p-5 md:p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between border-b border-[#243044] pb-3">
+        <div className="flex items-center justify-between border-b border-[#243044] pb-3 gap-2">
           <div>
-            <h2 className="text-lg font-bold text-white">Konto Prezesa & Logowanie</h2>
+            <h2 className="text-lg font-bold text-white">{t('auth.title')}</h2>
             <p className="text-[11px] text-slate-400">
-              Aktywny: <span className="text-amber-300 font-semibold">{currentProfile.nick}</span> (Poz. {currentProfile.level})
+              {t('auth.activeLine', { nick: currentProfile.nick, level: currentProfile.level })}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-[#1c2434] text-slate-300 hover:text-white flex items-center justify-center"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher compact />
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-[#1c2434] text-slate-300 hover:text-white flex items-center justify-center"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-1.5 text-xs">
@@ -94,7 +116,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400'
             }`}
           >
-            Logowanie
+            {t('auth.tabLogin')}
           </button>
           <button
             type="button"
@@ -108,7 +130,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400'
             }`}
           >
-            Nowe Konto
+            {t('auth.tabRegister')}
           </button>
           <button
             type="button"
@@ -122,7 +144,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400'
             }`}
           >
-            Kod Profilu
+            {t('auth.tabImport')}
           </button>
         </div>
 
@@ -135,17 +157,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {tab === 'login' && (
           <form onSubmit={handleLogin} className="space-y-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">Pseudonim (Nick)</label>
+              <label className="block text-slate-400 mb-1">{t('auth.nickLabel')}</label>
               <input
                 type="text"
                 value={nick}
                 onChange={(e) => setNick(e.target.value)}
-                placeholder="Wpisz swój nick"
+                placeholder={t('auth.nickPlaceholder')}
                 className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Hasło / PIN</label>
+              <label className="block text-slate-400 mb-1">{t('auth.pinLabel')}</label>
               <input
                 type="password"
                 value={pin}
@@ -158,7 +180,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="submit"
               className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm"
             >
-              🔑 Zaloguj się
+              {t('auth.loginSubmit')}
             </button>
           </form>
         )}
@@ -166,27 +188,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {tab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">Twój Pseudonim (2–24 znaki)</label>
+              <label className="block text-slate-400 mb-1">{t('auth.nickLabel')}</label>
               <input
                 type="text"
                 value={nick}
                 onChange={(e) => setNick(e.target.value)}
-                placeholder="np. WilkParkietu"
+                placeholder={t('auth.registerNickPlaceholder')}
                 className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Kod PIN / Hasło (min. 3 znaki)</label>
+              <label className="block text-slate-400 mb-1">{t('auth.pinLabel')}</label>
               <input
                 type="password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                placeholder="min. 3 znaki"
+                placeholder={t('auth.pinPlaceholder')}
                 className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-slate-100"
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1.5">Wybierz Avatar Prezesa</label>
+              <label className="block text-slate-400 mb-1.5">{t('auth.chooseAvatar')}</label>
               <div className="flex flex-wrap gap-1.5">
                 {PROFILE_AVATARS.map((av) => (
                   <button
@@ -208,7 +230,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="submit"
               className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm"
             >
-              ✨ Załóż Konto i Zapisz Postępy
+              {t('auth.createSubmit')}
             </button>
           </form>
         )}
@@ -216,14 +238,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {tab === 'import' && (
           <form onSubmit={handleImport} className="space-y-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">
-                Wklej Kod Przenoszenia Profilu (JSON/Base64 z innego urządzenia)
-              </label>
+              <label className="block text-slate-400 mb-1">{t('auth.transferLabel')}</label>
               <textarea
                 rows={4}
                 value={transferCode}
                 onChange={(e) => setTransferCode(e.target.value)}
-                placeholder="MDPROF1:eyJpZCI6..."
+                placeholder={t('auth.transferPlaceholder')}
                 className="w-full px-3 py-2 rounded-lg bg-[#0b0f17] border border-[#243044] text-amber-200 font-mono text-[11px]"
               />
             </div>
@@ -231,12 +251,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="submit"
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm"
             >
-              📥 Importuj Konto i Odznaki
+              {t('auth.importSubmit')}
             </button>
           </form>
         )}
 
-        <div className="pt-2 border-t border-[#243044] flex items-center justify-between gap-2 text-xs">
+        <div className="pt-2 border-t border-[#243044] space-y-2 text-xs">
           <button
             type="button"
             onClick={() => {
@@ -244,11 +264,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               onAuthenticated(guest);
               onClose();
             }}
-            className="px-3 py-1.5 rounded-lg bg-[#0b0f17] hover:bg-[#1a2438] border border-[#243044] text-slate-300"
+            className="w-full py-1.5 rounded-lg bg-[#0b0f17] hover:bg-[#1a2438] border border-[#243044] text-slate-300"
           >
-            👤 Graj jako Gość
+            👤 {t('auth.switchToGuest')}
           </button>
-          <span className="text-[10px] text-slate-500">Dane zapisane lokalnie + gotowe pod eksport</span>
+          <p className="text-[10px] text-slate-500 leading-snug">{t('auth.localNote')}</p>
         </div>
       </div>
     </div>

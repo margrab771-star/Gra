@@ -32,6 +32,7 @@ import type {
 const ACCOUNTS_DB_KEY = 'market_dominion_accounts_db_v1';
 const ACTIVE_ACCOUNT_ID_KEY = 'market_dominion_active_account_v1';
 const QUEST_WATERMARK_KEY = 'market_dominion_quest_watermarks_v1';
+export const MIN_TICKS_FOR_MATCH_COINS = 12;
 
 export function applyUiThemeToDocument(themeId?: UiThemeId): void {
   if (typeof document === 'undefined') return;
@@ -98,7 +99,7 @@ function createGuestProfile(): UserAccountProfile {
     createdAt: Date.now(),
     xp: 0,
     level: 1,
-    mCoins: 200,
+    mCoins: 60,
     prestigeLevel: 0,
     uiThemeId: 'theme_fintech',
     battlePassXp: 0,
@@ -168,7 +169,7 @@ function normalizeAccount(acc: UserAccountProfile): UserAccountProfile {
       (acc.xp ?? 0) > 0 ||
       (acc.unlockedAchievements?.length ?? 0) > 0);
   const achCount = Array.isArray(acc.unlockedAchievements) ? acc.unlockedAchievements.length : 0;
-  const legacyWelcomeMCoins = isLegacyV7Account ? 300 + achCount * 35 : 0;
+  const legacyWelcomeMCoins = isLegacyV7Account ? 150 + achCount * 15 : 0;
   const baseCoins = typeof acc.mCoins === 'number' ? acc.mCoins : guestBase.mCoins;
   const unlockedCosmetics = Array.isArray(acc.unlockedCosmetics)
     ? Array.from(new Set(['hq_classic', 'frame_slate', 'title_startup', 'theme_fintech', ...acc.unlockedCosmetics]))
@@ -425,7 +426,7 @@ export function claimBattlePassReward(
   const extraCosmetics: string[] = [];
   if (tier.cosmeticId) {
     if (norm.unlockedCosmetics.includes(tier.cosmeticId)) {
-      mCoinsAdded += 150; // Kompensata M za posiadaną już kosmetykę ze sklepu
+      mCoinsAdded += 75; // Kompensata M za posiadaną już kosmetykę ze sklepu
     } else {
       extraCosmetics.push(tier.cosmeticId);
     }
@@ -471,15 +472,106 @@ export function activatePrestige(profile: UserAccountProfile): {
     prestigeLevel: nextPrestige,
     xp: 0,
     level: 1,
-    mCoins: norm.mCoins + 500,
+    mCoins: norm.mCoins + 250,
     unlockedCosmetics: Array.from(new Set([...norm.unlockedCosmetics, 'title_prestige_star'])),
     titleId: 'title_prestige_star',
   });
   return {
     ok: true,
     profile: saved,
-    message: `★ Aktywowano Prestiż #${nextPrestige}! Otrzymujesz Złotą Gwiazdę, granice działek na mapie i +500 Monet M!`,
+    message: `★ Aktywowano Prestiż #${nextPrestige}! Otrzymujesz Złotą Gwiazdę, granice działek na mapie i +250 Monet M!`,
   };
+}
+
+export interface RegisteredMCoinRankEntry {
+  rank: number;
+  id: string;
+  nick: string;
+  avatar: string;
+  divisionId: ReturnType<typeof computePvPDivision>['id'];
+  level: number;
+  prestigeLevel: number;
+  mCoins: number;
+  matchesWon: number;
+  isCurrentUser?: boolean;
+}
+
+/**
+ * Zwraca ranking Złotych Monet „M” wyłącznie dla zarejestrowanych kont (tryb Gość pomijany).
+ */
+export function getRegisteredAccountsMCoinRanking(
+  activeProfileId?: string
+): RegisteredMCoinRankEntry[] {
+  const accounts = loadAccountsDatabase().filter((acc) => !acc.isGuest);
+  accounts.sort((a, b) => {
+    if (b.mCoins !== a.mCoins) return b.mCoins - a.mCoins;
+    if ((b.records.matchesWon ?? 0) !== (a.records.matchesWon ?? 0)) {
+      return (b.records.matchesWon ?? 0) - (a.records.matchesWon ?? 0);
+    }
+    return b.level - a.level;
+  });
+  return accounts.map((acc, idx) => ({
+    rank: idx + 1,
+    id: acc.id,
+    nick: acc.nick,
+    avatar: acc.avatar,
+    divisionId: computePvPDivision(acc.pvpMatches, acc.pvpWins, acc.prestigeLevel).id,
+    level: acc.level,
+    prestigeLevel: acc.prestigeLevel,
+    mCoins: acc.mCoins,
+    matchesWon: acc.records.matchesWon ?? 0,
+    isCurrentUser: activeProfileId ? acc.id === activeProfileId : false,
+  }));
+}
+
+export async function fetchRegisteredMCoinLeaderboard(
+  activeProfileId?: string
+): Promise<RegisteredMCoinRankEntry[]> {
+  const local = getRegisteredAccountsMCoinRanking(activeProfileId);
+  const url = import.meta.env?.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !anonKey || !url.startsWith('http')) {
+    return local;
+  }
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/player_profiles?select=id,nick,level,payload&limit=50`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    });
+    if (!res.ok) return local;
+    const rows = (await res.json()) as Array<{
+      id: string;
+      nick: string;
+      level: number;
+      payload?: Partial<UserAccountProfile>;
+    }>;
+    const byId = new Map<string, RegisteredMCoinRankEntry>();
+    for (const r of local) byId.set(r.id, r);
+    for (const row of rows) {
+      const p = row.payload;
+      if (!p || p.isGuest) continue;
+      const existing = byId.get(row.id);
+      const entry: RegisteredMCoinRankEntry = {
+        rank: 0,
+        id: row.id,
+        nick: p.nick || row.nick,
+        avatar: p.avatar || '👔',
+        divisionId: computePvPDivision(p.pvpMatches ?? 0, p.pvpWins ?? 0, p.prestigeLevel ?? 0).id,
+        level: p.level ?? row.level ?? 1,
+        prestigeLevel: p.prestigeLevel ?? 0,
+        mCoins: Math.max(0, Number(p.mCoins ?? 0)),
+        matchesWon: p.records?.matchesWon ?? 0,
+        isCurrentUser: activeProfileId ? row.id === activeProfileId : false,
+      };
+      if (!existing || entry.mCoins > existing.mCoins) {
+        byId.set(row.id, entry);
+      }
+    }
+    return [...byId.values()]
+      .sort((a, b) => b.mCoins - a.mCoins || b.matchesWon - a.matchesWon || b.level - a.level)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+  } catch {
+    return local;
+  }
 }
 
 /**
@@ -519,8 +611,8 @@ function grantAchievement(profile: UserAccountProfile, ach: AchievementDefinitio
   profile.unlockedAchievements.push(ach.id);
   profile.xp += ach.xpReward;
   profile.level = computeLevelFromXp(profile.xp);
-  profile.mCoins += Math.max(40, Math.round(ach.xpReward * 0.45));
-  profile.battlePassXp += Math.round(ach.xpReward * 0.65);
+  profile.mCoins += Math.max(15, Math.round(ach.xpReward * 0.22));
+  profile.battlePassXp += Math.round(ach.xpReward * 0.55);
   if (ach.unlockTitle && !profile.unlockedCosmetics.includes(ach.unlockTitle)) {
     profile.unlockedCosmetics.push(ach.unlockTitle);
   }
@@ -764,6 +856,7 @@ export function recordCompletedMatchToProfile(
   mCoinsEarned: number;
   bpXpEarned: number;
   rewardMultiplier: number;
+  tooShortForCoins: boolean;
   completedQuests: PlayerQuestProgress[];
   newlyUnlocked: AchievementDefinition[];
 } {
@@ -823,16 +916,23 @@ export function recordCompletedMatchToProfile(
     mutators: state.settings.mutators,
   });
 
+  const eligibleForMatchRewards =
+    state.time.tick >= MIN_TICKS_FOR_MATCH_COINS || state.elapsedSeconds >= 90;
+
   const completedGoals = (player.secretGoals ?? []).filter((g) => g.completed);
   const goalXp = completedGoals.reduce((s, g) => s + g.rewardXp, 0);
   const baseXp = won ? 240 : rank === 2 ? 150 : 95;
   const netWorthXp = Math.min(200, Math.round(Math.max(0, player.netWorth) / 250_000));
-  const xpEarned = Math.round((baseXp + netWorthXp + goalXp) * multBreakdown.totalMultiplier);
+  const rawXpEarned = Math.round((baseXp + netWorthXp + goalXp) * multBreakdown.totalMultiplier);
+  const xpEarned = eligibleForMatchRewards ? rawXpEarned : Math.round(rawXpEarned * 0.2);
 
-  const baseCoins = won ? 140 : rank === 2 ? 85 : 50;
-  const netWorthCoins = Math.min(110, Math.round(Math.max(0, player.netWorth) / 350_000));
-  const goalCoins = completedGoals.length * 35;
-  const rawCoinsEarned = Math.round((baseCoins + netWorthCoins + goalCoins) * multBreakdown.totalMultiplier);
+  // Obniżone, bardziej prestiżowe tempo Monet M (~45-50% redukcji + ochrona przed farmieniem krótkich gier)
+  const baseCoins = won ? 75 : rank === 2 ? 45 : 25;
+  const netWorthCoins = Math.min(55, Math.round(Math.max(0, player.netWorth) / 650_000));
+  const goalCoins = completedGoals.length * 18;
+  const rawCoinsEarned = eligibleForMatchRewards
+    ? Math.round((baseCoins + netWorthCoins + goalCoins) * multBreakdown.totalMultiplier)
+    : 0;
 
   const ownedPlotsCount = state.plots.filter((p) => p.ownerId === player.id).length;
   const endQuests = syncQuestsFromMatch(profile, state, player, ownedPlotsCount, true, won, rank);
@@ -909,6 +1009,7 @@ export function recordCompletedMatchToProfile(
     mCoinsEarned,
     bpXpEarned,
     rewardMultiplier: multBreakdown.totalMultiplier,
+    tooShortForCoins: !eligibleForMatchRewards,
     completedQuests,
     newlyUnlocked,
   };

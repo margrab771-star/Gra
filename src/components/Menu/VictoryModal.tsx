@@ -14,6 +14,7 @@ interface VictoryModalProps {
     mCoinsEarned?: number;
     bpXpEarned?: number;
     rewardMultiplier?: number;
+    tooShortForCoins?: boolean;
     completedQuests?: PlayerQuestProgress[];
     newlyUnlocked: AchievementDefinition[];
   } | null;
@@ -155,6 +156,11 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
                   {(rewardSummary.mCoinsEarned ?? 0) > 0 && (
                     <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/50 text-amber-200 font-mono flex items-center gap-1">
                       <MCoinIcon size={14} />+{rewardSummary.mCoinsEarned} M
+                    </span>
+                  )}
+                  {rewardSummary.tooShortForCoins && (
+                    <span className="px-2 py-0.5 rounded bg-slate-800 border border-[#2d3b52] text-slate-300 text-[10px]">
+                      ⏱️ Zbyt krótki mecz (&lt; 12 tur) — brak premii M
                     </span>
                   )}
                   {(rewardSummary.bpXpEarned ?? 0) > 0 && (
