@@ -79,12 +79,17 @@ export function updatePlayerMatchStatsAccumTick(state: GameState): void {
         pl.building.type === 'closedLoopSewagePlant' ||
         pl.building.type === 'plasmaGasificationPlant' ||
         pl.building.type === 'cityPark' ||
+        pl.building.type === 'monumentFountain' ||
+        pl.building.type === 'monumentObelisk' ||
+        pl.building.type === 'monumentHelipad' ||
+        pl.building.type === 'monumentFounder' ||
         pl.building.type === 'fusionReactor'
       ) {
         cleanOrGreenBuildings++;
       }
       tickPol += Math.max(0, pl.building.costs.environmentalFine ?? 0);
     }
+    p.statsAccum.greenBuildingsCount = cleanOrGreenBuildings;
     p.statsAccum.greenScore = Math.max(p.statsAccum.greenScore, cleanOrGreenBuildings * 10 + Math.round(p.reputation));
     p.statsAccum.totalPollution += Math.round(tickPol);
   }

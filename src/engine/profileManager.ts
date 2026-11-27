@@ -2,18 +2,67 @@ import {
   ACHIEVEMENTS,
   type AchievementDefinition,
 } from '../data/achievements';
+import {
+  BATTLE_PASS_SEASON_1,
+  PRESTIGE_REQUIRED_ACCOUNT_LEVEL,
+  computeBattlePassLevel,
+  computePvPDivision,
+  generateQuestsForDate,
+  getLocalDayKey,
+  getLocalWeekKey,
+} from '../data/battlePass';
+import {
+  SHOP_ITEMS,
+  computeRewardMultiplier,
+  getUnlockedMonumentsForProfile,
+} from '../data/shopCatalog';
 import type {
   GameState,
   HQVariantId,
   MatchRecordEntry,
   Player,
   PlayerCardProfile,
+  PlayerQuestProgress,
+  ProfileQuestState,
   ScenarioId,
+  UiThemeId,
   UserAccountProfile,
 } from './types';
 
 const ACCOUNTS_DB_KEY = 'market_dominion_accounts_db_v1';
 const ACTIVE_ACCOUNT_ID_KEY = 'market_dominion_active_account_v1';
+const QUEST_WATERMARK_KEY = 'market_dominion_quest_watermarks_v1';
+
+export function applyUiThemeToDocument(themeId?: UiThemeId): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.dataset.uiTheme = themeId ?? 'theme_fintech';
+}
+
+function ensureQuestStateUpToDate(existing?: ProfileQuestState, now = new Date()): ProfileQuestState {
+  const dayKey = getLocalDayKey(now);
+  const weekKey = getLocalWeekKey(now);
+  const fresh = generateQuestsForDate(now);
+  if (!existing) {
+    return {
+      dayKey,
+      weekKey,
+      quests: [...fresh.daily, ...fresh.weekly],
+    };
+  }
+  const keptDaily =
+    existing.dayKey === dayKey
+      ? existing.quests.filter((q) => q.period === 'daily')
+      : fresh.daily;
+  const keptWeekly =
+    existing.weekKey === weekKey
+      ? existing.quests.filter((q) => q.period === 'weekly')
+      : fresh.weekly;
+  return {
+    dayKey,
+    weekKey,
+    quests: [...keptDaily, ...keptWeekly],
+  };
+}
 
 export function xpNeededForLevel(level: number): number {
   return Math.round(250 * Math.pow(level, 1.35));
@@ -49,12 +98,21 @@ function createGuestProfile(): UserAccountProfile {
     createdAt: Date.now(),
     xp: 0,
     level: 1,
+    mCoins: 200,
+    prestigeLevel: 0,
+    uiThemeId: 'theme_fintech',
+    battlePassXp: 0,
+    claimedPassLevels: [],
+    questState: ensureQuestStateUpToDate(),
+    pvpMatches: 0,
+    pvpWins: 0,
+    welcomeMigratedV9: true,
     avatar: '👔',
     frameId: 'frame_slate',
     titleId: 'title_startup',
     hqVariant: 'classic',
     unlockedAchievements: [],
-    unlockedCosmetics: ['hq_classic', 'frame_slate', 'title_startup'],
+    unlockedCosmetics: ['hq_classic', 'frame_slate', 'title_startup', 'theme_fintech'],
     pinnedBadgeIds: [],
     records: {
       highestNetWorth: 0,
@@ -103,18 +161,38 @@ export function loadAccountsDatabase(): UserAccountProfile[] {
 }
 
 function normalizeAccount(acc: UserAccountProfile): UserAccountProfile {
+  const guestBase = createGuestProfile();
+  const isLegacyV7Account =
+    !acc.welcomeMigratedV9 &&
+    ((acc.records?.matchesPlayed ?? 0) > 0 ||
+      (acc.xp ?? 0) > 0 ||
+      (acc.unlockedAchievements?.length ?? 0) > 0);
+  const achCount = Array.isArray(acc.unlockedAchievements) ? acc.unlockedAchievements.length : 0;
+  const legacyWelcomeMCoins = isLegacyV7Account ? 300 + achCount * 35 : 0;
+  const baseCoins = typeof acc.mCoins === 'number' ? acc.mCoins : guestBase.mCoins;
+  const unlockedCosmetics = Array.isArray(acc.unlockedCosmetics)
+    ? Array.from(new Set(['hq_classic', 'frame_slate', 'title_startup', 'theme_fintech', ...acc.unlockedCosmetics]))
+    : ['hq_classic', 'frame_slate', 'title_startup', 'theme_fintech'];
+
   return {
-    ...createGuestProfile(),
+    ...guestBase,
     ...acc,
     level: computeLevelFromXp(acc.xp ?? 0),
+    mCoins: baseCoins + legacyWelcomeMCoins,
+    prestigeLevel: Math.max(0, Number(acc.prestigeLevel ?? 0)),
+    uiThemeId: acc.uiThemeId ?? 'theme_fintech',
+    battlePassXp: Math.max(0, Number(acc.battlePassXp ?? 0)),
+    claimedPassLevels: Array.isArray(acc.claimedPassLevels) ? acc.claimedPassLevels : [],
+    questState: ensureQuestStateUpToDate(acc.questState),
+    pvpMatches: Math.max(0, Number(acc.pvpMatches ?? 0)),
+    pvpWins: Math.max(0, Number(acc.pvpWins ?? 0)),
+    welcomeMigratedV9: true,
     unlockedAchievements: Array.isArray(acc.unlockedAchievements) ? acc.unlockedAchievements : [],
-    unlockedCosmetics: Array.isArray(acc.unlockedCosmetics)
-      ? Array.from(new Set(['hq_classic', 'frame_slate', 'title_startup', ...acc.unlockedCosmetics]))
-      : ['hq_classic', 'frame_slate', 'title_startup'],
+    unlockedCosmetics,
     pinnedBadgeIds: Array.isArray(acc.pinnedBadgeIds) ? acc.pinnedBadgeIds.slice(0, 3) : [],
     matchHistory: Array.isArray(acc.matchHistory) ? acc.matchHistory.slice(0, 20) : [],
     records: {
-      ...createGuestProfile().records,
+      ...guestBase.records,
       ...(acc.records ?? {}),
     },
   };
@@ -254,6 +332,7 @@ export function importProfileTransferCode(
 }
 
 export function toPlayerCard(profile: UserAccountProfile): PlayerCardProfile {
+  const div = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
   return {
     accountId: profile.id,
     nick: profile.nick,
@@ -264,6 +343,9 @@ export function toPlayerCard(profile: UserAccountProfile): PlayerCardProfile {
     titleId: profile.titleId,
     pinnedBadgeIds: profile.pinnedBadgeIds.slice(0, 3),
     hqVariant: profile.hqVariant,
+    pvpDivisionId: div.id,
+    prestigeLevel: profile.prestigeLevel,
+    unlockedMonumentIds: getUnlockedMonumentsForProfile(profile.unlockedCosmetics),
   };
 }
 
@@ -275,6 +357,7 @@ export function updateProfileCosmetics(
     titleId?: string;
     pinnedBadgeIds?: string[];
     hqVariant?: HQVariantId;
+    uiThemeId?: UiThemeId;
   }
 ): UserAccountProfile {
   const next: UserAccountProfile = {
@@ -286,8 +369,117 @@ export function updateProfileCosmetics(
       ? opts.pinnedBadgeIds.slice(0, 3)
       : profile.pinnedBadgeIds,
     hqVariant: opts.hqVariant ?? profile.hqVariant,
+    uiThemeId: opts.uiThemeId ?? profile.uiThemeId,
   };
+  if (opts.uiThemeId) applyUiThemeToDocument(opts.uiThemeId);
   return updateProfileInDb(next);
+}
+
+export function purchaseShopItem(
+  profile: UserAccountProfile,
+  itemId: string
+): { ok: boolean; profile: UserAccountProfile; message?: string; error?: string } {
+  const norm = normalizeAccount(profile);
+  const item = SHOP_ITEMS.find((it) => it.id === itemId);
+  if (!item) return { ok: false, profile: norm, error: 'Nieznana pozycja w Sklepie Prezesa.' };
+  const alreadyOwned = item.unlockIdsGranted.every((uid) => norm.unlockedCosmetics.includes(uid));
+  if (alreadyOwned) {
+    return { ok: false, profile: norm, error: 'Ten element jest już odblokowany na Twoim koncie.' };
+  }
+  if (norm.mCoins < item.priceMCoins) {
+    return {
+      ok: false,
+      profile: norm,
+      error: `Za mało Monet M (potrzeba ${item.priceMCoins} M, masz ${norm.mCoins} M).`,
+    };
+  }
+  const updated: UserAccountProfile = {
+    ...norm,
+    mCoins: norm.mCoins - item.priceMCoins,
+    unlockedCosmetics: Array.from(new Set([...norm.unlockedCosmetics, ...item.unlockIdsGranted])),
+    uiThemeId: item.uiThemeId ?? norm.uiThemeId,
+    hqVariant: item.hqVariantId ?? norm.hqVariant,
+    frameId: item.frameId ?? norm.frameId,
+  };
+  if (item.uiThemeId) applyUiThemeToDocument(item.uiThemeId);
+  const saved = updateProfileInDb(updated);
+  return { ok: true, profile: saved, message: `Odblokowano: ${item.name}!` };
+}
+
+export function claimBattlePassReward(
+  profile: UserAccountProfile,
+  level: number
+): { ok: boolean; profile: UserAccountProfile; message?: string; error?: string } {
+  const norm = normalizeAccount(profile);
+  const tier = BATTLE_PASS_SEASON_1.find((t) => t.level === level);
+  if (!tier) return { ok: false, profile: norm, error: 'Nieznany próg Karnetu Sezon 1.' };
+  const bpProgress = computeBattlePassLevel(norm.battlePassXp);
+  if (bpProgress.level < level) {
+    return { ok: false, profile: norm, error: `Wymagany Poziom Karnetu ${level}.` };
+  }
+  if (norm.claimedPassLevels.includes(level)) {
+    return { ok: false, profile: norm, error: 'Nagroda została już odebrana.' };
+  }
+
+  let mCoinsAdded = tier.mCoinsBonus ?? 0;
+  const extraCosmetics: string[] = [];
+  if (tier.cosmeticId) {
+    if (norm.unlockedCosmetics.includes(tier.cosmeticId)) {
+      mCoinsAdded += 150; // Kompensata M za posiadaną już kosmetykę ze sklepu
+    } else {
+      extraCosmetics.push(tier.cosmeticId);
+    }
+  }
+  // Dodatkowe progi specjalne w Sezonie 1
+  if (level === 15 && !norm.unlockedCosmetics.includes('frame_neon_pulse')) {
+    extraCosmetics.push('frame_neon_pulse');
+  }
+  if (level === 25 && !norm.unlockedCosmetics.includes('frame_golden_aura')) {
+    extraCosmetics.push('frame_golden_aura');
+  }
+  if (level === 30) {
+    if (!norm.unlockedCosmetics.includes('hq_platinum')) extraCosmetics.push('hq_platinum');
+    if (!norm.unlockedCosmetics.includes('title_season_one')) extraCosmetics.push('title_season_one');
+  }
+
+  const saved = updateProfileInDb({
+    ...norm,
+    mCoins: norm.mCoins + mCoinsAdded,
+    claimedPassLevels: [...norm.claimedPassLevels, level],
+    unlockedCosmetics: Array.from(new Set([...norm.unlockedCosmetics, ...extraCosmetics])),
+  });
+  return { ok: true, profile: saved, message: `Odebrano nagrodę Poziomu ${level}: ${tier.title}!` };
+}
+
+export function activatePrestige(profile: UserAccountProfile): {
+  ok: boolean;
+  profile: UserAccountProfile;
+  message?: string;
+  error?: string;
+} {
+  const norm = normalizeAccount(profile);
+  if (norm.level < PRESTIGE_REQUIRED_ACCOUNT_LEVEL) {
+    return {
+      ok: false,
+      profile: norm,
+      error: `Prestiż wymaga osiągnięcia min. Poziomu Konta ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}.`,
+    };
+  }
+  const nextPrestige = norm.prestigeLevel + 1;
+  const saved = updateProfileInDb({
+    ...norm,
+    prestigeLevel: nextPrestige,
+    xp: 0,
+    level: 1,
+    mCoins: norm.mCoins + 500,
+    unlockedCosmetics: Array.from(new Set([...norm.unlockedCosmetics, 'title_prestige_star'])),
+    titleId: 'title_prestige_star',
+  });
+  return {
+    ok: true,
+    profile: saved,
+    message: `★ Aktywowano Prestiż #${nextPrestige}! Otrzymujesz Złotą Gwiazdę, granice działek na mapie i +500 Monet M!`,
+  };
 }
 
 /**
@@ -327,6 +519,8 @@ function grantAchievement(profile: UserAccountProfile, ach: AchievementDefinitio
   profile.unlockedAchievements.push(ach.id);
   profile.xp += ach.xpReward;
   profile.level = computeLevelFromXp(profile.xp);
+  profile.mCoins += Math.max(40, Math.round(ach.xpReward * 0.45));
+  profile.battlePassXp += Math.round(ach.xpReward * 0.65);
   if (ach.unlockTitle && !profile.unlockedCosmetics.includes(ach.unlockTitle)) {
     profile.unlockedCosmetics.push(ach.unlockTitle);
   }
@@ -336,10 +530,107 @@ function grantAchievement(profile: UserAccountProfile, ach: AchievementDefinitio
   return true;
 }
 
+const memoryWatermarks: Record<string, Record<string, number>> = {};
+
+function loadMatchWatermarks(matchId: string): Record<string, number> {
+  const storage = getStorageSafe();
+  if (!storage) return { ...(memoryWatermarks[matchId] ?? {}) };
+  try {
+    const raw = storage.getItem(QUEST_WATERMARK_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, Record<string, number>>;
+    return parsed[matchId] ? { ...parsed[matchId] } : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveMatchWatermarks(matchId: string, wm: Record<string, number>): void {
+  memoryWatermarks[matchId] = { ...wm };
+  const storage = getStorageSafe();
+  if (!storage) return;
+  try {
+    const raw = storage.getItem(QUEST_WATERMARK_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, number>>) : {};
+    parsed[matchId] = wm;
+    const keys = Object.keys(parsed);
+    if (keys.length > 15) {
+      for (const oldKey of keys.slice(0, keys.length - 15)) {
+        delete parsed[oldKey];
+      }
+    }
+    storage.setItem(QUEST_WATERMARK_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignoruj limit miejsca
+  }
+}
+
+function syncQuestsFromMatch(
+  profile: UserAccountProfile,
+  state: GameState,
+  player: Player,
+  ownedPlotsCount: number,
+  matchEnded: boolean,
+  won: boolean,
+  rank: number
+): { completedNow: PlayerQuestProgress[]; bpXpAdded: number; mCoinsAdded: number } {
+  const qState = ensureQuestStateUpToDate(profile.questState);
+  profile.questState = qState;
+
+  const matchId = state.matchId ?? `fallback_${state.settings.mapSeed ?? 0}`;
+  const prevWm = loadMatchWatermarks(matchId);
+  const accum = player.statsAccum;
+  const completedNow: PlayerQuestProgress[] = [];
+  let bpXpAdded = 0;
+  let mCoinsAdded = 0;
+
+  const currentCumulative: Record<string, number> = {
+    b2b_completed: accum?.b2bContractsCompleted ?? 0,
+    bridge_built: accum?.bridgesBuilt ?? 0,
+    road_built: accum?.roadsBuilt ?? 0,
+    self_fueled_ticks: accum?.selfFueledPowerTicks ?? 0,
+    podium_win: matchEnded && (won || rank <= 2) ? 1 : 0,
+  };
+
+  for (const q of qState.quests) {
+    if (q.completed) continue;
+    if (q.metric === 'owned_plots') {
+      q.progress = Math.max(q.progress, Math.min(q.target, ownedPlotsCount));
+    } else if (q.metric === 'green_buildings') {
+      q.progress = Math.max(q.progress, Math.min(q.target, accum?.greenBuildingsCount ?? 0));
+    } else {
+      const curVal = currentCumulative[q.metric] ?? 0;
+      const lastVal = prevWm[q.metric] ?? 0;
+      const delta = Math.max(0, curVal - lastVal);
+      if (delta > 0) {
+        q.progress = Math.min(q.target, q.progress + delta);
+      }
+    }
+
+    if (q.progress >= q.target && !q.completed) {
+      q.completed = true;
+      q.claimed = true;
+      bpXpAdded += q.bpXpReward;
+      mCoinsAdded += q.mCoinReward;
+      completedNow.push({ ...q });
+    }
+  }
+
+  saveMatchWatermarks(matchId, currentCumulative);
+  if (bpXpAdded > 0) profile.battlePassXp += bpXpAdded;
+  if (mCoinsAdded > 0) profile.mCoins += mCoinsAdded;
+
+  return { completedNow, bpXpAdded, mCoinsAdded };
+}
+
 export function evaluateLiveAchievements(
   state: GameState,
   player: Player
-): { profile: UserAccountProfile; newlyUnlocked: AchievementDefinition[] } {
+): {
+  profile: UserAccountProfile;
+  newlyUnlocked: AchievementDefinition[];
+  completedQuests: PlayerQuestProgress[];
+} {
   const profile = normalizeAccount(getActiveProfile());
   const unlockedNow: AchievementDefinition[] = [];
 
@@ -448,6 +739,8 @@ export function evaluateLiveAchievements(
   );
   check('ach_land_baron', ownedPlots.length >= 25);
 
+  const questRes = syncQuestsFromMatch(profile, state, player, ownedPlots.length, false, false, 99);
+
   if (profile.records.mostOwnedPlots < ownedPlots.length) {
     profile.records.mostOwnedPlots = ownedPlots.length;
   }
@@ -455,11 +748,11 @@ export function evaluateLiveAchievements(
     profile.records.highestNetWorth = Math.round(player.netWorth);
   }
 
-  if (unlockedNow.length > 0) {
+  if (unlockedNow.length > 0 || questRes.completedNow.length > 0) {
     updateProfileInDb(profile);
   }
 
-  return { profile, newlyUnlocked: unlockedNow };
+  return { profile, newlyUnlocked: unlockedNow, completedQuests: questRes.completedNow };
 }
 
 export function recordCompletedMatchToProfile(
@@ -468,10 +761,16 @@ export function recordCompletedMatchToProfile(
 ): {
   profile: UserAccountProfile;
   xpEarned: number;
+  mCoinsEarned: number;
+  bpXpEarned: number;
+  rewardMultiplier: number;
+  completedQuests: PlayerQuestProgress[];
   newlyUnlocked: AchievementDefinition[];
 } {
-  const { profile, newlyUnlocked: liveUnlocked } = evaluateLiveAchievements(state, player);
+  const { profile, newlyUnlocked: liveUnlocked, completedQuests: liveQuests } =
+    evaluateLiveAchievements(state, player);
   const newlyUnlocked = [...liveUnlocked];
+  const completedQuests = [...liveQuests];
 
   const isCoalitionWin = Boolean(
     state.winningCoalitionId &&
@@ -517,20 +816,40 @@ export function recordCompletedMatchToProfile(
     }
   }
 
+  const multBreakdown = computeRewardMultiplier({
+    difficultyPreset: state.settings.difficultyPreset,
+    aiDifficulty: state.settings.aiDifficulty,
+    aiCount: state.players.filter((p) => p.isAI).length,
+    mutators: state.settings.mutators,
+  });
+
   const completedGoals = (player.secretGoals ?? []).filter((g) => g.completed);
   const goalXp = completedGoals.reduce((s, g) => s + g.rewardXp, 0);
-  const baseXp = won ? 220 : 85;
+  const baseXp = won ? 240 : rank === 2 ? 150 : 95;
   const netWorthXp = Math.min(200, Math.round(Math.max(0, player.netWorth) / 250_000));
-  const diffMult =
-    state.settings.difficultyPreset === 'przetrwanie'
-      ? 1.4
-      : state.settings.difficultyPreset === 'kryzysowy'
-        ? 1.2
-        : 1.0;
-  const xpEarned = Math.round((baseXp + netWorthXp + goalXp) * diffMult);
+  const xpEarned = Math.round((baseXp + netWorthXp + goalXp) * multBreakdown.totalMultiplier);
+
+  const baseCoins = won ? 140 : rank === 2 ? 85 : 50;
+  const netWorthCoins = Math.min(110, Math.round(Math.max(0, player.netWorth) / 350_000));
+  const goalCoins = completedGoals.length * 35;
+  const rawCoinsEarned = Math.round((baseCoins + netWorthCoins + goalCoins) * multBreakdown.totalMultiplier);
+
+  const ownedPlotsCount = state.plots.filter((p) => p.ownerId === player.id).length;
+  const endQuests = syncQuestsFromMatch(profile, state, player, ownedPlotsCount, true, won, rank);
+  completedQuests.push(...endQuests.completedNow);
+
+  const bpXpEarned = Math.round(xpEarned * 0.85) + endQuests.bpXpAdded;
+  const mCoinsEarned = rawCoinsEarned + endQuests.mCoinsAdded;
 
   profile.xp += xpEarned;
   profile.level = computeLevelFromXp(profile.xp);
+  profile.mCoins += rawCoinsEarned; // endQuests.mCoinsAdded już dopisane przez syncQuestsFromMatch
+  profile.battlePassXp += Math.round(xpEarned * 0.85);
+
+  if (state.settings.mode === 'mp_fast' || state.settings.mode === 'mp_long') {
+    profile.pvpMatches += 1;
+    if (won) profile.pvpWins += 1;
+  }
 
   // Odblokowania poziomowe kosmetyków
   if (profile.level >= 4 && !profile.unlockedCosmetics.includes('frame_gold')) {
@@ -575,6 +894,8 @@ export function recordCompletedMatchToProfile(
     netWorth: Math.round(player.netWorth),
     durationTicks: state.time.tick,
     xpEarned,
+    mCoinsEarned,
+    rewardMultiplier: multBreakdown.totalMultiplier,
     isWeekly: Boolean(state.settings.weeklyChallengeId),
     weekKey: state.settings.weeklyChallengeId,
   };
@@ -582,5 +903,13 @@ export function recordCompletedMatchToProfile(
 
   const saved = updateProfileInDb(profile);
   void syncProfileToCloudIfConfigured(saved);
-  return { profile: saved, xpEarned, newlyUnlocked };
+  return {
+    profile: saved,
+    xpEarned,
+    mCoinsEarned,
+    bpXpEarned,
+    rewardMultiplier: multBreakdown.totalMultiplier,
+    completedQuests,
+    newlyUnlocked,
+  };
 }

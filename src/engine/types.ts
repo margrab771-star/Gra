@@ -158,7 +158,12 @@ export type BuildingType =
   | 'wasteLandfill'
   | 'bioSewagePlant'
   | 'closedLoopSewagePlant'
-  | 'plasmaGasificationPlant';
+  | 'plasmaGasificationPlant'
+  // Prestiżowe Dekoracje 2.5D v9.0 (identyczne statystyki jak cityPark — zero Pay-to-Win)
+  | 'monumentFounder'
+  | 'monumentObelisk'
+  | 'monumentHelipad'
+  | 'monumentFountain';
 
 export type ArchetypeId =
   | 'standard'
@@ -179,7 +184,29 @@ export type ScenarioId =
 
 export type GovernmentKind = 'free_market' | 'ecological' | 'interventionist';
 
-export type HQVariantId = 'classic' | 'golden' | 'eco_dome' | 'cyber_citadel';
+export type HQVariantId =
+  | 'classic'
+  | 'golden'
+  | 'eco_dome'
+  | 'cyber_citadel'
+  | 'monolith_obsidian'
+  | 'platinum_spire';
+
+export type UiThemeId = 'theme_fintech' | 'theme_gold' | 'theme_emerald' | 'theme_crimson';
+
+export type PvPDivisionId = 'startup' | 'investor' | 'director' | 'oligarch' | 'magnate';
+
+export type GlobalBreakthroughId = 'ai_boom' | 'energy_crisis' | 'tourism_golden_era';
+
+export interface ActiveBreakthroughState {
+  id: GlobalBreakthroughId;
+  name: string;
+  headline: string;
+  description: string;
+  effectsSummary: string[];
+  forecastTicksRemaining: number;
+  startedTick: number;
+}
 
 export type AchievementCategory =
   | 'economy'
@@ -517,6 +544,8 @@ export interface BuildingDefinition {
   storageCapacity: number;
   unlockTech?: string;
   requirements?: NonFinancialRequirements;
+  decorativeVariantOf?: 'cityPark';
+  requiredCosmeticUnlockId?: string;
   specialEffects: string[];
   internalTechTree: Omit<BuildingTechNode, 'progress' | 'status'>[];
 }
@@ -1058,6 +1087,7 @@ export interface MutatorFlags {
   volatileMarket: boolean;
   freeLocalRoads: boolean;
   extremeClimate: boolean;
+  globalBreakthroughs: boolean;
 }
 
 export interface SecretGoal {
@@ -1155,6 +1185,36 @@ export interface PlayerCardProfile {
   titleId: string;
   pinnedBadgeIds: string[];
   hqVariant: HQVariantId;
+  pvpDivisionId?: PvPDivisionId;
+  prestigeLevel?: number;
+  unlockedMonumentIds?: BuildingType[];
+}
+
+export interface PlayerQuestProgress {
+  id: string;
+  period: 'daily' | 'weekly';
+  title: string;
+  description: string;
+  metric:
+    | 'b2b_completed'
+    | 'bridge_built'
+    | 'road_built'
+    | 'self_fueled_ticks'
+    | 'green_buildings'
+    | 'owned_plots'
+    | 'podium_win';
+  target: number;
+  progress: number;
+  completed: boolean;
+  claimed: boolean;
+  bpXpReward: number;
+  mCoinReward: number;
+}
+
+export interface ProfileQuestState {
+  dayKey: string;
+  weekKey: string;
+  quests: PlayerQuestProgress[];
 }
 
 export interface LifetimeRecords {
@@ -1187,6 +1247,8 @@ export interface MatchRecordEntry {
   netWorth: number;
   durationTicks: number;
   xpEarned: number;
+  mCoinsEarned?: number;
+  rewardMultiplier?: number;
   isWeekly?: boolean;
   weekKey?: string;
 }
@@ -1199,6 +1261,15 @@ export interface UserAccountProfile {
   createdAt: number;
   xp: number;
   level: number;
+  mCoins: number;
+  prestigeLevel: number;
+  uiThemeId: UiThemeId;
+  battlePassXp: number;
+  claimedPassLevels: number[];
+  questState?: ProfileQuestState;
+  pvpMatches: number;
+  pvpWins: number;
+  welcomeMigratedV9?: boolean;
   avatar: string;
   frameId: string;
   titleId: string;
@@ -1223,6 +1294,11 @@ export interface PlayerMatchStatsAccum {
   ownedPlotsPeak: number;
   auctionsWon?: number;
   hostilePressuresCount?: number;
+  b2bContractsCompleted?: number;
+  bridgesBuilt?: number;
+  roadsBuilt?: number;
+  selfFueledPowerTicks?: number;
+  greenBuildingsCount?: number;
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
@@ -1389,12 +1465,14 @@ export interface GameState {
   monopolyThreshold: number;
   disconnectAlert: DisconnectAlert | null;
   notifications: GameNotification[];
-  // v6.0 & v7.0
+  // v6.0, v7.0 & v9.0
   government?: GovernmentElectionState;
   liveAuction?: LiveAuctionState | null;
   matchStatsHistory?: MatchStatSample[];
   greenTransitionEntered?: boolean;
   carbonTaxActive?: boolean;
+  matchId?: string;
+  activeBreakthrough?: ActiveBreakthroughState | null;
 }
 
 export interface GameNotification {
@@ -1437,6 +1515,11 @@ export interface LobbyState {
   difficultyPreset?: DifficultyPreset;
   scenarioId?: ScenarioId;
   mutators?: MutatorFlags;
+  isPublic?: boolean;
+  roomName?: string;
+  hostDivision?: PvPDivisionId;
+  hostPrestige?: number;
+  hostUnlockedScenarios?: ScenarioId[];
 }
 
 export type PlayerAction =

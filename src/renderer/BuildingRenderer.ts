@@ -163,6 +163,18 @@ export class BuildingRenderer {
       case 'cityPark':
         this.drawCityPark(ctx, scale);
         break;
+      case 'monumentFountain':
+        this.drawMonumentFountain(ctx, scale);
+        break;
+      case 'monumentObelisk':
+        this.drawMonumentObelisk(ctx, scale);
+        break;
+      case 'monumentHelipad':
+        this.drawMonumentHelipad(ctx, scale, ownerColor);
+        break;
+      case 'monumentFounder':
+        this.drawMonumentFounder(ctx, scale);
+        break;
       case 'arenaStadium':
         this.drawArenaStadium(ctx, scale);
         break;
@@ -566,7 +578,11 @@ export class BuildingRenderer {
           ? '#065f46'
           : hqVariant === 'cyber_citadel'
             ? '#0f172a'
-            : '#1e3a5f';
+            : hqVariant === 'monolith_obsidian'
+              ? '#111827'
+              : hqVariant === 'platinum_spire'
+                ? '#64748b'
+                : '#1e3a5f';
     const bodySecondary =
       hqVariant === 'golden'
         ? '#78350f'
@@ -574,7 +590,11 @@ export class BuildingRenderer {
           ? '#064e3b'
           : hqVariant === 'cyber_citadel'
             ? '#1e1b4b'
-            : '#0f2342';
+            : hqVariant === 'monolith_obsidian'
+              ? '#030712'
+              : hqVariant === 'platinum_spire'
+                ? '#334155'
+                : '#0f2342';
 
     this.drawIsoBox(ctx, 0, 1 * scale, w, 15 * scale, h, bodyPrimary, bodySecondary);
 
@@ -587,7 +607,11 @@ export class BuildingRenderer {
             ? 'rgba(110, 231, 183, 0.58)'
             : hqVariant === 'cyber_citadel'
               ? 'rgba(34, 211, 238, 0.75)'
-              : 'rgba(125, 211, 252, 0.48)';
+              : hqVariant === 'monolith_obsidian'
+                ? 'rgba(244, 63, 94, 0.65)'
+                : hqVariant === 'platinum_spire'
+                  ? 'rgba(224, 242, 254, 0.85)'
+                  : 'rgba(125, 211, 252, 0.48)';
       ctx.fillRect(-w * 0.36, -i * 4 * scale, w * 0.72, 1.8 * scale);
     }
 
@@ -608,6 +632,30 @@ export class BuildingRenderer {
       ctx.moveTo(-6 * scale, -h - 2 * scale);
       ctx.lineTo(0, -h - 14 * scale);
       ctx.lineTo(6 * scale, -h - 2 * scale);
+      ctx.stroke();
+    } else if (hqVariant === 'monolith_obsidian') {
+      const pulse = 0.6 + Math.sin(this.frameCount * 0.12) * 0.3;
+      ctx.strokeStyle = `rgba(251, 113, 133, ${pulse})`;
+      ctx.lineWidth = 1.6 * scale;
+      ctx.beginPath();
+      ctx.moveTo(0, -h);
+      ctx.lineTo(0, -h - 15 * scale);
+      ctx.stroke();
+      ctx.fillStyle = '#fb7185';
+      ctx.beginPath();
+      ctx.arc(0, -h - 16 * scale, 2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (hqVariant === 'platinum_spire') {
+      const pulse = 0.7 + Math.sin(this.frameCount * 0.12) * 0.25;
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(-5.5 * scale, -h);
+      ctx.lineTo(0, -h - 16 * scale);
+      ctx.lineTo(5.5 * scale, -h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(125, 211, 252, ${pulse})`;
+      ctx.lineWidth = 1.4 * scale;
       ctx.stroke();
     } else if (visualTier >= 2 || hqVariant === 'golden') {
       const roofY = -h - 3 * scale;
@@ -1363,6 +1411,75 @@ export class BuildingRenderer {
       ctx.arc(tx * scale, (ty - 4) * scale, 3.6 * scale, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  private drawMonumentFountain(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 24 * scale, 18 * scale, 2.5 * scale, '#475569', '#1e293b');
+    ctx.fillStyle = '#0ea5e9';
+    ctx.beginPath();
+    ctx.ellipse(0, -1 * scale, 8 * scale, 4.2 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    this.drawIsoBox(ctx, 0, -1 * scale, 5 * scale, 3.5 * scale, 6 * scale, '#cbd5e1', '#64748b');
+    const sp = 0.65 + Math.sin(this.frameCount * 0.2) * 0.3;
+    ctx.strokeStyle = `rgba(186, 230, 253, ${sp})`;
+    ctx.lineWidth = 1.2 * scale;
+    ctx.beginPath();
+    ctx.arc(0, -8 * scale, 4 * scale, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  private drawMonumentObelisk(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 22 * scale, 16 * scale, 2.5 * scale, '#334155', '#0f172a');
+    this.drawIsoBox(ctx, 0, 0, 9 * scale, 7 * scale, 5 * scale, '#cbd5e1', '#64748b');
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.moveTo(-3 * scale, -5 * scale);
+    ctx.lineTo(0, -24 * scale);
+    ctx.lineTo(3 * scale, -5 * scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.moveTo(-1.8 * scale, -18 * scale);
+    ctx.lineTo(0, -25 * scale);
+    ctx.lineTo(1.8 * scale, -18 * scale);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  private drawMonumentHelipad(ctx: CanvasRenderingContext2D, scale: number, ownerColor: string): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 25 * scale, 19 * scale, 3 * scale, '#1e293b', '#0f172a');
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1.4 * scale;
+    ctx.beginPath();
+    ctx.ellipse(0, -1.5 * scale, 8 * scale, 4.5 * scale, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `700 ${Math.round(6.5 * scale)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('VIP', 0, -1.5 * scale);
+    // Zaparkowany mały odrzutowiec dyspozycyjny
+    ctx.fillStyle = ownerColor;
+    ctx.fillRect(5 * scale, -6 * scale, 6 * scale, 2 * scale);
+  }
+
+  private drawMonumentFounder(ctx: CanvasRenderingContext2D, scale: number): void {
+    this.drawIsoBox(ctx, 0, 2 * scale, 24 * scale, 18 * scale, 2.4 * scale, '#15803d', '#14532d');
+    this.drawIsoBox(ctx, 0, 0, 10 * scale, 8 * scale, 6.5 * scale, '#475569', '#1e293b');
+    // Złota statua
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(-2.4 * scale, -18 * scale, 4.8 * scale, 11.5 * scale);
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(0, -20.5 * scale, 2.8 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    const gleam = 0.65 + Math.sin(this.frameCount * 0.14) * 0.3;
+    ctx.strokeStyle = `rgba(253, 224, 71, ${gleam})`;
+    ctx.lineWidth = 1.2 * scale;
+    ctx.beginPath();
+    ctx.arc(0, -20.5 * scale, 5 * scale, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   private drawArenaStadium(ctx: CanvasRenderingContext2D, scale: number): void {

@@ -59,7 +59,25 @@ export const HQ_COSMETICS: CosmeticItem[] = [
     name: 'Cytadela Cybernetyczna',
     preview: '⚡',
     description: 'Obsydianowo-neonowy rdzeń zarządczy klasy High-Tech z anteną kwantową.',
-    unlockHint: 'Osiągnięcie „Monopolista High-Tech” lub zwycięstwo Wyzwania Tygodnia',
+    unlockHint: 'Osiągnięcie „Monopolista High-Tech” lub Sklep Prezesa',
+  },
+  {
+    id: 'hq_monolith',
+    kind: 'hq',
+    hqVariantId: 'monolith_obsidian',
+    name: 'Monolit Obsydianowy',
+    preview: '🖤',
+    description: 'Minimalistyczna forteca zarządu ze szkła wulkanicznego i diodowych pasm.',
+    unlockHint: 'Sklep Prezesa lub Poziom 10 Karnetu Sezon 1',
+  },
+  {
+    id: 'hq_platinum',
+    kind: 'hq',
+    hqVariantId: 'platinum_spire',
+    name: 'Platynowa Iglica Prestiżu',
+    preview: '💎',
+    description: 'Najwyższa kosmetyczna sylwetka HQ Sezonu 1 z platynowym światłem koronnym.',
+    unlockHint: 'Poziom 30 Karnetu Prezesa Sezon 1',
   },
 ];
 
@@ -96,6 +114,30 @@ export const FRAME_COSMETICS: CosmeticItem[] = [
     description: 'Elitarne wykończenie dla weteranów wojen korporacyjnych i Hardkoru.',
     unlockHint: 'Odblokuj osiągnięcie „Żelazny Przetrwalnik” lub „Atomowy Odstraszacz”',
   },
+  {
+    id: 'frame_neon_pulse',
+    kind: 'frame',
+    name: 'Neonowy Impuls (Anim.)',
+    preview: '💠',
+    description: 'Animowana ramka pulsująca błękitem terminala HFT.',
+    unlockHint: 'Sklep Prezesa lub Poziom 15 Karnetu Sezon 1',
+  },
+  {
+    id: 'frame_golden_aura',
+    kind: 'frame',
+    name: 'Złota Aura Giełdy (Anim.)',
+    preview: '✨',
+    description: 'Animowana złota poświata karty gracza w lobby multiplayer.',
+    unlockHint: 'Sklep Prezesa lub Poziom 25 Karnetu Sezon 1',
+  },
+  {
+    id: 'frame_crimson_matrix',
+    kind: 'frame',
+    name: 'Szkarłatna Matryca (Anim.)',
+    preview: '🔥',
+    description: 'Pulsująca obwódka wojenna zarezerwowana dla rekinów rynku.',
+    unlockHint: 'Sklep Prezesa',
+  },
 ];
 
 export const TITLES_CATALOG: { id: string; label: string; unlockHint: string }[] = [
@@ -107,6 +149,10 @@ export const TITLES_CATALOG: { id: string; label: string; unlockHint: string }[]
   { id: 'title_coalition_architect', label: 'Architekt Koalicji', unlockHint: 'Osiągnięcie: Architekt Koalicji' },
   { id: 'title_toll_master', label: 'Król Autostrad', unlockHint: 'Osiągnięcie: Mistrz Myta' },
   { id: 'title_weekly_champ', label: 'Czempion Tygodnia', unlockHint: 'Ukończ dowolne Wyzwanie Tygodnia' },
+  { id: 'title_high_stakes', label: 'Lider Wysokich Stawek', unlockHint: 'Karnet Sezon 1 (Poziom 8)' },
+  { id: 'title_bp_tycoon', label: 'Baron Wall Street', unlockHint: 'Karnet Sezon 1 (Poziom 18)' },
+  { id: 'title_season_one', label: 'Architekt Rynku S1', unlockHint: 'Ukończ Poziom 30 Karnetu Sezon 1' },
+  { id: 'title_prestige_star', label: 'Weteran Prestiżu ★', unlockHint: 'Aktywuj Prestiż na Poziomie 20+' },
 ];
 
 export const ACHIEVEMENT_CATEGORIES: { key: AchievementCategory; label: string; icon: string }[] = [

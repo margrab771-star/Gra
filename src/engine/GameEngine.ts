@@ -617,6 +617,8 @@ function createBaseGameState(settings: GameSettings, players: Player[], currentP
     matchStatsHistory: [],
     greenTransitionEntered: false,
     carbonTaxActive: false,
+    matchId: `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    activeBreakthrough: null,
   };
 
   applyScenarioSetup(state);
@@ -1758,7 +1760,10 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.monopolyThreshold = state.settings.dominationThreshold;
   state.settings.difficultyPreset = state.settings.difficultyPreset ?? 'standard';
   state.settings.scenarioId = state.settings.scenarioId ?? 'sandbox';
-  state.settings.mutators = state.settings.mutators ?? { ...DEFAULT_MUTATORS };
+  state.settings.mutators = {
+    ...DEFAULT_MUTATORS,
+    ...(state.settings.mutators ?? {}),
+  };
   state.government = state.government ?? {
     currentGov: 'free_market',
     nextElectionTick: state.time.tick + 72,
@@ -1769,6 +1774,8 @@ export function migrateGameStateInPlace(state: GameState): void {
   state.matchStatsHistory = state.matchStatsHistory ?? [];
   state.greenTransitionEntered = state.greenTransitionEntered ?? false;
   state.carbonTaxActive = state.carbonTaxActive ?? false;
+  state.matchId = state.matchId ?? `migrated_${state.time.tick}`;
+  state.activeBreakthrough = state.activeBreakthrough ?? null;
 
   // Zaktualizuj definicje drzewek globalnych i prezesa dla starszych zapisów
   state.globalTechDefs = DEFAULT_GLOBAL_TECH_TREE.map((t) => ({ ...t }));

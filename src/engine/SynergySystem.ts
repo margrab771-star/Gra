@@ -22,6 +22,10 @@ const ENTERTAINMENT_ANCHORS = new Set<BuildingType>([
   'amusementPark',
   'culturalCenter',
   'cityPark',
+  'monumentFountain',
+  'monumentObelisk',
+  'monumentHelipad',
+  'monumentFounder',
   'gastronomyBoulevard',
 ]);
 
@@ -317,8 +321,15 @@ function evaluateSynergyWithIndex(
           });
         }
 
-        // 5. Park Miejski / Ogród Botaniczny (neutralizuje smog i dodaje urok)
-        if (ot === 'cityPark' && SMOG_SENSITIVE_TYPES.has(targetType)) {
+        // 5. Park Miejski / Ogród Botaniczny / Dekoracje 2.5D (neutralizuje smog i dodaje urok)
+        if (
+          (ot === 'cityPark' ||
+            ot === 'monumentFountain' ||
+            ot === 'monumentObelisk' ||
+            ot === 'monumentHelipad' ||
+            ot === 'monumentFounder') &&
+          SMOG_SENSITIVE_TYPES.has(targetType)
+        ) {
           parkCount++;
         }
 

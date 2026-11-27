@@ -9,6 +9,9 @@ interface MultiplayerChatWidgetProps {
     pingPlot?: { plotId: string; gridX: number; gridY: number; label: string }
   ) => void;
   onFocusPlot: (plotId: string) => void;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideCollapsedToggle?: boolean;
 }
 
 export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
@@ -16,11 +19,21 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
   selectedPlot,
   onSendMessage,
   onFocusPlot,
+  isOpen: controlledOpen,
+  onOpenChange,
+  hideCollapsedToggle = false,
 }) => {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [seenCount, setSeenCount] = useState(messages.length);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    setSeenCount(messages.length);
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
 
   useEffect(() => {
     if (open && listRef.current) {
@@ -52,19 +65,19 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
   };
 
   if (!open) {
+    if (hideCollapsedToggle) {
+      return null;
+    }
     return (
-      <div className="fixed bottom-20 md:bottom-5 left-3 z-30">
+      <div className="fixed bottom-20 left-3 z-30">
         <button
           type="button"
-          onClick={() => {
-            setOpen(true);
-            setSeenCount(messages.length);
-          }}
-          className="px-3 py-2 rounded-xl bg-[#0e1522]/95 border border-[#2d3b52] hover:border-sky-400 text-xs font-semibold text-slate-200 shadow-2xl flex items-center gap-2 backdrop-blur-md"
+          onClick={() => setOpen(true)}
+          className="relative px-3 py-2 rounded-xl bg-[#0e1522]/95 border border-[#2d3b52] hover:border-sky-400 text-xs font-semibold text-slate-200 shadow-2xl flex items-center gap-2 backdrop-blur-md"
         >
           <span>💬 Czat & Pingi</span>
           {unreadCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
               {unreadCount}
             </span>
           )}
@@ -74,7 +87,7 @@ export const MultiplayerChatWidget: React.FC<MultiplayerChatWidgetProps> = ({
   }
 
   return (
-    <div className="fixed bottom-20 md:bottom-5 left-3 z-30 w-80 max-w-[calc(100vw-24px)] rounded-2xl bg-[#0b0f17]/95 border border-[#2d3b52] shadow-2xl backdrop-blur-md flex flex-col overflow-hidden">
+    <div className="fixed bottom-20 left-3 z-30 w-80 max-w-[calc(100vw-24px)] rounded-2xl bg-[#0b0f17]/95 border border-[#2d3b52] shadow-2xl backdrop-blur-md flex flex-col overflow-hidden">
       <div className="px-3 py-2 bg-[#111827] border-b border-[#243044] flex items-center justify-between text-xs">
         <span className="font-bold text-slate-100">💬 Czat Korporacji & Pingi Mapy</span>
         <button

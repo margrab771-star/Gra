@@ -365,11 +365,23 @@ export function recalculateSpatialNetwork(plots: Plot[]): void {
         p.building.type === 'marinaPromenade' ||
         p.building.type === 'casino' ||
         p.building.type === 'cityPark' ||
+        p.building.type === 'monumentFountain' ||
+        p.building.type === 'monumentObelisk' ||
+        p.building.type === 'monumentHelipad' ||
+        p.building.type === 'monumentFounder' ||
         p.building.type === 'arenaStadium' ||
         p.building.type === 'gastronomyBoulevard')
   );
   const parks = plots.filter(
-    (p) => p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'cityPark'
+    (p) =>
+      p.building &&
+      p.building.isActive &&
+      !p.building.destroyedRuins &&
+      (p.building.type === 'cityPark' ||
+        p.building.type === 'monumentFountain' ||
+        p.building.type === 'monumentObelisk' ||
+        p.building.type === 'monumentHelipad' ||
+        p.building.type === 'monumentFounder')
   );
   const casinos = plots.filter(
     (p) => p.building && p.building.isActive && !p.building.destroyedRuins && p.building.type === 'casino'
@@ -809,6 +821,12 @@ export function buildPlayerRoadOnPlot(
   plot.roadType = roadClass;
   if (roadClass === 'highway' && plot.tollRate === 'free') {
     plot.tollRate = 'standard';
+  }
+  if (player.statsAccum) {
+    player.statsAccum.roadsBuilt = (player.statsAccum.roadsBuilt ?? 0) + 1;
+    if (roadClass === 'bridge') {
+      player.statsAccum.bridgesBuilt = (player.statsAccum.bridgesBuilt ?? 0) + 1;
+    }
   }
   state.networkRevision = (state.networkRevision ?? 0) + 1;
   recalculateSpatialNetwork(state.plots);

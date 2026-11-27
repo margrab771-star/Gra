@@ -86,6 +86,80 @@ function makeFiveNodeTree(
   ];
 }
 
+function makeDecorativeMonumentDef(opts: {
+  type: BuildingType;
+  name: string;
+  shortName: string;
+  icon: string;
+  unlockId: string;
+  description: string;
+}): BuildingDefinition {
+  return {
+    type: opts.type,
+    name: opts.name,
+    shortName: opts.shortName,
+    category: 'attractions',
+    requiredCorpLevel: 1,
+    icon: opts.icon,
+    description: opts.description,
+    strategyHint: 'Kosmetyczny wariant Parku Miejskiego — chroni okolicę przed smogiem dokładnie jak Park Miejski.',
+    baseCost: 85_000,
+    buildConstructionInputs: {},
+    requiredTerrain: ['grass', 'forest', 'urban', 'coastal'],
+    maxWorkers: 8,
+    minSkillRequired: 25,
+    baseMaintenance: 340,
+    baseRevenue: 1_250,
+    inputs: {},
+    outputs: {},
+    electricityUsage: 4,
+    waterUsage: 10,
+    sewageUsage: 2,
+    wasteUsage: 3,
+    pollutionLevel: -4,
+    storageCapacity: 10,
+    decorativeVariantOf: 'cityPark',
+    requiredCosmeticUnlockId: opts.unlockId,
+    specialEffects: [
+      'Dekoracja 2.5D — identyczne parametry ekonomii jak Park Miejski (zero P2W)',
+      'Neutralizuje smog w promieniu 2 pól i podnosi atrakcyjność działek (+14)',
+    ],
+    internalTechTree: makeFiveNodeTree(opts.type, 85_000, {
+      n1: {
+        name: 'Strefa Zwiedzania i Alejki',
+        desc: 'Zwiększa przychody z biletów gości.',
+        trade: '+30% wpływów i wyższe poparcie społeczne.',
+        eff: { productionBonus: 0.3, influenceBonus: 8 },
+      },
+      n2: {
+        name: 'System Retencji Wody',
+        desc: 'Oszczędza wodę miejską.',
+        trade: '-45% zużycia wody, odporność na suszę.',
+        eff: { waterDelta: -0.45, droughtProtection: true },
+      },
+      n3: {
+        name: 'Bio-Filtr Antysmogowy',
+        desc: 'Ogranicza oddziaływanie smogu w dzielnicy.',
+        trade: '-4 zanieczyszczenia otoczenia.',
+        eff: { pollutionDelta: -4, cleanFilter: true },
+      },
+      n4: {
+        name: 'Pawilon Wystawowy VIP',
+        desc: 'Przyciąga turystów i biznes.',
+        trade: '+45% przychodu obiektu i +15 wpływów.',
+        eff: { productionBonus: 0.45, influenceBonus: 15 },
+      },
+      flagship: {
+        name: 'Wielki Kompleks Dziedzictwa',
+        desc: 'Monumentalna oprawa metropolii.',
+        trade: '+85% przychodu, +30 wpływów i silna tarcza przeciw smogowi.',
+        eff: { productionBonus: 0.85, influenceBonus: 30, pollutionDelta: -6 },
+        reqs: { requiredCorpLevel: 2, minWorkerSkill: 50 },
+      },
+    }),
+  };
+}
+
 export const V6_BUILDING_DEFINITIONS: Record<
   | 'busDepot'
   | 'metroStation'
@@ -105,7 +179,11 @@ export const V6_BUILDING_DEFINITIONS: Record<
   | 'wasteLandfill'
   | 'bioSewagePlant'
   | 'closedLoopSewagePlant'
-  | 'plasmaGasificationPlant',
+  | 'plasmaGasificationPlant'
+  | 'monumentFounder'
+  | 'monumentObelisk'
+  | 'monumentHelipad'
+  | 'monumentFountain',
   BuildingDefinition
 > = {
   // ─── 1. Transport Pasażerski (4 unikalne obiekty) ─────────────────────────
@@ -1350,6 +1428,38 @@ export const V6_BUILDING_DEFINITIONS: Record<
       },
     }),
   },
+  monumentFountain: makeDecorativeMonumentDef({
+    type: 'monumentFountain',
+    name: 'Fontanna Korporacyjna (2.5D)',
+    shortName: 'Fontanna VIP',
+    icon: '⛲',
+    unlockId: 'mon_fountain',
+    description: 'Prestiżowy plac wodny z identycznymi parametrami ekonomii jak Park Miejski (zero Pay-to-Win).',
+  }),
+  monumentObelisk: makeDecorativeMonumentDef({
+    type: 'monumentObelisk',
+    name: 'Obelisk Wall Street (2.5D)',
+    shortName: 'Obelisk Wall St.',
+    icon: '🗼',
+    unlockId: 'mon_obelisk',
+    description: 'Monumentalny obelisk giełdowy z identycznymi parametrami jak Park Miejski (zero Pay-to-Win).',
+  }),
+  monumentHelipad: makeDecorativeMonumentDef({
+    type: 'monumentHelipad',
+    name: 'Prywatne Lądowisko Odrzutowców (2.5D)',
+    shortName: 'Lądowisko VIP',
+    icon: '🛩️',
+    unlockId: 'mon_helipad',
+    description: 'Ekskluzywny salon powitalny VIP o parametrach identycznych z Parkiem Miejskim (zero Pay-to-Win).',
+  }),
+  monumentFounder: makeDecorativeMonumentDef({
+    type: 'monumentFounder',
+    name: 'Złoty Pomnik Założyciela (2.5D)',
+    shortName: 'Pomnik Założyciela',
+    icon: '🗽',
+    unlockId: 'mon_founder',
+    description: 'Nagroda Sezonu 1: statua założyciela z parametrami identycznymi jak Park Miejski (zero Pay-to-Win).',
+  }),
 };
 
 export const V6_BUILDING_TYPES: BuildingType[] = Object.keys(V6_BUILDING_DEFINITIONS) as BuildingType[];

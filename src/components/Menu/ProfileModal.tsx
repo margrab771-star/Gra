@@ -9,18 +9,28 @@ import {
 } from '../../data/achievements';
 import { SCENARIO_DEFINITIONS } from '../../config/gameConfig';
 import {
+  PRESTIGE_REQUIRED_ACCOUNT_LEVEL,
+  computeBattlePassLevel,
+  computePvPDivision,
+} from '../../data/battlePass';
+import { UI_THEME_META } from '../../data/shopCatalog';
+import {
+  activatePrestige,
   exportProfileTransferCode,
   importProfileTransferCode,
   updateProfileCosmetics,
   xpNeededForLevel,
 } from '../../engine/profileManager';
-import type { AchievementCategory, HQVariantId, UserAccountProfile } from '../../engine/types';
+import type { AchievementCategory, HQVariantId, UiThemeId, UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney } from '../../utils/formatters';
+import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface ProfileModalProps {
   profile: UserAccountProfile;
   onUpdateProfile: (next: UserAccountProfile) => void;
   onOpenAuth: () => void;
+  onOpenShop?: () => void;
+  onOpenBattlePass?: () => void;
   onClose: () => void;
 }
 
@@ -28,6 +38,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   profile,
   onUpdateProfile,
   onOpenAuth,
+  onOpenShop,
+  onOpenBattlePass,
   onClose,
 }) => {
   const [tab, setTab] = useState<'card' | 'achievements' | 'records' | 'transfer'>('card');
@@ -35,8 +47,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [importInput, setImportInput] = useState('');
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [prestigeMsg, setPrestigeMsg] = useState<string | null>(null);
 
   const curTitle = TITLES_CATALOG.find((t) => t.id === profile.titleId)?.label ?? 'Pionier Rynku';
+  const division = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
+  const bp = computeBattlePassLevel(profile.battlePassXp);
   const curFrameCls =
     profile.frameId === 'frame_gold'
       ? 'border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.2)]'
@@ -44,7 +59,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         ? 'border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
         : profile.frameId === 'frame_crimson'
           ? 'border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.25)]'
-          : 'border-[#334155]';
+          : profile.frameId === 'frame_neon_pulse'
+            ? 'frame-anim-neon'
+            : profile.frameId === 'frame_golden_aura'
+              ? 'frame-anim-gold'
+              : profile.frameId === 'frame_crimson_matrix'
+                ? 'frame-anim-crimson'
+                : 'border-[#334155]';
 
   let xpIntoLevel = profile.xp;
   for (let l = 1; l < profile.level; l++) {
@@ -80,12 +101,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-2xl">{profile.avatar}</span>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base md:text-lg font-bold text-white truncate">
+                  {profile.prestigeLevel > 0 ? '★'.repeat(Math.min(3, profile.prestigeLevel)) + ' ' : ''}
                   {profile.nick}
                 </h2>
                 <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 font-mono text-[11px] text-amber-300">
                   Poz. {profile.level} · {profile.xp} XP
+                </span>
+                <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${division.badgeClass}`}>
+                  {division.icon} {division.label}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-950/45 border border-amber-400/45 text-amber-200 font-mono text-[11px] font-bold flex items-center gap-1">
+                  <MCoinIcon size={13} />
+                  {profile.mCoins} M
                 </span>
               </div>
               <div className="text-[11px] text-slate-400">
@@ -97,7 +126,26 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {onOpenShop && (
+              <button
+                type="button"
+                onClick={onOpenShop}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-400/50 text-amber-200 text-xs font-semibold flex items-center gap-1.5"
+              >
+                <MCoinIcon size={14} />
+                <span>Sklep</span>
+              </button>
+            )}
+            {onOpenBattlePass && (
+              <button
+                type="button"
+                onClick={onOpenBattlePass}
+                className="px-2.5 py-1.5 rounded-lg bg-[#182235] hover:bg-[#22314a] border border-sky-500/40 text-sky-200 text-xs font-semibold"
+              >
+                🎖️ Karnet ({bp.level}/30)
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenAuth}
@@ -186,6 +234,87 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div className="h-2 rounded-full bg-[#0b0f17] border border-[#243044] overflow-hidden">
                     <div className="h-full bg-emerald-500 transition-all" style={{ width: `${xpPct}%` }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Prestiż Konta + Motywy Kolorystyczne UI */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-[#0b0f17] border border-amber-500/40 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold text-amber-300">
+                      ★ System Prestiżu (Poziom {profile.level} / {PRESTIGE_REQUIRED_ACCOUNT_LEVEL})
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-200 font-mono text-[10px]">
+                      Prestiż #{profile.prestigeLevel}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Po osiągnięciu Poziomu {PRESTIGE_REQUIRED_ACCOUNT_LEVEL} zresetujesz poziom na 1 (zachowując wszystkie osiągnięcia, odznaki, Sklep, Karnet i Monety M), zdobywając stałą Złotą Gwiazdę ★,{' '}
+                    {profile.prestigeLevel >= 1 ? 'Platynowe' : 'Złote'} ramki granic swoich działek na mapie 2.5D oraz +500 M!
+                  </p>
+                  {prestigeMsg && (
+                    <div className="p-2 rounded bg-emerald-950/40 border border-emerald-400/50 text-emerald-200 text-[11px]">
+                      {prestigeMsg}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={profile.level < PRESTIGE_REQUIRED_ACCOUNT_LEVEL}
+                    onClick={() => {
+                      const res = activatePrestige(profile);
+                      if (res.ok) {
+                        onUpdateProfile(res.profile);
+                        setPrestigeMsg(res.message ?? 'Prestiż aktywowany!');
+                      }
+                    }}
+                    className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-[#151c28] disabled:text-slate-500 text-slate-950 font-bold text-xs"
+                  >
+                    {profile.level >= PRESTIGE_REQUIRED_ACCOUNT_LEVEL
+                      ? '★ Aktywuj Prestiż (+500 M i Złote Granice)'
+                      : `🔒 Odblokuje się na Poziomie ${PRESTIGE_REQUIRED_ACCOUNT_LEVEL}`}
+                  </button>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2">
+                  <div className="font-semibold text-slate-200">
+                    🎨 Motyw Kolorystyczny Interfejsu (0% Pay-to-Win)
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(Object.keys(UI_THEME_META) as UiThemeId[]).map((tId) => {
+                      const meta = UI_THEME_META[tId];
+                      const unlocked = profile.unlockedCosmetics.includes(tId);
+                      const active = profile.uiThemeId === tId;
+                      return (
+                        <button
+                          key={tId}
+                          type="button"
+                          disabled={!unlocked}
+                          onClick={() => onUpdateProfile(updateProfileCosmetics(profile, { uiThemeId: tId }))}
+                          className={`p-2 rounded-lg border text-left transition-colors ${
+                            active
+                              ? 'bg-sky-500/20 border-sky-400 text-white'
+                              : unlocked
+                                ? 'bg-[#151c28] border-[#243044] text-slate-200'
+                                : 'bg-[#0b0f17] border-[#1e293b] text-slate-500 opacity-65 cursor-not-allowed'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1 font-semibold text-[11px]">
+                            <span className="truncate">{meta.badge} {meta.label}</span>
+                            {!unlocked && <span>🔒</span>}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                            {meta.previewColors.map((hex) => (
+                              <span
+                                key={hex}
+                                className="w-3.5 h-2 rounded-sm border border-white/15"
+                                style={{ backgroundColor: hex }}
+                              />
+                            ))}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

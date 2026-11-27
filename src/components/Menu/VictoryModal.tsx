@@ -2,13 +2,21 @@ import React, { useMemo, useState } from 'react';
 import type { AchievementDefinition } from '../../data/achievements';
 import { getArchetypeDefinition } from '../../data/archetypes';
 import { computeMatchFunAwards } from '../../engine/MatchStatsTracker';
-import type { GameState, Player } from '../../engine/types';
+import type { GameState, Player, PlayerQuestProgress } from '../../engine/types';
 import { formatCompactMoney, formatMoney } from '../../utils/formatters';
+import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface VictoryModalProps {
   gameState: GameState;
   currentPlayer: Player;
-  rewardSummary?: { xpEarned: number; newlyUnlocked: AchievementDefinition[] } | null;
+  rewardSummary?: {
+    xpEarned: number;
+    mCoinsEarned?: number;
+    bpXpEarned?: number;
+    rewardMultiplier?: number;
+    completedQuests?: PlayerQuestProgress[];
+    newlyUnlocked: AchievementDefinition[];
+  } | null;
   onContinueEndless: () => void;
   onOpenLeaderboard: () => void;
   onOpenProfile?: () => void;
@@ -134,39 +142,71 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
           </div>
         </div>
 
-        {/* Nagroda XP i Odblokowane Osiągnięcia z sesji */}
-        {rewardSummary && (rewardSummary.xpEarned > 0 || rewardSummary.newlyUnlocked.length > 0) && (
-          <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/40 via-[#131d2f] to-emerald-950/35 border border-amber-500/40 space-y-2 text-left">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold text-amber-300">
-                ✨ Postęp Konta Prezesa: +{rewardSummary.xpEarned} XP
+        {/* Nagroda XP, Monet M, Karnetu Sezon 1 i Odblokowane Osiągnięcia */}
+        {rewardSummary &&
+          (rewardSummary.xpEarned > 0 ||
+            (rewardSummary.mCoinsEarned ?? 0) > 0 ||
+            rewardSummary.newlyUnlocked.length > 0 ||
+            (rewardSummary.completedQuests?.length ?? 0) > 0) && (
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/40 via-[#131d2f] to-emerald-950/35 border border-amber-500/40 space-y-2.5 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2.5 text-xs font-bold">
+                  <span className="text-amber-300">✨ +{rewardSummary.xpEarned} XP</span>
+                  {(rewardSummary.mCoinsEarned ?? 0) > 0 && (
+                    <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/50 text-amber-200 font-mono flex items-center gap-1">
+                      <MCoinIcon size={14} />+{rewardSummary.mCoinsEarned} M
+                    </span>
+                  )}
+                  {(rewardSummary.bpXpEarned ?? 0) > 0 && (
+                    <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/45 text-sky-200 font-mono">
+                      🎖️ +{rewardSummary.bpXpEarned} Karnet XP
+                    </span>
+                  )}
+                  {(rewardSummary.rewardMultiplier ?? 1) !== 1 && (
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/45 text-emerald-300 font-mono">
+                      ×{rewardSummary.rewardMultiplier?.toFixed(2)} Mnożnik
+                    </span>
+                  )}
+                </div>
+                {onOpenProfile && (
+                  <button
+                    type="button"
+                    onClick={onOpenProfile}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-amber-200 text-[11px] font-semibold"
+                  >
+                    🎖️ Profil i Odznaki
+                  </button>
+                )}
               </div>
-              {onOpenProfile && (
-                <button
-                  type="button"
-                  onClick={onOpenProfile}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-amber-200 text-[11px] font-semibold"
-                >
-                  🎖️ Profil i Odznaki
-                </button>
+              {rewardSummary.completedQuests && rewardSummary.completedQuests.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {rewardSummary.completedQuests.map((q) => (
+                    <span
+                      key={q.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0f17] border border-sky-500/45 text-[11px] text-sky-200"
+                    >
+                      <span>🎯 {q.title}</span>
+                      <span className="text-amber-300 font-mono">+{q.mCoinReward} M</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {rewardSummary.newlyUnlocked.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {rewardSummary.newlyUnlocked.map((ach) => (
+                    <span
+                      key={ach.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0f17] border border-emerald-500/45 text-[11px] text-emerald-200"
+                    >
+                      <span>{ach.badgeEmoji}</span>
+                      <span className="font-semibold">{ach.name}</span>
+                      <span className="text-amber-300 font-mono">+{ach.xpReward} XP</span>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-            {rewardSummary.newlyUnlocked.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {rewardSummary.newlyUnlocked.map((ach) => (
-                  <span
-                    key={ach.id}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0f17] border border-emerald-500/45 text-[11px] text-emerald-200"
-                  >
-                    <span>{ach.badgeEmoji}</span>
-                    <span className="font-semibold">{ach.name}</span>
-                    <span className="text-amber-300 font-mono">+{ach.xpReward} XP</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
         {winningCoalition && (
           <div className="p-3 rounded-xl bg-[#0b0f17] border border-sky-500/30 text-left space-y-1.5 text-xs">

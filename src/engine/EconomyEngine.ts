@@ -298,6 +298,16 @@ export function updateMarketPrices(
       eventMult = Math.max(eventMult, 1.28);
     }
 
+    // Mutator: Globalne Przełomy Rynkowe (trwałe na resztę partii)
+    const btId = state.activeBreakthrough?.forecastTicksRemaining === 0 ? state.activeBreakthrough.id : null;
+    if (btId === 'ai_boom' && ['semiconductors', 'electronics', 'batteries', 'lithium', 'rareMetals'].includes(rp.type)) {
+      eventMult *= 1.35;
+    } else if (btId === 'energy_crisis' && ['coal', 'oil', 'fuel', 'uranium', 'electricity'].includes(rp.type)) {
+      eventMult *= 1.45;
+    } else if (btId === 'tourism_golden_era' && ['gold', 'jewelry'].includes(rp.type)) {
+      eventMult *= 1.25;
+    }
+
     const targetPrice = def.basePrice * (1 + imbalance * def.elasticity) * eventMult * cycleMult;
     const presetVol = (DIFFICULTY_PRESETS[state.settings.difficultyPreset ?? 'standard'] ?? DIFFICULTY_PRESETS.standard).marketVolatilityMult;
     const mutVol = state.settings.mutators?.volatileMarket ? 2.0 : 1.0;

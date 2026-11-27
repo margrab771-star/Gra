@@ -1,6 +1,7 @@
 import Peer from 'peerjs';
 import type { DataConnection, PeerOptions } from 'peerjs';
 import { AI_STRATEGY_LABELS, DEFAULT_MUTATORS, PLAYER_COLORS } from '../config/gameConfig';
+import { computeRewardMultiplier } from '../data/shopCatalog';
 import type {
   AIStrategy,
   ArchetypeId,
@@ -10,7 +11,14 @@ import type {
   PlayerAction,
   PlayerCardProfile,
   Plot,
+  PvPDivisionId,
+  ScenarioId,
 } from '../engine/types';
+import {
+  PUBLIC_LOBBY_HEARTBEAT_MS,
+  publishOrHeartbeatPublicLobby,
+  removePublicLobby,
+} from './lobbyDirectory';
 
 export interface GameStateDelta {
   __delta: true;
@@ -721,6 +729,8 @@ export class MultiplayerManager {
   private disconnectGraceTimers: Map<string, number> = new Map();
   // Znacznik czasu ostatniej aktywności (heartbeat/data) per peerId
   private lastActivityAt: Map<string, number> = new Map();
+  private publicLobbyTimer: number | null = null;
+  private publishedRoomCode: string | null = null;
 
   setCallbacks(cb: Partial<MultiplayerCallbacks>): void {
     this.callbacks = { ...this.callbacks, ...cb };
@@ -778,7 +788,15 @@ export class MultiplayerManager {
     hostName: string,
     companyName: string,
     color: string,
-    opts?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
+    opts?: {
+      archetype?: ArchetypeId;
+      playerCard?: PlayerCardProfile;
+      isPublic?: boolean;
+      roomName?: string;
+      hostDivision?: PvPDivisionId;
+      hostPrestige?: number;
+      hostUnlockedScenarios?: ScenarioId[];
+    }
   ): Promise<LobbyState> {
     this.disconnect();
     const roomCode = generateRoomCode();
@@ -799,6 +817,11 @@ export class MultiplayerManager {
       difficultyPreset: 'standard',
       scenarioId: 'sandbox',
       mutators: { ...DEFAULT_MUTATORS },
+      isPublic: opts?.isPublic ?? true,
+      roomName: opts?.roomName?.trim() || `Sesja ${hostName || 'Prezesa'} (${roomCode})`,
+      hostDivision: opts?.hostDivision ?? opts?.playerCard?.pvpDivisionId ?? 'startup',
+      hostPrestige: opts?.hostPrestige ?? opts?.playerCard?.prestigeLevel ?? 0,
+      hostUnlockedScenarios: opts?.hostUnlockedScenarios ?? ['sandbox', 'gold_rush'],
       gameStarted: false,
       players: [
         {
@@ -838,6 +861,7 @@ export class MultiplayerManager {
         settled = true;
         clearTimeout(timeout);
         this.startHeartbeat();
+        this.startPublicDirectoryHeartbeat();
         this.setStage('connected', `Pokój ${roomCode} aktywny — oczekiwanie na graczy.`);
         this.callbacks.onLobbyChange?.(initialLobby);
         resolve(initialLobby);
@@ -1300,6 +1324,8 @@ export class MultiplayerManager {
         | 'difficultyPreset'
         | 'scenarioId'
         | 'mutators'
+        | 'isPublic'
+        | 'roomName'
       >
     >
   ): void {
@@ -1395,6 +1421,9 @@ export class MultiplayerManager {
   broadcastLobby(): void {
     if (!this.lobby) return;
     this.callbacks.onLobbyChange?.({ ...this.lobby });
+    if (this.isHostFlag) {
+      this.syncPublicDirectoryNow();
+    }
     for (const conn of this.clientConns.values()) {
       if (conn.open) {
         conn.send({
@@ -1463,6 +1492,7 @@ export class MultiplayerManager {
   broadcastGameStart(state: GameState): void {
     if (!this.isHostFlag || !this.lobby) return;
     this.lobby.gameStarted = true;
+    this.stopPublicDirectoryHeartbeat();
     this.lastBroadcastedState = state;
     this.lastDeltaBaseline = state;
     this.deltasSinceFull = 0;
@@ -1571,6 +1601,60 @@ export class MultiplayerManager {
     }, 4000) as unknown as number;
   }
 
+  private syncPublicDirectoryNow(): void {
+    if (!this.isHostFlag || !this.lobby) return;
+    if (!this.lobby.isPublic || this.lobby.gameStarted) {
+      if (this.publishedRoomCode) {
+        void removePublicLobby(this.publishedRoomCode);
+        this.publishedRoomCode = null;
+      }
+      return;
+    }
+    const host = this.lobby.players.find((p) => p.isHost) ?? this.lobby.players[0];
+    const mult = computeRewardMultiplier({
+      difficultyPreset: this.lobby.difficultyPreset,
+      aiDifficulty: this.lobby.aiDifficulty,
+      aiCount: this.lobby.players.filter((p) => p.isAI).length,
+      mutators: this.lobby.mutators,
+    });
+    this.publishedRoomCode = this.lobby.roomCode;
+    void publishOrHeartbeatPublicLobby({
+      roomCode: this.lobby.roomCode,
+      roomName: this.lobby.roomName || `Pokój ${this.lobby.roomCode}`,
+      hostName: host?.name ?? 'Host',
+      hostDivision: this.lobby.hostDivision ?? host?.playerCard?.pvpDivisionId ?? 'startup',
+      hostPrestige: this.lobby.hostPrestige ?? host?.playerCard?.prestigeLevel ?? 0,
+      scenarioId: this.lobby.scenarioId ?? 'sandbox',
+      difficultyPreset: this.lobby.difficultyPreset ?? 'standard',
+      mapSize: this.lobby.mapSize,
+      playerCount: this.lobby.players.length,
+      maxPlayers: this.lobby.maxPlayers,
+      rewardMultiplier: mult.totalMultiplier,
+      updatedAt: Date.now(),
+      gameStarted: false,
+    });
+  }
+
+  private startPublicDirectoryHeartbeat(): void {
+    this.stopPublicDirectoryHeartbeat(false);
+    this.syncPublicDirectoryNow();
+    this.publicLobbyTimer = globalThis.setInterval(() => {
+      this.syncPublicDirectoryNow();
+    }, PUBLIC_LOBBY_HEARTBEAT_MS) as unknown as number;
+  }
+
+  private stopPublicDirectoryHeartbeat(removeRemote = true): void {
+    if (this.publicLobbyTimer !== null) {
+      clearInterval(this.publicLobbyTimer);
+      this.publicLobbyTimer = null;
+    }
+    if (removeRemote && this.publishedRoomCode) {
+      const code = this.publishedRoomCode;
+      this.publishedRoomCode = null;
+      void removePublicLobby(code);
+    }
+  }
+
   private stopHeartbeat(): void {
     if (this.heartbeatTimer !== null) {
       clearInterval(this.heartbeatTimer);
@@ -1587,6 +1671,7 @@ export class MultiplayerManager {
 
   disconnect(): void {
     this.stopHeartbeat();
+    this.stopPublicDirectoryHeartbeat();
     this.stopStartRetry();
     this.clearAllGraceTimers();
     this.lastActivityAt.clear();

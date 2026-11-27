@@ -1,9 +1,11 @@
 import React from 'react';
 import { GAME_CONFIG } from '../../config/gameConfig';
 import { ACHIEVEMENTS, TITLES_CATALOG } from '../../data/achievements';
+import { BATTLE_PASS_SEASON_1, computeBattlePassLevel, computePvPDivision } from '../../data/battlePass';
 import { xpNeededForLevel } from '../../engine/profileManager';
 import type { LastMpSession, SaveSlotId, SaveSlotMeta, UserAccountProfile } from '../../engine/types';
 import { formatCompactMoney, formatTimeRemaining } from '../../utils/formatters';
+import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface MainMenuProps {
   activeProfile: UserAccountProfile;
@@ -15,6 +17,8 @@ interface MainMenuProps {
   onOpenMultiplayer: () => void;
   onOpenWeeklyChallenge: () => void;
   onOpenProfile: () => void;
+  onOpenShop: () => void;
+  onOpenBattlePass: () => void;
   onOpenAuth: () => void;
   onContinueGame: () => void;
   onLoadSlot: (slotId: SaveSlotId) => void;
@@ -41,6 +45,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onOpenMultiplayer,
   onOpenWeeklyChallenge,
   onOpenProfile,
+  onOpenShop,
+  onOpenBattlePass,
   onOpenAuth,
   onContinueGame,
   onLoadSlot,
@@ -51,6 +57,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const titleObj = TITLES_CATALOG.find((t) => t.id === activeProfile.titleId) ?? TITLES_CATALOG[0];
   const nextXp = xpNeededForLevel(activeProfile.level);
   const xpPct = Math.min(100, Math.round((activeProfile.xp / Math.max(1, nextXp)) * 100));
+  const division = computePvPDivision(
+    activeProfile.pvpMatches,
+    activeProfile.pvpWins,
+    activeProfile.prestigeLevel
+  );
+  const bp = computeBattlePassLevel(activeProfile.battlePassXp);
+  const claimableBp = BATTLE_PASS_SEASON_1.filter(
+    (t) => bp.level >= t.level && !activeProfile.claimedPassLevels.includes(t.level)
+  ).length;
 
   return (
     <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex flex-col items-center justify-center p-4 relative overflow-y-auto">
@@ -82,9 +97,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-bold text-white truncate">{activeProfile.nick}</span>
+                <span className="font-bold text-white truncate">
+                  {activeProfile.prestigeLevel > 0 ? '★'.repeat(Math.min(3, activeProfile.prestigeLevel)) + ' ' : ''}
+                  {activeProfile.nick}
+                </span>
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-amber-300 font-mono text-[10px]">
                   LVL {activeProfile.level}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${division.badgeClass}`}>
+                  {division.icon} {division.label}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-950/50 border border-amber-400/45 text-amber-200 font-mono text-[10px] font-bold flex items-center gap-1">
+                  <MCoinIcon size={12} />
+                  {activeProfile.mCoins} M
                 </span>
                 {activeProfile.isGuest && (
                   <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px]">
@@ -243,6 +268,29 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <div className="grid grid-cols-2 gap-2.5 pt-1">
             <button
               type="button"
+              onClick={onOpenShop}
+              className="py-2.5 px-3 rounded-xl bg-amber-950/35 hover:bg-amber-900/45 border border-amber-400/50 text-amber-200 text-xs md:text-sm font-semibold flex items-center justify-center gap-2"
+            >
+              <MCoinIcon size={16} />
+              <span>Sklep Prezesa ({activeProfile.mCoins} M)</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenBattlePass}
+              className="relative py-2.5 px-3 rounded-xl bg-sky-950/35 hover:bg-sky-900/45 border border-sky-400/50 text-sky-200 text-xs md:text-sm font-semibold flex items-center justify-center gap-1.5"
+            >
+              <span>🎖️ Karnet Sezon 1 (LVL {bp.level}/30)</span>
+              {claimableBp > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-slate-950 font-mono text-[10px] font-bold animate-pulse">
+                  +{claimableBp}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
               onClick={onOpenLeaderboard}
               className="py-2.5 px-3 rounded-xl bg-[#0b0f17] hover:bg-[#151c28] border border-[#243044] text-slate-200 text-xs md:text-sm font-semibold"
             >
@@ -260,8 +308,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
         <div className="pt-3 border-t border-[#1e293b] grid grid-cols-3 gap-2 text-center text-[11px] text-slate-400">
           <div className="p-2 rounded bg-[#0b0f17]">
-            <div className="font-bold text-slate-200">81 Struktur</div>
-            <div>Synergie · Odpady · OZE</div>
+            <div className="font-bold text-slate-200">85 Struktur</div>
+            <div>Synergie · Pomniki · OZE</div>
           </div>
           <div className="p-2 rounded bg-[#0b0f17]">
             <div className="font-bold text-slate-200">6 Archetypów</div>

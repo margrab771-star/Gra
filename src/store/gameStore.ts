@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { type AchievementDefinition } from '../data/achievements';
+import { computePvPDivision } from '../data/battlePass';
+import { getUnlockedScenariosForProfile } from '../data/shopCatalog';
 import { buildWeeklyChallengeGameSettings, type WeeklyChallengeSpec } from '../data/weeklyChallenge';
 import {
   applyPlayerAction,
@@ -18,6 +20,7 @@ import {
   stepGameSimulation,
 } from '../engine/GameEngine';
 import {
+  applyUiThemeToDocument,
   evaluateLiveAchievements,
   getActiveProfile,
   recordCompletedMatchToProfile,
@@ -36,6 +39,7 @@ import type {
   MapHeatmapMode,
   Player,
   PlayerAction,
+  PlayerQuestProgress,
   ResourcePrice,
   ResourceType,
   SaveSlotId,
@@ -94,12 +98,21 @@ interface GameStoreState {
   showTutorialModal: boolean;
   pinnedResources: ResourceType[];
 
-  // v6.0 & v7.0 UI/Profile/QoL State
+  // v6.0, v7.0 & v9.0 UI/Profile/QoL State
   activeProfile: UserAccountProfile;
   showAuthModal: boolean;
   showProfileModal: boolean;
   showWeeklyModal: boolean;
-  lastMatchRewardSummary: { xpEarned: number; newlyUnlocked: AchievementDefinition[] } | null;
+  showShopModal: boolean;
+  showBattlePassModal: boolean;
+  lastMatchRewardSummary: {
+    xpEarned: number;
+    mCoinsEarned: number;
+    bpXpEarned: number;
+    rewardMultiplier: number;
+    completedQuests: PlayerQuestProgress[];
+    newlyUnlocked: AchievementDefinition[];
+  } | null;
   recordedMatchEnded: boolean;
   mapToolMode: 'normal' | 'area_select' | 'road_local' | 'road_highway' | 'road_bridge';
   areaSelectedPlotIds: string[];
@@ -113,6 +126,8 @@ interface GameStoreState {
   setShowAuthModal: (show: boolean) => void;
   setShowProfileModal: (show: boolean) => void;
   setShowWeeklyModal: (show: boolean) => void;
+  setShowShopModal: (show: boolean) => void;
+  setShowBattlePassModal: (show: boolean) => void;
   refreshActiveProfile: () => void;
   applyUpdatedProfile: (profile: UserAccountProfile) => void;
   setMapToolMode: (mode: 'normal' | 'area_select' | 'road_local' | 'road_highway' | 'road_bridge') => void;
@@ -156,7 +171,7 @@ interface GameStoreState {
     name: string,
     company: string,
     color: string,
-    opts?: { archetype?: ArchetypeId }
+    opts?: { archetype?: ArchetypeId; isPublic?: boolean; roomName?: string }
   ) => Promise<void>;
   joinMultiplayerRoom: (
     code: string,
@@ -289,6 +304,8 @@ interface GameStoreState {
 }
 
 const urlRoom = getRoomCodeFromUrl();
+const initialActiveProfile = getActiveProfile();
+applyUiThemeToDocument(initialActiveProfile.uiThemeId);
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
   phase: urlRoom ? 'Lobby' : 'MainMenu',
@@ -321,10 +338,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   showTutorialModal: false,
   pinnedResources: ['coal', 'steel', 'oil', 'gold'],
 
-  activeProfile: getActiveProfile(),
+  activeProfile: initialActiveProfile,
   showAuthModal: false,
   showProfileModal: false,
   showWeeklyModal: false,
+  showShopModal: false,
+  showBattlePassModal: false,
   lastMatchRewardSummary: null,
   recordedMatchEnded: false,
   mapToolMode: 'normal',
@@ -335,8 +354,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setShowAuthModal: (show) => set({ showAuthModal: show }),
   setShowProfileModal: (show) => set({ showProfileModal: show }),
   setShowWeeklyModal: (show) => set({ showWeeklyModal: show }),
-  refreshActiveProfile: () => set({ activeProfile: getActiveProfile() }),
+  setShowShopModal: (show) => set({ showShopModal: show }),
+  setShowBattlePassModal: (show) => set({ showBattlePassModal: show }),
+  refreshActiveProfile: () => {
+    const p = getActiveProfile();
+    applyUiThemeToDocument(p.uiThemeId);
+    set({ activeProfile: p });
+  },
   applyUpdatedProfile: (profile) => {
+    applyUiThemeToDocument(profile.uiThemeId);
     set({ activeProfile: profile });
     if (get().isMultiplayer && get().phase === 'Lobby') {
       multiplayerManager.updateLocalLobbyProfile({ playerCard: toPlayerCard(profile) });
@@ -677,7 +703,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             const reward = recordCompletedMatchToProfile(synced, me);
             set({
               recordedMatchEnded: true,
-              lastMatchRewardSummary: { xpEarned: reward.xpEarned, newlyUnlocked: reward.newlyUnlocked },
+              lastMatchRewardSummary: {
+                xpEarned: reward.xpEarned,
+                mCoinsEarned: reward.mCoinsEarned,
+                bpXpEarned: reward.bpXpEarned,
+                rewardMultiplier: reward.rewardMultiplier,
+                completedQuests: reward.completedQuests,
+                newlyUnlocked: reward.newlyUnlocked,
+              },
               activeProfile: reward.profile,
             });
           }
@@ -764,9 +797,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     get().initNetworkListeners();
     set({ gameState: null });
     const profile = getActiveProfile();
+    const div = computePvPDivision(profile.pvpMatches, profile.pvpWins, profile.prestigeLevel);
     const lobby = await multiplayerManager.createRoom(name, company, color, {
       archetype: opts?.archetype ?? 'standard',
       playerCard: toPlayerCard(profile),
+      isPublic: opts?.isPublic ?? true,
+      roomName: opts?.roomName,
+      hostDivision: div.id,
+      hostPrestige: profile.prestigeLevel,
+      hostUnlockedScenarios: getUnlockedScenariosForProfile(profile.unlockedCosmetics),
     });
     const session: LastMpSession = {
       roomCode: lobby.roomCode,
@@ -912,15 +951,27 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       const reward = recordCompletedMatchToProfile(next, me);
       set({
         recordedMatchEnded: true,
-        lastMatchRewardSummary: { xpEarned: reward.xpEarned, newlyUnlocked: reward.newlyUnlocked },
+        lastMatchRewardSummary: {
+          xpEarned: reward.xpEarned,
+          mCoinsEarned: reward.mCoinsEarned,
+          bpXpEarned: reward.bpXpEarned,
+          rewardMultiplier: reward.rewardMultiplier,
+          completedQuests: reward.completedQuests,
+          newlyUnlocked: reward.newlyUnlocked,
+        },
         activeProfile: reward.profile,
       });
     } else if (me && next.time.tick % 4 === 0) {
       const res = evaluateLiveAchievements(next, me);
-      if (res.newlyUnlocked.length > 0) {
+      if (res.newlyUnlocked.length > 0 || res.completedQuests.length > 0) {
         set({ activeProfile: res.profile });
-        const first = res.newlyUnlocked[0];
-        get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
+        if (res.newlyUnlocked.length > 0) {
+          const first = res.newlyUnlocked[0];
+          get().showToast(true, `🏆 Osiągnięcie: ${first.name} (+${first.xpReward} XP)!`);
+        } else if (res.completedQuests.length > 0) {
+          const q = res.completedQuests[0];
+          get().showToast(true, `🎯 Zadanie ukończone: ${q.title} (+${q.bpXpReward} BP XP, +${q.mCoinReward} M)!`);
+        }
       }
     }
 
@@ -975,6 +1026,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
               recordedMatchEnded: true,
               lastMatchRewardSummary: {
                 xpEarned: reward.xpEarned,
+                mCoinsEarned: reward.mCoinsEarned,
+                bpXpEarned: reward.bpXpEarned,
+                rewardMultiplier: reward.rewardMultiplier,
+                completedQuests: reward.completedQuests,
                 newlyUnlocked: reward.newlyUnlocked,
               },
               activeProfile: reward.profile,

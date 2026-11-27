@@ -78,14 +78,15 @@ export class IsometricRenderer {
       this.sortedBuildings = sortByDepth(state.plots.filter((p) => p.building !== null));
     }
 
-    const quickKey = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.time.tick}_${state.networkRevision ?? 0}_${state.coalitions?.length ?? 0}`;
+    const prestigeSig = state.players.map((pl) => pl.playerCard?.prestigeLevel ?? 0).join(',');
+    const quickKey = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.time.tick}_${state.networkRevision ?? 0}_${state.coalitions?.length ?? 0}_${prestigeSig}`;
     if (quickKey === this.cachedQuickKey && this.cachedMapSize === mapSize) {
       return;
     }
     this.cachedQuickKey = quickKey;
 
-    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + Mgły Wojny + heatmapy
-    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_${state.settings.mutators?.fogOfWar ? 1 : 0}_`;
+    // Sygnatura statycznej warstwy terenu + prywatnej geologii + dróg/autostrad + Mgły Wojny + heatmapy + granic Prestiżu
+    let sig = `${mapSize}_${state.plots.length}_${curPid}_${heatmapMode}_${state.coalitions?.length ?? 0}_${state.settings.mutators?.fogOfWar ? 1 : 0}_${prestigeSig}_`;
     const viewer = state.players.find((pl) => pl.id === curPid);
     for (let i = 0; i < state.plots.length; i++) {
       const p = state.plots[i];

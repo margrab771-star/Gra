@@ -279,6 +279,12 @@ export function acceptB2BContract(
     }
     c.remainingTicks = 0;
     c.status = 'completed';
+    if (seller.statsAccum) {
+      seller.statsAccum.b2bContractsCompleted = (seller.statsAccum.b2bContractsCompleted ?? 0) + 1;
+    }
+    if (buyer.statsAccum) {
+      buyer.statsAccum.b2bContractsCompleted = (buyer.statsAccum.b2bContractsCompleted ?? 0) + 1;
+    }
   } else {
     const check = getCargoTransportModeBetweenPlayers(state, c.sellerId, c.buyerId, c.resource);
     c.transportMode = check.mode;
@@ -549,6 +555,12 @@ export function processContractsTick(state: GameState): B2BFuelReceipt[] {
     c.remainingTicks -= 1;
     if (c.remainingTicks <= 0) {
       c.status = 'completed';
+      if (seller.statsAccum) {
+        seller.statsAccum.b2bContractsCompleted = (seller.statsAccum.b2bContractsCompleted ?? 0) + 1;
+      }
+      if (buyer.statsAccum) {
+        buyer.statsAccum.b2bContractsCompleted = (buyer.statsAccum.b2bContractsCompleted ?? 0) + 1;
+      }
     }
   }
   return receipts;

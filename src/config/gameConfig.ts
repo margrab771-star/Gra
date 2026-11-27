@@ -338,6 +338,7 @@ export const DEFAULT_MUTATORS: MutatorFlags = {
   volatileMarket: false,
   freeLocalRoads: false,
   extremeClimate: false,
+  globalBreakthroughs: false,
 };
 
 export interface GovernmentConfig {

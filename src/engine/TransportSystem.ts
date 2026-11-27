@@ -12,7 +12,14 @@ import type {
   Vehicle,
 } from './types';
 
-const ROAD_EXEMPT_BUILDINGS = new Set<BuildingType>(['corporateHQ', 'cityPark']);
+const ROAD_EXEMPT_BUILDINGS = new Set<BuildingType>([
+  'corporateHQ',
+  'cityPark',
+  'monumentFountain',
+  'monumentObelisk',
+  'monumentHelipad',
+  'monumentFounder',
+]);
 
 export function isRoadExemptBuilding(type: BuildingType): boolean {
   return ROAD_EXEMPT_BUILDINGS.has(type);

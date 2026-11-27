@@ -22,6 +22,15 @@ import {
 } from '../../config/lobbyTooltips';
 import { ACHIEVEMENTS, TITLES_CATALOG } from '../../data/achievements';
 import { ARCHETYPE_LIST, getArchetypeDefinition } from '../../data/archetypes';
+import { getPvPDivisionById } from '../../data/battlePass';
+import {
+  ARCHETYPE_SHOP_ITEM_ID,
+  SCENARIO_SHOP_ITEM_ID,
+  SHOP_ITEMS,
+  computeRewardMultiplier,
+  isArchetypeUnlocked,
+  isScenarioUnlocked,
+} from '../../data/shopCatalog';
 import { toPlayerCard } from '../../engine/profileManager';
 import type {
   ArchetypeId,
@@ -34,6 +43,11 @@ import type {
   UserAccountProfile,
 } from '../../engine/types';
 import {
+  fetchActivePublicLobbies,
+  subscribePublicLobbySignals,
+  type PublicLobbyListing,
+} from '../../network/lobbyDirectory';
+import {
   buildInviteLink,
   multiplayerManager,
   normalizeRoomCode,
@@ -42,6 +56,7 @@ import {
 import type { ConnectionStage, P2PReadinessReport } from '../../network/multiplayerManager';
 import { DarkToggle } from '../HUD/DarkControls';
 import { InfoTooltip } from '../HUD/InfoTooltip';
+import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface MultiplayerLobbyProps {
   activeProfile: UserAccountProfile;
@@ -54,7 +69,12 @@ interface MultiplayerLobbyProps {
     name: string,
     company: string,
     color: string,
-    options?: { archetype?: ArchetypeId; playerCard?: PlayerCardProfile }
+    options?: {
+      archetype?: ArchetypeId;
+      playerCard?: PlayerCardProfile;
+      isPublic?: boolean;
+      roomName?: string;
+    }
   ) => Promise<void>;
   onJoinRoom: (
     code: string,
@@ -65,6 +85,7 @@ interface MultiplayerLobbyProps {
   ) => Promise<void>;
   onStartMatch: () => void;
   onOpenTutorial?: () => void;
+  onOpenShop?: () => void;
   onLeave: () => void;
 }
 
@@ -73,6 +94,9 @@ const FRAME_BORDER_CLASSES: Record<string, string> = {
   frame_gold: 'border-amber-400/75',
   frame_emerald: 'border-emerald-400/75',
   frame_crimson: 'border-rose-500/80',
+  frame_neon_pulse: 'frame-anim-neon',
+  frame_golden_aura: 'frame-anim-gold',
+  frame_crimson_matrix: 'frame-anim-crimson',
 };
 
 const MUTATOR_LIST: { key: keyof MutatorFlags; label: string; desc: string }[] = [
@@ -81,6 +105,7 @@ const MUTATOR_LIST: { key: keyof MutatorFlags; label: string; desc: string }[] =
   { key: 'volatileMarket', label: '📊 Szalona Giełda', desc: 'Mocniejsze cykle i częstsze krachy rynkowe.' },
   { key: 'freeLocalRoads', label: '🛣️ Darmowe Drogi Lokalne', desc: 'Lokalne odcinki asfaltu za $0.' },
   { key: 'extremeClimate', label: '⛈️ Ekstremalny Klimat', desc: 'Częstsze katastrofy i wyższe wymogi służb.' },
+  { key: 'globalBreakthroughs', label: '⚡ Globalne Przełomy Rynkowe', desc: 'Megatrend z Gazety zmienia na stałe gospodarkę (+15% XP & M).' },
 ];
 
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
@@ -94,11 +119,17 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   onJoinRoom,
   onStartMatch,
   onOpenTutorial,
+  onOpenShop,
   onLeave,
 }) => {
-  const [modeView, setModeView] = useState<'choose' | 'join'>(
+  const [modeView, setModeView] = useState<'choose' | 'browse' | 'join'>(
     initialRoomCode ? 'join' : 'choose'
   );
+  const [isPublicRoom, setIsPublicRoom] = useState(true);
+  const [roomNameInput, setRoomNameInput] = useState('Liga Wall Street');
+  const [publicLobbies, setPublicLobbies] = useState<PublicLobbyListing[]>([]);
+  const [directorySource, setDirectorySource] = useState<'supabase' | 'local'>('local');
+  const [loadingLobbies, setLoadingLobbies] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState(
     initialRoomCode ?? lastMpSession?.roomCode ?? ''
   );
@@ -133,6 +164,38 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     };
   }, []);
 
+  const refreshPublicLobbies = async () => {
+    setLoadingLobbies(true);
+    try {
+      const res = await fetchActivePublicLobbies();
+      setPublicLobbies(res.lobbies);
+      setDirectorySource(res.source);
+    } finally {
+      setLoadingLobbies(false);
+    }
+  };
+
+  useEffect(() => {
+    if (lobbyState || modeView !== 'browse') return;
+    let cancelled = false;
+    const syncList = () => {
+      void fetchActivePublicLobbies().then((res) => {
+        if (!cancelled) {
+          setPublicLobbies(res.lobbies);
+          setDirectorySource(res.source);
+        }
+      });
+    };
+    syncList();
+    const unsub = subscribePublicLobbySignals(syncList);
+    const timer = window.setInterval(syncList, 10_000);
+    return () => {
+      cancelled = true;
+      unsub();
+      clearInterval(timer);
+    };
+  }, [lobbyState, modeView]);
+
   const localPlayerCard = toPlayerCard(activeProfile);
 
   const handleCreate = async () => {
@@ -141,6 +204,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     try {
       await onCreateRoom(playerName, companyName, color, {
         playerCard: localPlayerCard,
+        isPublic: isPublicRoom,
+        roomName: roomNameInput,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Nie udało się utworzyć pokoju.');
@@ -149,8 +214,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     }
   };
 
-  const handleJoin = async () => {
-    const clean = normalizeRoomCode(roomCodeInput);
+  const handleJoinCode = async (targetCode: string) => {
+    const clean = normalizeRoomCode(targetCode);
     if (!clean || clean.length < 5) {
       setError('Wpisz poprawny kod pokoju (np. MD-4821).');
       return;
@@ -168,6 +233,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       setBusy(false);
     }
   };
+
+  const handleJoin = () => handleJoinCode(roomCodeInput);
 
   const handleTestNetwork = async () => {
     setP2pTesting(true);
@@ -187,19 +254,51 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   // Widok aktywnego Lobby (po utworzeniu lub dołączeniu do pokoju)
   if (lobbyState) {
     const allHumansReady = lobbyState.players.filter((p) => !p.isAI).every((p) => p.ready);
+    const activeScenarioId = lobbyState.scenarioId ?? 'sandbox';
+    const hostScenarioOk = isScenarioUnlocked(
+      activeProfile.unlockedCosmetics,
+      activeScenarioId,
+      isHost ? undefined : lobbyState.hostUnlockedScenarios ?? [activeScenarioId]
+    );
+    const lobbyRewardMult = computeRewardMultiplier({
+      difficultyPreset: lobbyState.difficultyPreset,
+      aiDifficulty: lobbyState.aiDifficulty,
+      aiCount: lobbyState.players.filter((p) => p.isAI).length,
+      mutators: lobbyState.mutators,
+    });
 
     return (
       <div className="min-h-screen w-full bg-[#080c14] text-slate-100 flex items-center justify-center p-4 overflow-y-auto">
         <div className="w-full max-w-3xl rounded-2xl bg-[#111827] border border-[#243044] p-5 md:p-7 shadow-2xl space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#243044] pb-3">
             <div>
-              <div className="text-xs font-mono text-sky-400">POKÓJ WEBRTC (PEERJS · P2P)</div>
-              <h2 className="text-2xl font-extrabold font-mono text-white tracking-wider">
-                {lobbyState.roomCode}
+              <div className="text-xs font-mono text-sky-400 flex items-center gap-2 flex-wrap">
+                <span>POKÓJ WEBRTC (PEERJS · P2P)</span>
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/45 text-amber-200 font-bold flex items-center gap-1">
+                  ✨ Mnożnik: ×{lobbyRewardMult.totalMultiplier.toFixed(2)} XP &amp; <MCoinIcon size={12} />M
+                </span>
+              </div>
+              <h2 className="text-2xl font-extrabold font-mono text-white tracking-wider flex items-center gap-2 flex-wrap">
+                <span>{lobbyState.roomCode}</span>
+                {lobbyState.roomName && (
+                  <span className="text-sm font-sans font-semibold text-slate-300">
+                    · {lobbyState.roomName}
+                  </span>
+                )}
               </h2>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {onOpenShop && (
+                <button
+                  type="button"
+                  onClick={onOpenShop}
+                  className="px-3 py-2 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-400/50 text-amber-200 text-xs font-semibold flex items-center gap-1.5"
+                >
+                  <MCoinIcon size={14} />
+                  <span>Sklep ({activeProfile.mCoins} M)</span>
+                </button>
+              )}
               {onOpenTutorial && (
                 <button
                   type="button"
@@ -329,24 +428,43 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 </label>
                 <select
                   disabled={!isHost}
-                  value={lobbyState.scenarioId ?? 'sandbox'}
-                  onChange={(e) =>
-                    multiplayerManager.updateLobbySettings({
-                      scenarioId: e.target.value as ScenarioId,
-                    })
-                  }
+                  value={activeScenarioId}
+                  onChange={(e) => {
+                    const nextSc = e.target.value as ScenarioId;
+                    if (isHost && !isScenarioUnlocked(activeProfile.unlockedCosmetics, nextSc)) {
+                      return;
+                    }
+                    multiplayerManager.updateLobbySettings({ scenarioId: nextSc });
+                  }}
                   className="w-full bg-[#151c28] border border-[#2d3b52] rounded px-2.5 py-1.5 text-slate-100 disabled:opacity-70"
                 >
-                  {SCENARIO_DEFINITIONS.map((sc) => (
-                    <option key={sc.id} value={sc.id}>
-                      {sc.icon} {sc.name}
-                    </option>
-                  ))}
+                  {SCENARIO_DEFINITIONS.map((sc) => {
+                    const unlockedForSelector = !isHost || isScenarioUnlocked(activeProfile.unlockedCosmetics, sc.id);
+                    const reqId = SCENARIO_SHOP_ITEM_ID[sc.id];
+                    const price = SHOP_ITEMS.find((it) => reqId && it.unlockIdsGranted.includes(reqId))?.priceMCoins;
+                    return (
+                      <option key={sc.id} value={sc.id} disabled={isHost && !unlockedForSelector}>
+                        {sc.icon} {sc.name}{isHost && !unlockedForSelector && price ? ` 🔒 (${price} M — Sklep)` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                {!isHost && (
+                  <div className="text-[10px] text-emerald-300/85 mt-1">
+                    ✓ Scenariusz udostępniany bezpłatnie przez Hosta pokoju
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#1e293b]">
+              <div className={!isHost ? 'opacity-70 pointer-events-none' : ''}>
+                <DarkToggle
+                  checked={lobbyState.isPublic ?? false}
+                  onChange={(val) => multiplayerManager.updateLobbySettings({ isPublic: val })}
+                  label="🌐 Pokój Publiczny (widoczny w Otwartych Sesjach)"
+                />
+              </div>
               <div className="flex items-start justify-between gap-2">
                 <div className={!isHost ? 'opacity-70 pointer-events-none flex-1' : 'flex-1'}>
                   <DarkToggle
@@ -515,8 +633,11 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         />
                       )}
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-100 truncate flex items-center gap-1.5">
+                        <div className="font-semibold text-slate-100 truncate flex items-center gap-1.5 flex-wrap">
                           <span className="truncate">
+                            {(card?.prestigeLevel ?? 0) > 0
+                              ? '★'.repeat(Math.min(3, card?.prestigeLevel ?? 0)) + ' '
+                              : ''}
                             {p.companyName} {p.id === localPlayerId && '(Ty)'}
                           </span>
                           {card && (
@@ -524,6 +645,14 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                               LVL {card.level}
                             </span>
                           )}
+                          {card?.pvpDivisionId && !p.isAI && (() => {
+                            const div = getPvPDivisionById(card.pvpDivisionId);
+                            return (
+                              <span className={`px-1 py-0.5 rounded border text-[9px] font-semibold shrink-0 ${div.badgeClass}`}>
+                                {div.icon} {div.label}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="text-[11px] text-slate-400 truncate">
                           {p.name}
@@ -587,6 +716,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     value={activeArch}
                     onChange={(e) => {
                       const nextArch = e.target.value as ArchetypeId;
+                      if (!isArchetypeUnlocked(activeProfile.unlockedCosmetics, nextArch)) return;
                       setArchetype(nextArch);
                       multiplayerManager.updateLocalLobbyProfile({
                         archetype: nextArch,
@@ -595,20 +725,36 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                     }}
                     className="bg-[#151c28] border border-amber-500/45 rounded px-2.5 py-1.5 text-amber-200 font-semibold disabled:opacity-55"
                   >
-                    {ARCHETYPE_LIST.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.icon} {a.name}
-                      </option>
-                    ))}
+                    {ARCHETYPE_LIST.map((a) => {
+                      const unlocked = isArchetypeUnlocked(activeProfile.unlockedCosmetics, a.id);
+                      const reqId = ARCHETYPE_SHOP_ITEM_ID[a.id];
+                      const price = SHOP_ITEMS.find((it) => reqId && it.unlockIdsGranted.includes(reqId))?.priceMCoins;
+                      return (
+                        <option key={a.id} value={a.id} disabled={!unlocked}>
+                          {a.icon} {a.name}{!unlocked && price ? ` 🔒 (${price} M — Sklep)` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
                   <span>{archDef.tagline}</span>
-                  {archLocked && (
-                    <span className="text-amber-300 font-medium">
-                      🔒 Zablokowany po kliknięciu „Gotowy”
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {onOpenShop && (
+                      <button
+                        type="button"
+                        onClick={onOpenShop}
+                        className="text-amber-300 hover:text-amber-200 underline font-semibold"
+                      >
+                        🏦 Odblokuj inne w Sklepie
+                      </button>
+                    )}
+                    {archLocked && (
+                      <span className="text-amber-300 font-medium">
+                        🔒 Zablokowany po kliknięciu „Gotowy”
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -655,13 +801,15 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           ) : (
             <button
               type="button"
-              disabled={!allHumansReady}
+              disabled={!allHumansReady || !hostScenarioOk}
               onClick={onStartMatch}
               className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-sm md:text-base shadow-lg"
             >
-              {allHumansReady
-                ? '🚀 Rozpocznij Grę Multiplayer (Cel: Monopol)'
-                : 'Czekaj aż wszyscy gracze klikną "Jestem Gotowy"'}
+              {!hostScenarioOk
+                ? '🔒 Wybrany scenariusz wymaga odblokowania w Sklepie Prezesa'
+                : allHumansReady
+                  ? '🚀 Rozpocznij Grę Multiplayer (Cel: Monopol)'
+                  : 'Czekaj aż wszyscy gracze klikną "Jestem Gotowy"'}
             </button>
           )}
         </div>
@@ -700,20 +848,34 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="grid grid-cols-3 gap-2 text-xs">
           <button
             type="button"
             onClick={() => {
               setModeView('choose');
               setError(null);
             }}
-            className={`py-2 rounded-lg font-semibold border ${
+            className={`py-2 px-1 rounded-lg font-semibold border ${
               modeView === 'choose'
                 ? 'bg-sky-500/20 border-sky-400 text-sky-300'
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400'
             }`}
           >
-            Stwórz Pokój (Host)
+            Stwórz Pokój
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setModeView('browse');
+              setError(null);
+            }}
+            className={`py-2 px-1 rounded-lg font-semibold border ${
+              modeView === 'browse'
+                ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                : 'bg-[#0b0f17] border-[#243044] text-slate-400'
+            }`}
+          >
+            🌐 Otwarte Sesje
           </button>
           <button
             type="button"
@@ -721,7 +883,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               setModeView('join');
               setError(null);
             }}
-            className={`py-2 rounded-lg font-semibold border ${
+            className={`py-2 px-1 rounded-lg font-semibold border ${
               modeView === 'join'
                 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
                 : 'bg-[#0b0f17] border-[#243044] text-slate-400'
@@ -770,6 +932,114 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
             </div>
           </div>
 
+          {modeView === 'choose' && (
+            <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2.5">
+              <DarkToggle
+                checked={isPublicRoom}
+                onChange={setIsPublicRoom}
+                label="🌐 Pokój Publiczny (widoczny w zakładce „Otwarte Sesje”)"
+              />
+              {isPublicRoom && (
+                <div>
+                  <label className="block text-slate-400 mb-1">Nazwa Pokoju na Liście Publicznej</label>
+                  <input
+                    type="text"
+                    maxLength={42}
+                    value={roomNameInput}
+                    onChange={(e) => setRoomNameInput(e.target.value)}
+                    placeholder="np. Liga Wall Street #1"
+                    className="w-full px-3 py-1.5 rounded-lg bg-[#111827] border border-[#243044] text-slate-100"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {modeView === 'browse' && (
+            <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold text-amber-200">
+                  🌐 Aktywne Otwarte Pokoje ({publicLobbies.length})
+                </div>
+                <button
+                  type="button"
+                  disabled={loadingLobbies}
+                  onClick={() => void refreshPublicLobbies()}
+                  className="px-2.5 py-1 rounded bg-[#182235] hover:bg-[#22304a] border border-[#2d3b52] text-slate-200 text-[11px]"
+                >
+                  {loadingLobbies ? 'Szukam...' : '🔄 Odśwież'}
+                </button>
+              </div>
+
+              {publicLobbies.length === 0 ? (
+                <div className="py-5 text-center text-slate-400 text-[11px] space-y-1">
+                  <div>Brak aktywnych otwartych sesji w tej chwili.</div>
+                  <div className="text-slate-500">
+                    Stwórz własny Pokój Publiczny lub użyj kodu zaproszenia od znajomego!
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {publicLobbies.map((rm) => {
+                    const div = getPvPDivisionById(rm.hostDivision);
+                    const sc = SCENARIO_DEFINITIONS.find((s) => s.id === rm.scenarioId);
+                    const preset = DIFFICULTY_PRESETS[rm.difficultyPreset] ?? DIFFICULTY_PRESETS.standard;
+                    return (
+                      <div
+                        key={rm.roomCode}
+                        className="p-2.5 rounded-lg bg-[#111827] border border-[#243044] flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate">{rm.roomName}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 font-mono text-[10px] text-sky-300">
+                              {rm.roomCode}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200 font-mono text-[10px]">
+                              ×{rm.rewardMultiplier.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                            <span>
+                              Host: {rm.hostPrestige > 0 ? '★'.repeat(Math.min(3, rm.hostPrestige)) + ' ' : ''}
+                              {rm.hostName}
+                            </span>
+                            <span className={`px-1 rounded border ${div.badgeClass}`}>
+                              {div.icon} {div.label}
+                            </span>
+                            <span>· {sc?.icon} {sc?.name ?? rm.scenarioId}</span>
+                            <span>· {preset.badge} {preset.label}</span>
+                            <span>· {rm.mapSize}×{rm.mapSize}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="px-2 py-0.5 rounded bg-[#0b0f17] border border-[#243044] font-mono text-[11px] text-emerald-300">
+                            {rm.playerCount}/{rm.maxPlayers}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleJoinCode(rm.roomCode)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-[11px]"
+                          >
+                            Dołącz →
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="pt-1 text-[10px] text-slate-500 border-t border-[#1e293b]">
+                {directorySource === 'supabase'
+                  ? '🌐 Katalog połączony z globalnym rejestrem sesji Supabase (odświeżanie co 20 s).'
+                  : '📡 Tryb bezserwerowy GitHub Pages: wykrywa otwarte karty przeglądarki na tym urządzeniu (opcjonalny rejestr globalny po konfiguracji VITE_SUPABASE_URL).'}
+              </div>
+            </div>
+          )}
+
           {modeView === 'join' && (
             <div>
               <label className="block text-slate-400 mb-1">Kod Pokoju od Hosta</label>
@@ -815,7 +1085,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           >
             {busy ? 'Łączenie z WebRTC...' : '🌐 Stwórz Pokój i Wygeneruj Link'}
           </button>
-        ) : (
+        ) : modeView === 'join' ? (
           <button
             type="button"
             disabled={busy}
@@ -824,7 +1094,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           >
             {busy ? 'Łączenie z pokojem...' : '🚪 Dołącz do Pokoju'}
           </button>
-        )}
+        ) : null}
 
         {/* Diagnostyka gotowości sieci P2P (WSS/STUN) */}
         <div className="pt-3 border-t border-[#243044] space-y-2 text-xs">

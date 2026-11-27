@@ -70,14 +70,20 @@ export const BuildSelector: React.FC<BuildSelectorProps> = React.memo(
       (p) => p.ownerId === currentPlayer.id && p.building !== null
     ).length;
 
-    const categoryFiltered = BUILDING_DEFINITION_LIST.filter(
-      (def) => selectedCategory === 'all' || def.category === selectedCategory
-    );
+    const categoryFiltered = BUILDING_DEFINITION_LIST.filter((def) => {
+      if (selectedCategory !== 'all' && def.category !== selectedCategory) return false;
+      if (def.requiredCosmeticUnlockId) {
+        return Boolean(currentPlayer.playerCard?.unlockedMonumentIds?.includes(def.type));
+      }
+      return true;
+    });
 
     const buildableNow = categoryFiltered.filter(
       (def) =>
         def.requiredCorpLevel <= currentPlayer.corporationLevel &&
-        (!def.unlockTech || currentPlayer.globalTech[def.unlockTech]?.status === 'done')
+        (!def.unlockTech || currentPlayer.globalTech[def.unlockTech]?.status === 'done') &&
+        (!def.requiredCosmeticUnlockId ||
+          Boolean(currentPlayer.playerCard?.unlockedMonumentIds?.includes(def.type)))
     );
 
     const lockedCount = categoryFiltered.length - buildableNow.length;

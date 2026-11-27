@@ -4,6 +4,7 @@ import { MultiplayerChatWidget } from './components/HUD/MultiplayerChatWidget';
 import { PriceChartModal } from './components/HUD/PriceChartModal';
 import { TopTicker } from './components/HUD/TopTicker';
 import { AuthModal } from './components/Menu/AuthModal';
+import { BattlePassModal } from './components/Menu/BattlePassModal';
 import { DisconnectModal } from './components/Menu/DisconnectModal';
 import { GameSetup } from './components/Menu/GameSetup';
 import { MainMenu } from './components/Menu/MainMenu';
@@ -11,6 +12,7 @@ import { MultiplayerLobby } from './components/Menu/MultiplayerLobby';
 import { PauseSaveModal } from './components/Menu/PauseSaveModal';
 import { ProfileModal } from './components/Menu/ProfileModal';
 import { QuickStart } from './components/Menu/QuickStart';
+import { ShopModal } from './components/Menu/ShopModal';
 import { TutorialModal } from './components/Menu/TutorialModal';
 import { VictoryModal } from './components/Menu/VictoryModal';
 import { WeeklyChallengeModal } from './components/Menu/WeeklyChallengeModal';
@@ -63,6 +65,8 @@ export function App() {
   const showAuthModal = useGameStore((s) => s.showAuthModal);
   const showProfileModal = useGameStore((s) => s.showProfileModal);
   const showWeeklyModal = useGameStore((s) => s.showWeeklyModal);
+  const showShopModal = useGameStore((s) => s.showShopModal);
+  const showBattlePassModal = useGameStore((s) => s.showBattlePassModal);
   const lastMatchRewardSummary = useGameStore((s) => s.lastMatchRewardSummary);
   const mapToolMode = useGameStore((s) => s.mapToolMode);
   const areaSelectedPlotIds = useGameStore((s) => s.areaSelectedPlotIds);
@@ -73,6 +77,8 @@ export function App() {
     'pnl' | 'balance' | 'stocks' | 'grey'
   >('pnl');
   const [quickJoinRoomCode, setQuickJoinRoomCode] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [seenChatCount, setSeenChatCount] = useState(0);
 
   const actions = useGameStore.getState();
   const { isMobile } = useResponsive();
@@ -194,6 +200,8 @@ export function App() {
           }}
           onOpenWeeklyChallenge={() => actions.setShowWeeklyModal(true)}
           onOpenProfile={() => actions.setShowProfileModal(true)}
+          onOpenShop={() => actions.setShowShopModal(true)}
+          onOpenBattlePass={() => actions.setShowBattlePassModal(true)}
           onOpenAuth={() => actions.setShowAuthModal(true)}
           onContinueGame={actions.continueSavedGame}
           onLoadSlot={actions.loadFromSlot}
@@ -230,11 +238,27 @@ export function App() {
           <ProfileModal
             profile={activeProfile}
             onUpdateProfile={actions.applyUpdatedProfile}
+            onOpenShop={() => actions.setShowShopModal(true)}
+            onOpenBattlePass={() => actions.setShowBattlePassModal(true)}
             onOpenAuth={() => {
               actions.setShowProfileModal(false);
               actions.setShowAuthModal(true);
             }}
             onClose={() => actions.setShowProfileModal(false)}
+          />
+        )}
+        {showShopModal && (
+          <ShopModal
+            profile={activeProfile}
+            onUpdateProfile={actions.applyUpdatedProfile}
+            onClose={() => actions.setShowShopModal(false)}
+          />
+        )}
+        {showBattlePassModal && (
+          <BattlePassModal
+            profile={activeProfile}
+            onUpdateProfile={actions.applyUpdatedProfile}
+            onClose={() => actions.setShowBattlePassModal(false)}
           />
         )}
         {showWeeklyModal && (
@@ -250,11 +274,22 @@ export function App() {
 
   if (phase === 'Setup') {
     return (
-      <GameSetup
-        defaultPlayerName={!activeProfile.isGuest ? activeProfile.nick : undefined}
-        onStart={actions.startSinglePlayer}
-        onBack={actions.goToMenu}
-      />
+      <>
+        <GameSetup
+          activeProfile={activeProfile}
+          defaultPlayerName={!activeProfile.isGuest ? activeProfile.nick : undefined}
+          onOpenShop={() => actions.setShowShopModal(true)}
+          onStart={actions.startSinglePlayer}
+          onBack={actions.goToMenu}
+        />
+        {showShopModal && (
+          <ShopModal
+            profile={activeProfile}
+            onUpdateProfile={actions.applyUpdatedProfile}
+            onClose={() => actions.setShowShopModal(false)}
+          />
+        )}
+      </>
     );
   }
 
@@ -274,10 +309,18 @@ export function App() {
           onJoinRoom={actions.joinMultiplayerRoom}
           onStartMatch={actions.startMultiplayerMatch}
           onOpenTutorial={() => actions.setShowTutorialModal(true)}
+          onOpenShop={() => actions.setShowShopModal(true)}
           onLeave={actions.leaveMultiplayer}
         />
         {showTutorialModal && (
           <TutorialModal inLobby onClose={() => actions.setShowTutorialModal(false)} />
+        )}
+        {showShopModal && (
+          <ShopModal
+            profile={activeProfile}
+            onUpdateProfile={actions.applyUpdatedProfile}
+            onClose={() => actions.setShowShopModal(false)}
+          />
         )}
       </>
     );
@@ -337,6 +380,8 @@ export function App() {
       o.toPlayerId === currentPlayer.id &&
       (o.status === 'pending' || o.status === 'countered')
   ).length;
+  const chatTotalCount = gameState.chatMessages?.length ?? 0;
+  const unreadChatCount = chatOpen ? 0 : Math.max(0, chatTotalCount - seenChatCount);
 
   const handleCanvasSelectPlot = (plotId: string | null) => {
     if (cloneBlueprintSource && plotId) {
@@ -553,7 +598,7 @@ export function App() {
           {/* Dolny pasek narzędziowy (Dock) */}
           <nav
             id="toolbar-dock"
-            className="absolute bottom-3 left-2.5 right-14 md:right-auto z-20 flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl bg-[#0b0f17]/92 border border-[#243044] shadow-2xl backdrop-blur-md max-w-[calc(100%-64px)]"
+            className="absolute bottom-3 left-2.5 right-14 md:right-auto z-20 flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar pt-2.5 pb-1.5 px-2 rounded-xl bg-[#0b0f17]/92 border border-[#243044] shadow-2xl backdrop-blur-md max-w-[calc(100%-64px)]"
           >
             {dockItems.map((item) => (
               <button
@@ -564,7 +609,7 @@ export function App() {
                   if (item.key === 'finance') setFinanceInitialTab('pnl');
                   actions.setActiveModal(activeModal === item.key ? 'none' : item.key);
                 }}
-                className={`relative px-2.5 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors ${
+                className={`relative px-2.5 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 shrink-0 whitespace-nowrap transition-colors ${
                   activeModal === item.key
                     ? 'bg-amber-500/20 border border-amber-400/60 text-amber-300'
                     : 'bg-[#131b2b] hover:bg-[#1b263c] border border-[#212d42] text-slate-200'
@@ -573,12 +618,37 @@ export function App() {
                 <span>{item.icon}</span>
                 <span className="hidden sm:inline">{item.label}</span>
                 {item.badge && item.badge > 0 ? (
-                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold animate-pulse">
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold shadow animate-pulse pointer-events-none">
                     {item.badge}
                   </span>
                 ) : null}
               </button>
             ))}
+
+            {isMultiplayer && (
+              <button
+                type="button"
+                title="Czat & Pingi Mapy"
+                onClick={() => {
+                  const next = !chatOpen;
+                  setSeenChatCount(chatTotalCount);
+                  setChatOpen(next);
+                }}
+                className={`relative px-2.5 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 shrink-0 whitespace-nowrap transition-colors ${
+                  chatOpen
+                    ? 'bg-sky-500/20 border border-sky-400/70 text-sky-200'
+                    : 'bg-[#131b2b] hover:bg-[#1b263c] border border-sky-500/35 text-slate-200'
+                }`}
+              >
+                <span>💬</span>
+                <span className="hidden sm:inline">Czat & Pingi</span>
+                {unreadChatCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white font-mono text-[10px] font-bold shadow animate-pulse pointer-events-none">
+                    {unreadChatCount}
+                  </span>
+                )}
+              </button>
+            )}
           </nav>
         </div>
 
@@ -703,6 +773,12 @@ export function App() {
           selectedPlot={selectedPlot}
           onSendMessage={actions.sendChatMessage}
           onFocusPlot={actions.focusPlot}
+          isOpen={chatOpen}
+          onOpenChange={(next) => {
+            setSeenChatCount(chatTotalCount);
+            setChatOpen(next);
+          }}
+          hideCollapsedToggle
         />
       )}
 
@@ -786,11 +862,29 @@ export function App() {
         <ProfileModal
           profile={activeProfile}
           onUpdateProfile={actions.applyUpdatedProfile}
+          onOpenShop={() => actions.setShowShopModal(true)}
+          onOpenBattlePass={() => actions.setShowBattlePassModal(true)}
           onOpenAuth={() => {
             actions.setShowProfileModal(false);
             actions.setShowAuthModal(true);
           }}
           onClose={() => actions.setShowProfileModal(false)}
+        />
+      )}
+
+      {showShopModal && (
+        <ShopModal
+          profile={activeProfile}
+          onUpdateProfile={actions.applyUpdatedProfile}
+          onClose={() => actions.setShowShopModal(false)}
+        />
+      )}
+
+      {showBattlePassModal && (
+        <BattlePassModal
+          profile={activeProfile}
+          onUpdateProfile={actions.applyUpdatedProfile}
+          onClose={() => actions.setShowBattlePassModal(false)}
         />
       )}
     </div>

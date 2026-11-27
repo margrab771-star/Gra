@@ -60,7 +60,11 @@ export class TerrainRenderer {
     const oy = originY * supersample;
 
     const playerColorMap = new Map<string, string>();
-    for (const p of players) playerColorMap.set(p.id, p.color);
+    const playerPrestigeMap = new Map<string, number>();
+    for (const p of players) {
+      playerColorMap.set(p.id, p.color);
+      playerPrestigeMap.set(p.id, p.playerCard?.prestigeLevel ?? 0);
+    }
     const viewerPlayer = players.find((p) => p.id === currentPlayerId);
 
     const gridLookup = new Map<string, MapPlot>();
@@ -69,6 +73,7 @@ export class TerrainRenderer {
     for (const plot of plots) {
       const { screenX, screenY } = worldToScreen(plot.gridX, plot.gridY, tw, th, ox, oy);
       const ownerColor = plot.ownerId ? playerColorMap.get(plot.ownerId) ?? '#f59e0b' : null;
+      const ownerPrestige = plot.ownerId ? playerPrestigeMap.get(plot.ownerId) ?? 0 : 0;
       this.drawTile(
         ctx,
         plot,
@@ -78,7 +83,8 @@ export class TerrainRenderer {
         th,
         ownerColor,
         supersample,
-        heatmapMode
+        heatmapMode,
+        ownerPrestige
       );
 
       if (isRoadPlot(plot)) {
@@ -222,7 +228,8 @@ export class TerrainRenderer {
     th: number,
     ownerColor: string | null,
     supersample: number,
-    heatmapMode: MapHeatmapMode
+    heatmapMode: MapHeatmapMode,
+    ownerPrestige = 0
   ): void {
     const baseColor = TERRAIN_COLORS[plot.terrain];
     const topX = cx;
@@ -286,8 +293,30 @@ export class TerrainRenderer {
       ctx.fillStyle = `${ownerColor}24`;
       ctx.fill();
       ctx.strokeStyle = ownerColor;
-      ctx.lineWidth = 1.6 * supersample;
+      ctx.lineWidth = (ownerPrestige >= 1 ? 2.1 : 1.6) * supersample;
       ctx.stroke();
+
+      if (ownerPrestige >= 1) {
+        const inset = 0.86;
+        const pTopY = cy - (th / 2) * inset;
+        const pRightX = cx + (tw / 2) * inset;
+        const pBottomY = cy + (th / 2) * inset;
+        const pLeftX = cx - (tw / 2) * inset;
+        ctx.beginPath();
+        ctx.moveTo(cx, pTopY);
+        ctx.lineTo(pRightX, cy);
+        ctx.lineTo(cx, pBottomY);
+        ctx.lineTo(pLeftX, cy);
+        ctx.closePath();
+        ctx.strokeStyle = ownerPrestige >= 2 ? 'rgba(226, 232, 240, 0.92)' : 'rgba(250, 204, 21, 0.88)';
+        ctx.lineWidth = 1.25 * supersample;
+        ctx.stroke();
+        if (ownerPrestige >= 2) {
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.72)';
+          ctx.lineWidth = 0.65 * supersample;
+          ctx.stroke();
+        }
+      }
     }
 
     this.drawTerrainDetails(ctx, plot.terrain, cx, cy, supersample);

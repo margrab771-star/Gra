@@ -21,6 +21,14 @@ import {
   getVictoryTooltip,
 } from '../../config/lobbyTooltips';
 import { ARCHETYPE_LIST } from '../../data/archetypes';
+import {
+  ARCHETYPE_SHOP_ITEM_ID,
+  SCENARIO_SHOP_ITEM_ID,
+  SHOP_ITEMS,
+  computeRewardMultiplier,
+  isArchetypeUnlocked,
+  isScenarioUnlocked,
+} from '../../data/shopCatalog';
 import type {
   ArchetypeId,
   DifficultyPreset,
@@ -28,12 +36,16 @@ import type {
   GameSettings,
   MutatorFlags,
   ScenarioId,
+  UserAccountProfile,
 } from '../../engine/types';
 import { DarkToggle } from '../HUD/DarkControls';
 import { InfoTooltip } from '../HUD/InfoTooltip';
+import { MCoinIcon } from '../HUD/MCoinIcon';
 
 interface GameSetupProps {
+  activeProfile: UserAccountProfile;
   defaultPlayerName?: string;
+  onOpenShop: () => void;
   onStart: (
     settings: GameSettings,
     playerName: string,
@@ -71,9 +83,20 @@ const MUTATOR_META: { key: keyof MutatorFlags; label: string; desc: string }[] =
     label: '⛈️ Ekstremalny Klimat',
     desc: 'Częstsze katastrofy i wyższe wymagania dla straży, szpitali oraz HAZMAT.',
   },
+  {
+    key: 'globalBreakthroughs',
+    label: '⚡ Globalne Przełomy Rynkowe',
+    desc: 'W połowie gry Gazeta zapowiada nieprzewidywalny megatrend zmieniający ekonomię na resztę meczu (+15% XP & M).',
+  },
 ];
 
-export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart, onBack }) => {
+export const GameSetup: React.FC<GameSetupProps> = ({
+  activeProfile,
+  defaultPlayerName,
+  onOpenShop,
+  onStart,
+  onBack,
+}) => {
   const [mode, setMode] = useState<'challenge1h' | 'endless'>('challenge1h');
   const [playerName, setPlayerName] = useState(defaultPlayerName || 'Prezes');
   const [companyName, setCompanyName] = useState('Dominion Capital S.A.');
@@ -96,7 +119,17 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
   const selectedScenario =
     SCENARIO_DEFINITIONS.find((s) => s.id === scenarioId) ?? SCENARIO_DEFINITIONS[0];
 
+  const archetypeUnlocked = isArchetypeUnlocked(activeProfile.unlockedCosmetics, archetype);
+  const scenarioUnlocked = isScenarioUnlocked(activeProfile.unlockedCosmetics, scenarioId);
+  const rewardInfo = computeRewardMultiplier({
+    difficultyPreset,
+    aiDifficulty,
+    aiCount: Math.max(0, playerCount - 1),
+    mutators,
+  });
+
   const handleLaunch = () => {
+    if (!archetypeUnlocked || !scenarioUnlocked) return;
     const settings: GameSettings = {
       mode: mode as GameMode,
       playerCount,
@@ -221,25 +254,53 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
             <span className="text-[11px] text-slate-400">2 bonusy + 2 kompensujące ograniczenia</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {ARCHETYPE_LIST.map((arch) => (
-              <button
-                key={arch.id}
-                type="button"
-                onClick={() => setArchetype(arch.id)}
-                className={`p-2.5 rounded-xl border text-left transition-all ${
-                  archetype === arch.id
-                    ? 'bg-[#162235] border-amber-400 text-white'
-                    : 'bg-[#0b0f17] border-[#243044] text-slate-300 hover:border-slate-500'
-                }`}
-              >
-                <div className="font-bold flex items-center gap-1.5">
-                  <span>{arch.icon}</span>
-                  <span className="truncate">{arch.shortName}</span>
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-2">{arch.tagline}</div>
-              </button>
-            ))}
+            {ARCHETYPE_LIST.map((arch) => {
+              const unlocked = isArchetypeUnlocked(activeProfile.unlockedCosmetics, arch.id);
+              const reqUnlockId = ARCHETYPE_SHOP_ITEM_ID[arch.id];
+              const price = SHOP_ITEMS.find((it) => reqUnlockId && it.unlockIdsGranted.includes(reqUnlockId))?.priceMCoins;
+              return (
+                <button
+                  key={arch.id}
+                  type="button"
+                  onClick={() => setArchetype(arch.id)}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    archetype === arch.id
+                      ? unlocked
+                        ? 'bg-[#162235] border-amber-400 text-white'
+                        : 'bg-rose-950/30 border-rose-400/70 text-slate-200'
+                      : unlocked
+                        ? 'bg-[#0b0f17] border-[#243044] text-slate-300 hover:border-slate-500'
+                        : 'bg-[#0b0f17]/70 border-[#1e293b] text-slate-400 opacity-85 hover:border-amber-500/40'
+                  }`}
+                >
+                  <div className="font-bold flex items-center justify-between gap-1">
+                    <span className="truncate">{arch.icon} {arch.shortName}</span>
+                    {!unlocked && price && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-400/40 text-amber-200 font-mono text-[9px] shrink-0">
+                        🔒 {price} M
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-2">{arch.tagline}</div>
+                </button>
+              );
+            })}
           </div>
+          {!archetypeUnlocked && (
+            <div className="p-2.5 rounded-xl bg-amber-950/35 border border-amber-500/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-amber-200">
+                🔒 Archetyp <strong>{selectedArchetype.name}</strong> wymaga odblokowania za Monety M w Sklepie Prezesa.
+              </span>
+              <button
+                type="button"
+                onClick={onOpenShop}
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1"
+              >
+                <MCoinIcon size={13} />
+                <span>Otwórz Sklep ({activeProfile.mCoins} M)</span>
+              </button>
+            </div>
+          )}
           <div className="p-3 rounded-xl bg-[#0b0f17] border border-[#243044] grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
               <div className="text-[10px] font-bold text-emerald-400 uppercase mb-1">
@@ -296,15 +357,30 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
               onChange={(e) => setScenarioId(e.target.value as ScenarioId)}
               className="w-full px-2.5 py-2 rounded-lg bg-[#151c28] border border-[#2d3b52] text-slate-100"
             >
-              {SCENARIO_DEFINITIONS.map((sc) => (
-                <option key={sc.id} value={sc.id}>
-                  {sc.icon} {sc.name}
-                </option>
-              ))}
+              {SCENARIO_DEFINITIONS.map((sc) => {
+                const unlocked = isScenarioUnlocked(activeProfile.unlockedCosmetics, sc.id);
+                const reqUnlockId = SCENARIO_SHOP_ITEM_ID[sc.id];
+                const price = SHOP_ITEMS.find((it) => reqUnlockId && it.unlockIdsGranted.includes(reqUnlockId))?.priceMCoins;
+                return (
+                  <option key={sc.id} value={sc.id}>
+                    {sc.icon} {sc.name}{!unlocked && price ? ` 🔒 (${price} M)` : ''}
+                  </option>
+                );
+              })}
             </select>
             <div className="text-[11px] text-slate-400 leading-snug">
               {selectedScenario.description}
             </div>
+            {!scenarioUnlocked && (
+              <button
+                type="button"
+                onClick={onOpenShop}
+                className="w-full py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-amber-200 font-semibold text-[11px] flex items-center justify-center gap-1.5"
+              >
+                <MCoinIcon size={12} />
+                <span>🔒 Odblokuj ten scenariusz w Sklepie Prezesa</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -437,6 +513,33 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
           </div>
         </div>
 
+        {/* Aktywny Mnożnik Nagród XP & Monet M */}
+        <div className="p-3 rounded-xl bg-gradient-to-r from-amber-950/40 via-[#121c2d] to-emerald-950/35 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="space-y-1">
+            <div className="font-bold text-amber-200 flex items-center gap-1.5">
+              <span>✨ Mnożnik Nagród:</span>
+              <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/60 font-mono text-amber-300">
+                ×{rewardInfo.totalMultiplier.toFixed(2)} XP &amp;
+              </span>
+              <MCoinIcon size={15} />
+              <span className="font-mono text-amber-300">M</span>
+            </div>
+            <div className="text-[10px] text-slate-300 flex flex-wrap gap-x-2 gap-y-0.5">
+              {rewardInfo.breakdown.map((b) => (
+                <span key={b}>• {b}</span>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenShop}
+            className="px-3 py-1.5 rounded-lg bg-[#151c28] hover:bg-[#1e293d] border border-amber-400/45 text-amber-200 font-semibold text-xs flex items-center gap-1.5"
+          >
+            <MCoinIcon size={14} />
+            <span>Sklep ({activeProfile.mCoins} M)</span>
+          </button>
+        </div>
+
         <div className="p-2.5 rounded-lg bg-[#0b0f17] border border-[#243044]">
           <DarkToggle
             checked={withTutorial}
@@ -447,10 +550,13 @@ export const GameSetup: React.FC<GameSetupProps> = ({ defaultPlayerName, onStart
 
         <button
           type="button"
+          disabled={!archetypeUnlocked || !scenarioUnlocked}
           onClick={handleLaunch}
-          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm md:text-base shadow-lg"
+          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-[#1a2233] disabled:text-slate-400 disabled:border disabled:border-[#243044] text-white font-bold text-sm md:text-base shadow-lg"
         >
-          🚀 Rozpocznij Grę
+          {!archetypeUnlocked || !scenarioUnlocked
+            ? '🔒 Odblokuj wybrany Archetyp / Scenariusz w Sklepie Prezesa'
+            : '🚀 Rozpocznij Grę'}
         </button>
       </div>
     </div>

@@ -218,6 +218,12 @@ export function checkBuildingRequirements(
   if (state.settings.scenarioId === 'green_transition' && state.greenTransitionEntered && buildingType === 'wasteIncinerator') {
     return { ok: false, reason: 'Scenariusz Zielona Transformacja: zakaz budowy nowych spalarni odpadów!' };
   }
+  if (def.requiredCosmeticUnlockId) {
+    const ownedMonuments = player.playerCard?.unlockedMonumentIds ?? [];
+    if (!ownedMonuments.includes(buildingType)) {
+      return { ok: false, reason: `Dekoracja "${def.name}" wymaga odblokowania w Karnecie Sezonu 1 lub Sklepie Prezesa.` };
+    }
+  }
   if (player.corporationLevel < def.requiredCorpLevel) {
     const lvlInfo = CORPORATION_LEVELS[def.requiredCorpLevel];
     return {
@@ -996,10 +1002,19 @@ export function processBuildingTick(
     building.type === 'biotechLab' ||
     building.type === 'semiconductorFab' ||
     building.type === 'metroStation';
+  const btLive = state.activeBreakthrough?.forecastTicksRemaining === 0 ? state.activeBreakthrough.id : null;
+  const isAiBoomTech =
+    building.type === 'dataCenter' ||
+    building.type === 'semiconductorFab' ||
+    building.type === 'batteryFactory' ||
+    building.type === 'biotechLab' ||
+    building.type === 'electronicsFactory' ||
+    building.type === 'rdLab';
   const elecNeeded =
     def.electricityUsage *
     (1 + bMods.electricityDelta) *
-    (isAdvancedElecTarget ? archMods.advancedPowerUsageMult : 1);
+    (isAdvancedElecTarget ? archMods.advancedPowerUsageMult : 1) *
+    (btLive === 'ai_boom' && isAiBoomTech ? 1.18 : 1);
   const waterNeeded = def.waterUsage * (1 + bMods.waterDelta);
   const sewageNeeded = (def.sewageUsage ?? 0) * Math.max(0.2, 1 + bMods.sewageDelta);
   const wasteNeeded = (def.wasteUsage ?? 0) * Math.max(0.2, 1 + bMods.wasteDelta);
@@ -1304,6 +1319,9 @@ export function processBuildingTick(
       } else {
         building.status.noFuel = false;
       }
+      if (burned > 0.005 && building.fuelSourceMode === 'mine' && player.statsAccum) {
+        player.statsAccum.selfFueledPowerTicks = (player.statsAccum.selfFueledPowerTicks ?? 0) + 1;
+      }
       continue;
     }
 
@@ -1374,6 +1392,34 @@ export function processBuildingTick(
     ? plot.deposits.find((d) => d.type === def.requiredDeposit)?.richness ?? 1
     : 1;
 
+  const isTourismGoldTarget =
+    building.type === 'hotel' ||
+    building.type === 'resort' ||
+    building.type === 'casino' ||
+    building.type === 'shoppingMall' ||
+    building.type === 'gastronomyBoulevard' ||
+    building.type === 'arenaStadium' ||
+    building.type === 'conventionCenter' ||
+    building.type === 'amusementPark' ||
+    building.type === 'culturalCenter' ||
+    building.type === 'marinaPromenade' ||
+    building.type === 'passengerTerminal' ||
+    building.type === 'trainStation' ||
+    building.type === 'metroStation' ||
+    building.type === 'busDepot' ||
+    building.type === 'jewelryLuxury';
+  const breakthroughRevMult =
+    btLive === 'ai_boom' && isAiBoomTech
+      ? 1.45
+      : btLive === 'energy_crisis' &&
+          (building.category === 'energy' ||
+            building.type === 'wasteIncinerator' ||
+            building.type === 'plasmaGasificationPlant')
+        ? 1.6
+        : btLive === 'tourism_golden_era' && isTourismGoldTarget
+          ? 1.5
+          : 1.0;
+
   let grossRevenue =
     !roadAccessOk || rawEfficiency <= 0.001
       ? 0
@@ -1381,6 +1427,7 @@ export function processBuildingTick(
         rawEfficiency *
         econMult *
         boycottFactor *
+        breakthroughRevMult *
         (Object.keys(def.inputs).length > 0
           ? fuelSpec
             ? inputFulfillment

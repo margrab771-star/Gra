@@ -5,8 +5,10 @@ import { RESOURCE_DEFINITIONS } from '../data/resources';
 import { formatGameDate } from '../utils/formatters';
 import { recalculateSpatialNetwork } from './PlotSystem';
 import type {
+  ActiveBreakthroughState,
   GameEvent,
   GameState,
+  GlobalBreakthroughId,
   GovernmentKind,
   GovernmentTender,
   NewsArticle,
@@ -15,6 +17,138 @@ import type {
   ResourceType,
   VisualBlastEffect,
 } from './types';
+
+const GLOBAL_BREAKTHROUGHS: Array<{
+  id: GlobalBreakthroughId;
+  name: string;
+  headline: string;
+  forecastHeadline: string;
+  forecastBody: string;
+  description: string;
+  effectsSummary: string[];
+}> = [
+  {
+    id: 'ai_boom',
+    name: 'Boom na Sztuczną Inteligencję',
+    headline: '🌐 GLOBALNY PRZEŁOM: Boom na Sztuczną Inteligencję (Na stałe!)',
+    forecastHeadline: 'Analitycy przewidują eksplozję zapotrzebowania na moc obliczeniową AI i chipy',
+    forecastBody: 'Globalne korporacje przenoszą budżety w infrastrukturę AI. Wkrótce rynek półprzewodników, baterii i serwerowni może trwale zmienić układ sił.',
+    description: 'Przychody Centrów Danych, Fabryk Półprzewodników, Baterii, Biotech i Robotyki rosną trwale o +45%, ceny elektroniki/półprzewodników/litu o +35%, lecz obiekty High-Tech pobierają +18% więcej prądu.',
+    effectsSummary: [
+      '+45% przychodów High-Tech (Data Center, Chipy, Baterie, Biotech, R&D)',
+      '+35% cen bazowych półprzewodników, elektroniki, baterii i litu',
+      '+18% zapotrzebowania na prąd obiektów High-Tech',
+    ],
+  },
+  {
+    id: 'energy_crisis',
+    name: 'Wielki Kryzys Energetyczny',
+    headline: '⚡ GLOBALNY PRZEŁOM: Wielki Kryzys Energetyczny (Na stałe!)',
+    forecastHeadline: 'Napięcia surowcowe grożą trwałym szokiem cenowym na rynku energii i paliw',
+    forecastBody: 'Rezerwy surowców kopalnych kurczą się gwałtownie. W ciągu kilku tur ceny MWh, ropy, węgla i uranu mogą wystrzelić na stałe.',
+    description: 'Przychody wszystkich elektrowni i bloków energetycznych rosną trwale o +60%, a bazowe ceny węgla, ropy, paliwa, uranu i prądu o +45%.',
+    effectsSummary: [
+      '+60% przychodów elektrowni i bloków energetycznych',
+      '+45% cen bazowych węgla, ropy, paliwa, uranu i prądu',
+      'Wysoka premia za samowystarczalność energetyczną imperium',
+    ],
+  },
+  {
+    id: 'tourism_golden_era',
+    name: 'Złota Era Turystyki i Luksusu',
+    headline: '🏖️ GLOBALNY PRZEŁOM: Złota Era Turystyki (Na stałe!)',
+    forecastHeadline: 'Klasa średnia i kapitał VIP szykują bezprecedensowy boom podróży i luksusu',
+    forecastBody: 'Po długiej stagnacji ruch pasażerski, hotelarski i rekreacyjny bije rekordy rezerwacji. Nadmorskie kurorty i lotniska szykują się na złote żniwa.',
+    description: 'Przychody Hoteli, Kurortów, Kasyn, Atrakcji, Galerii, Jubilerów oraz Kolei/Terminali Pasażerskich rosną trwale o +50%, a ceny złota i biżuterii o +25%.',
+    effectsSummary: [
+      '+50% przychodów Turystyki, Handlu Luksusowego i Transportu Pasażerskiego',
+      '+25% cen bazowych złota oraz biżuterii luksusowej',
+      'Ogromna przewaga stref rozrywki i marin',
+    ],
+  },
+];
+
+function processGlobalBreakthroughsTick(state: GameState): void {
+  if (!state.settings.mutators?.globalBreakthroughs) return;
+
+  if (state.activeBreakthrough) {
+    if (state.activeBreakthrough.forecastTicksRemaining > 0) {
+      state.activeBreakthrough.forecastTicksRemaining -= 1;
+      if (state.activeBreakthrough.forecastTicksRemaining === 0) {
+        state.activeBreakthrough.startedTick = state.time.tick;
+        const bt = state.activeBreakthrough;
+        state.news = [
+          {
+            id: `bt_live_${state.time.tick}_${bt.id}`,
+            headline: bt.headline,
+            brief: bt.description,
+            fullText: `${bt.description}\n\nSkutki na resztę sesji:\n${bt.effectsSummary.map((s) => `• ${s}`).join('\n')}`,
+            analysis: 'Przełom rynkowy pozostaje aktywny do końca partii — dostosuj inwestycje i łańcuchy dostaw!',
+            hints: bt.effectsSummary,
+            type: (bt.id === 'energy_crisis' ? 'negative' : 'opportunity') as NewsArticle['type'],
+            dateLabel: formatGameDate(state.time),
+            tick: state.time.tick,
+            read: false,
+          },
+          ...state.news,
+        ].slice(0, 40);
+        state.notifications = [
+          {
+            id: `bt_notif_${state.time.tick}`,
+            title: `⚡ Globalny Przełom: ${bt.name}`,
+            message: bt.effectsSummary[0],
+            severity: bt.id === 'energy_crisis' ? ('warning' as const) : ('success' as const),
+            tick: state.time.tick,
+          },
+          ...state.notifications,
+        ].slice(0, 6);
+      }
+    }
+    return;
+  }
+
+  const triggerTick =
+    state.settings.mode === 'mp_fast' || state.settings.mode === 'challenge1h' ? 28 : 42;
+  if (state.time.tick < triggerTick) return;
+
+  const chosen = GLOBAL_BREAKTHROUGHS[Math.floor(Math.random() * GLOBAL_BREAKTHROUGHS.length)];
+  const activeBt: ActiveBreakthroughState = {
+    id: chosen.id,
+    name: chosen.name,
+    headline: chosen.headline,
+    description: chosen.description,
+    effectsSummary: chosen.effectsSummary,
+    forecastTicksRemaining: 7,
+    startedTick: state.time.tick + 7,
+  };
+  state.activeBreakthrough = activeBt;
+
+  state.news = [
+    {
+      id: `bt_forecast_${state.time.tick}_${chosen.id}`,
+      headline: `[PROGNOZA PRZEŁOMU] ${chosen.forecastHeadline}`,
+      brief: chosen.forecastBody,
+      fullText: `${chosen.forecastBody}\n\nZa ~7 cykli rynkowych nastąpi trwały przełom: ${chosen.name}.\n\nPrzewidywane skutki:\n${chosen.effectsSummary.map((s) => `• ${s}`).join('\n')}`,
+      analysis: 'Wykorzystaj okno zapowiedzi w Gazecie Rynkowej, aby ustawić moce produkcyjne przed wejściem przełomu.',
+      hints: chosen.effectsSummary,
+      type: 'forecast' as const,
+      dateLabel: formatGameDate(state.time),
+      tick: state.time.tick,
+      read: false,
+    },
+    ...state.news,
+  ].slice(0, 40);
+  state.notifications = [
+    {
+      id: `bt_warn_${state.time.tick}`,
+      title: '📰 Nadchodzi Globalny Przełom Rynkowy!',
+      message: `${chosen.name} wejdzie na stałe za 7 tur — szczegóły w Gazecie!`,
+      severity: 'info' as const,
+      tick: state.time.tick,
+    },
+    ...state.notifications,
+  ].slice(0, 6);
+}
 
 const PATENT_ELIGIBLE_TECHS: Record<string, { royaltyBase: number; label: string }> = {
   ind_mega_extraction: { royaltyBase: 4800, label: 'Patent: Głębinowa Ekstrakcja Złóż' },
@@ -108,9 +242,10 @@ export function processEventsTick(state: GameState): void {
     triggerNewEventOrForecast(state);
   }
 
-  // 4. Wybory rządowe, Zielona Transformacja & Licytacje na Żywo
+  // 4. Wybory rządowe, Zielona Transformacja, Globalne Przełomy Rynkowe & Licytacje na Żywo
   processGovernmentElectionsTick(state);
   processGreenTransitionScenarioTick(state);
+  processGlobalBreakthroughsTick(state);
   processLiveAuctionTick(state);
 }
 
